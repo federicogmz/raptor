@@ -51,6 +51,8 @@ MS_PATH    = "outputs/multispectral_orthomosaic.tif"
 ODM_THNAT_DIR = os.environ.get("ODM_THNAT_DIR", "processing/thermal_native_odm")
 THNAT_ODM_SRC = os.path.join(ODM_THNAT_DIR, "odm_orthophoto/odm_orthophoto.tif")
 THNAT_RECON   = os.path.join(ODM_THNAT_DIR, "opensfm/reconstruction.json")
+# Solo RESPALDO, para el caso de un raster sin proyección legible: la CRS real
+# se deriva del propio raster que se está recortando (ver _target_crs).
 UTM_EPSG = 32618
 
 
@@ -276,7 +278,34 @@ NADIR_MAX_TILT_DEG = 30  # inclinación máxima (respecto a mirar derecho hacia
                          # grupos típicos (~0-2° vs ~45°).
 
 
-def _rgb_camera_overlap(gt, W, H, recon_path=None):
+def _target_crs(proj_wkt):
+    """CRS a la que se proyectan las huellas de cámara: la del PROPIO raster
+    que se está recortando, no una zona UTM fija.
+
+    BUG REAL corregido acá: esto era EPSG:32618 (UTM 18N) hardcodeado, mientras
+    que el geotransform contra el que se comparan esas huellas lo escribe ODM en
+    la UTM real de la misión. En la zona 18N coincidían por casualidad — en 17N
+    o 19N las huellas caen a cientos de KILÓMETROS del raster y el conteo de
+    solape da 0 en todas partes.
+
+    Lo grave es que no falla: _adaptive_floor_joint lee esos ceros como "esta
+    misión tiene poco solape real", relaja o directamente desactiva los pisos, y
+    el recorte de confiabilidad deja de recortar el fleco borroso que existe
+    para recortar. Salida plausible a la vista, geométricamente sin sentido.
+    """
+    from pyproj import CRS
+    if proj_wkt:
+        try:
+            return CRS.from_wkt(proj_wkt)
+        except Exception as exc:
+            print(f"  ⚠ no se pudo leer la proyección del raster ({exc}) — "
+                  f"se cae al respaldo EPSG:{UTM_EPSG}")
+    else:
+        print(f"  ⚠ el raster no trae proyección — se usa el respaldo EPSG:{UTM_EPSG}")
+    return CRS.from_epsg(UTM_EPSG)
+
+
+def _rgb_camera_overlap(gt, W, H, recon_path=None, proj_wkt=None):
     """Mapas de solape de cámaras (RGB u otro sensor con poses SfM propias,
     p.ej. multiespectral): nº de fotos cuya huella en el suelo cubre cada
     celda. Proyecta las 4 esquinas de cada foto al plano del terreno usando
@@ -291,6 +320,10 @@ def _rgb_camera_overlap(gt, W, H, recon_path=None):
     recon_path: reconstruction.json a usar (default RGB_RECON) — genérico para
     poder apuntarlo al proyecto ODM de otro sensor (p.ej. MS_RECON), ya que la
     proyección de huella no depende de nada RGB-específico.
+
+    proj_wkt: proyección del raster que se está recortando (el mismo del que
+    salió `gt`) — las huellas TIENEN que caer en esa CRS para que el conteo de
+    solape se alinee con la grilla. Ver _target_crs.
 
     Con terreno de relieve real (no plano) una sola Z global desalinea la
     huella de cámara lejos de esa Z — se proyecta por BANDAS de elevación
@@ -314,7 +347,7 @@ def _rgb_camera_overlap(gt, W, H, recon_path=None):
     else:
         fx = fy = cam["focal"] * sc
     cx = cam.get("c_x", 0.0) * sc + w/2; cy = cam.get("c_y", 0.0) * sc + h/2
-    tr = Transformer.from_crs("EPSG:4326", f"EPSG:{UTM_EPSG}", always_xy=True)
+    tr = Transformer.from_crs("EPSG:4326", _target_crs(proj_wkt), always_xy=True)
     ref = rec["reference_lla"]; ref_e, ref_n = tr.transform(ref["longitude"], ref["latitude"])
 
     cf = RGB_OV_COARSE; gw, gh = W//cf, H//cf; res = gt[1]*cf; x0, y0 = gt[0], gt[3]
@@ -486,7 +519,7 @@ def trim_rgb():
     # OVERLAP_RGB — igual que el piso de solape del térmico. Ver el comentario de
     # REL_MIN_OVERLAP_RGB y _rgb_camera_overlap.
     px_size_m = abs(gt[1])
-    ov_full, ov_central, ov_nadir, cf = _rgb_camera_overlap(gt, W, H)
+    ov_full, ov_central, ov_nadir, cf = _rgb_camera_overlap(gt, W, H, proj_wkt=proj)
     if ov_full is not None:
         gh, gw = ov_full.shape
         ys = np.minimum(np.arange(H) * gh // H, gh - 1)
@@ -611,7 +644,8 @@ def trim_multispectral():
     before = int(valid.sum())
 
     px_size_m = abs(gt[1])
-    ov_full, ov_central, ov_nadir, cf = _rgb_camera_overlap(gt, W, H, recon_path=MS_RECON)
+    ov_full, ov_central, ov_nadir, cf = _rgb_camera_overlap(gt, W, H, recon_path=MS_RECON,
+                                                            proj_wkt=proj)
     if ov_full is not None:
         gh, gw = ov_full.shape
         ys = np.minimum(np.arange(H) * gh // H, gh - 1)
@@ -722,7 +756,8 @@ def trim_thermal_native():
           f"{int(extreme.sum()):,} px")
 
     px_size_m = abs(gt[1])
-    ov_full, ov_central, ov_nadir, cf = _rgb_camera_overlap(gt, W, H, recon_path=THNAT_RECON)
+    ov_full, ov_central, ov_nadir, cf = _rgb_camera_overlap(gt, W, H, recon_path=THNAT_RECON,
+                                                            proj_wkt=proj)
     if ov_full is not None:
         gh, gw = ov_full.shape
         ys = np.minimum(np.arange(H) * gh // H, gh - 1)
@@ -797,7 +832,8 @@ def trim_dsm():
     before = int(valid.sum())
 
     px_size_m = abs(gt[1])
-    ov_full, ov_central, ov_nadir, cf = _rgb_camera_overlap(gt, W, H, recon_path=RGB_RECON)
+    ov_full, ov_central, ov_nadir, cf = _rgb_camera_overlap(gt, W, H, recon_path=RGB_RECON,
+                                                            proj_wkt=proj)
     if ov_full is not None:
         gh, gw = ov_full.shape
         ys = np.minimum(np.arange(H) * gh // H, gh - 1)
