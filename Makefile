@@ -17,7 +17,7 @@
         sdk-convert denoise-thermal clean-dsm \
         trim-edges trim-edges-rgb trim-edges-dsm trim-edges-thermal trim-edges-multispectral \
         compute-indices confidence-mask detect-area-afectada compute-severity \
-        situation-summary flight-path tiles export-cog export-copc serve info \
+        situation-summary flight-path tiles export-cog export-copc export-products serve info \
         clean clean-all
 
 # ── Modo ───────────────────────────────────────────────────────────
@@ -223,6 +223,15 @@ export-copc:
 	@python3 scripts/progress.py stage-header "Nubes de puntos → COPC" 1 1
 	$(call run_quiet,python3 scripts/export_copc.py,export-copc)
 	@python3 scripts/progress.py done "Nubes de puntos COPC listas"
+
+# ── 7b. Entrega al usuario (opcional) ───────────────────────────────
+# Copia los productos elegidos a EXPORT_DIR, en el formato y la CRS pedidos
+# (ver scripts/export_products.py). Sin EXPORT_DIR es un no-op — las corridas
+# que no lo usan no cambian en nada.
+export-products:
+	@python3 scripts/progress.py stage-header "Exportación a carpeta de entrega" 1 1
+	$(call run_quiet,python3 scripts/export_products.py,export-products)
+	@python3 scripts/progress.py done "Entrega exportada"
 
 serve:
 	@echo "Visor en http://localhost:$(SERVER_PORT)"

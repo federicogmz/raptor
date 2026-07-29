@@ -163,6 +163,21 @@ metadatos: el GPS/EXIF lo leen directamente los scripts que lo necesitan
   georreferenciadas de los tres proyectos ODM (RGB, térmico, multiespectral)
   a Cloud Optimized Point Cloud (`.copc.laz`) vía `pdal`.
 
+### 8. Entrega al usuario (opcional)
+
+- **`export_products.py`**: copia los productos elegidos a `EXPORT_DIR`, en el
+  formato (`cog`/`gtiff`, `geojson`/`gpkg`/`shp`/`kml`) y el EPSG que se pidan.
+  Sin `EXPORT_DIR` es un no-op. Los rásters de clases se remuestrean con vecino
+  más cercano (mismo criterio que `generate_tiles.py`); los continuos, con
+  cúbico. Escribe un `export_manifest.json` con el detalle de la entrega.
+
+  La reproyección se hace en **dos pasos** (warp a GTiff temporal, después
+  `Translate` al formato final) porque `gdal.Warp` no puede escribir directo a
+  COG: ese driver solo implementa `CreateCopy()`, y el binding de Python
+  —a diferencia del ejecutable `gdalwarp`— devuelve un GeoTIFF con el
+  geotransform destruido sin lanzar ningún error. Ver el comentario en
+  `_export_raster()`.
+
 ## Productos finales
 
 | Archivo | Descripción | Resolución aprox. |

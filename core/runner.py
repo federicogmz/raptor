@@ -46,13 +46,16 @@ class PipelineRun:
     y el log crudo (para mostrar si falla)."""
 
     def __init__(self, *, mode, source_dir, ms_source_dir=None,
-                 skip_odm=False, port=8080, progress_file):
+                 skip_odm=False, port=8080, progress_file, export=None):
         self.mode = mode
         self.source_dir = str(source_dir)
         self.ms_source_dir = str(ms_source_dir) if ms_source_dir else None
         self.skip_odm = skip_odm
         self.port = port
         self.progress_file = str(progress_file)
+        # export: dict con las EXPORT_* que entiende docker/entrypoint.sh
+        # (ver scripts/export_products.py). None/vacío = no se exporta nada.
+        self.export = export or {}
         self.returncode = None
         self.raw_lines = []
         self._proc = None
@@ -71,6 +74,13 @@ class PipelineRun:
             env["MS_SOURCE_DIR"] = self.ms_source_dir
         else:
             env.pop("MS_SOURCE_DIR", None)
+        # Se limpian SIEMPRE las EXPORT_* heredadas del proceso padre antes de
+        # aplicar las de esta corrida: si no, una misión configurada sin
+        # exportación heredaría el destino de la anterior y escribiría ahí.
+        for k in ("EXPORT_DIR", "EXPORT_PRODUCTS", "EXPORT_RASTER_FORMAT",
+                  "EXPORT_VECTOR_FORMAT", "EXPORT_EPSG"):
+            env.pop(k, None)
+        env.update({k: str(v) for k, v in self.export.items() if v})
         return env
 
     async def start(self):

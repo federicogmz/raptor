@@ -181,6 +181,49 @@ Variables de entorno útiles (`-e VAR=valor`):
 | `MS_SOURCE_DIR` | `/input_ms` | Carpeta fuente del vuelo multiespectral (el módulo corre SOLO si existe) |
 | `PORT` | `8080` | Puerto del geovisor |
 | `SERVE` | `1` | `0` para no levantar el geovisor al terminar |
+| `MAX_CONCURRENCY` | automático | Hilos de ODM. Por defecto se calcula según la RAM disponible; bajalo si el proceso muere sin mensaje (ver «Memoria» en Notas) |
+| `EXPORT_DIR` | — | Carpeta de entrega. Sin esto no se exporta nada |
+| `EXPORT_PRODUCTS` | `all` | Qué exportar, separado por comas (ver abajo) |
+| `EXPORT_RASTER_FORMAT` | `cog` | `cog` \| `gtiff` |
+| `EXPORT_VECTOR_FORMAT` | `geojson` | `geojson` \| `gpkg` \| `shp` \| `kml` |
+| `EXPORT_EPSG` | `source` | EPSG de salida, o `source` para no reproyectar |
+
+### Entrega de los productos
+
+Al final del pipeline se pueden copiar los productos a una carpeta elegida, en
+el formato y el sistema de referencia que necesite quien los recibe. En la
+webapp es un bloque del formulario (destino, qué exportar, formato y CRS); por
+CLI son las variables `EXPORT_*`:
+
+```bash
+docker run --gpus all \
+  -v /ruta/a/fotos:/input \
+  -v /ruta/de/entregas:/entregas \
+  -e EXPORT_DIR=/entregas/la_clara \
+  -e EXPORT_PRODUCTS=rgb,thermal,dsm,area,classes \
+  -e EXPORT_EPSG=9377 \
+  -e EXPORT_VECTOR_FORMAT=gpkg \
+  -p 8080:8080 raptor run
+```
+
+Productos disponibles: `rgb`, `thermal`, `dsm`, `multispectral`, `indices`,
+`classes`, `confidence`, `area`, `flight_path`, `situation`, `pointclouds`
+(o `all`). Los que la misión no generó se omiten sin fallar.
+
+**EPSG:9377 (MAGNA-SIRGAS / Origen-Nacional)** es el valor recomendado: es el
+sistema único nacional de Colombia adoptado por el IGAC, el que esperan las
+entidades para cartografía oficial. ODM produce sus salidas en la UTM WGS84 que
+corresponde al GPS del vuelo, así que sin este paso hay que reproyectar a mano
+en QGIS después de cada misión. Los rásters de clases (severidad, hotspot,
+índices clasificados) se remuestrean por vecino más cercano, nunca promediando
+— promediar clases inventa categorías intermedias que no existen.
+
+La carpeta destino es una ruta **de adentro del contenedor**: para escribir en
+el disco del host hay que montarla (`-v /ruta/del/host:/entregas`). La webapp lo
+verifica mientras se escribe y avisa ahí mismo si la ruta no existe o no se
+puede escribir, en vez de fallar al final de la corrida. Junto a los archivos se
+escribe un `export_manifest.json` con qué se exportó, en qué CRS y con qué
+formatos.
 
 El entrypoint hace **todo automáticamente**:
 1. **Organiza** las imágenes desde `/input` (busca `*_V.JPG`, `*_W.JPG`, `*_T.JPG` recursivamente) y, si `/input_ms` existe, las bandas MS desde ahí (`*_MS_G/R/RE/NIR.TIF`)
@@ -377,6 +420,15 @@ docker run --rm -p 8080:8080 -v $PWD/geovisor/tiles:/app/geovisor/tiles \
   25m. A ~500m AGL esto es una limitación del hardware.
 - **Sin GPU**: omitir `--gpus all` — ODM detecta la ausencia de `nvidia-smi`
   y usa CPU (más lento pero funcional).
+- **Memoria**: ODM documenta un pico de ~1 GB por hilo cada 2 MP de imagen y por
+  defecto usa **todos** los núcleos. En el vuelo multiespectral eso importa
+  especialmente: el *band alignment* carga dos bandas completas (5 MP en el M3M,
+  ~2.5 GB por hilo) simultáneamente por hilo, así que en una máquina de 20
+  núcleos pediría ~50 GB. Cuando el kernel mata el proceso por falta de memoria
+  no hay excepción que loguear: **el log simplemente termina en seco a mitad de
+  una etapa**. El pipeline ahora acota los hilos a lo que la RAM disponible
+  aguanta y, si aun así lo matan, lo dice explícitamente en vez de dejar un log
+  truncado. Para forzarlo a mano: `-e MAX_CONCURRENCY=4`.
 - **EPSG**: se toma de la proyección del propio raster de cada misión (la UTM
   que ODM eligió según su GPS) — no hay que ajustar nada para volar en otra
   zona. `UTM_EPSG` en `trim_low_overlap_edges.py` es solo el respaldo si un
