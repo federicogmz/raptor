@@ -1,0 +1,431 @@
+# RAPTOR — DJI M3T / H20T / M3M
+
+**R**econstrucción **A**érea de **P**roductos **T**érmicos, **Ó**pticos (y
+multiespectrales) para **R**espuesta — pipeline reproducible para generar
+ortomosaicos RGB, térmicos e índices de vegetación (NDVI/GNDVI/NDRE)
+georreferenciados a partir de vuelos fotogramétricos DJI (Mavic 3T, Matrice
+300 RTK + Zenmuse H20T, y opcionalmente Mavic 3 Multispectral), con geovisor
+Leaflet interactivo.
+
+**Todo el pipeline corre en UN SOLO contenedor Docker** (ODM + post-procesamiento
+propio, sin contenedores anidados). El DJI Thermal SDK ya está incluido en el
+repositorio. Solo necesitas las imágenes fuente del vuelo.
+
+---
+
+## Modo webapp — por defecto
+
+`docker run` sin argumentos levanta una **webapp interactiva** (FastAPI):
+subís las fotos crudas del vuelo desde el navegador, elegís qué sensores y
+productos procesar, ves el progreso en vivo (SSE) y al terminar se muestra
+directo el geovisor con los tiles — todo en un solo puerto, sin flags de
+`docker run` ni montar volúmenes de antemano.
+
+Los sensores son **independientes**: podés cargar solo el vuelo M3T/H20T
+(RGB + térmico), solo el M3M (multiespectral) o los dos en la misma misión.
+La webapp detecta qué tipo de archivo subiste (`*_V/_W`, `*_T`, `*_MS_*`) y
+valida la combinación **antes** de lanzar el pipeline, así una misión a la
+que le falten fotos falla en el formulario —corregible ahí mismo, sin
+resubir lo ya cargado— y no 40 minutos después adentro de ODM. Si la misión
+ya tiene reconstrucciones ODM guardadas, ofrece reusarlas en vez de rehacer
+el SfM.
+
+```bash
+docker build -t raptor .
+docker run --rm --gpus all -p 8080:8080 raptor
+# abrir http://localhost:8080
+```
+
+Sin GPU, omitir `--gpus all` (ODM cae a CPU solo). Las fotos subidas y los
+resultados quedan en `/app/runs/<misión>/` dentro del contenedor; para
+persistirlos entre corridas, montá esa carpeta:
+
+```bash
+docker run --rm --gpus all -p 8080:8080 -v $PWD/runs:/app/runs raptor
+```
+
+> **Importante:** el `CMD` por defecto de la imagen cambió de `run` a
+> `webapp`. Cualquier script/automatización que dependía del comportamiento
+> implícito anterior (procesar `/input` directo al arrancar el contenedor)
+> ahora necesita agregar el argumento `run` explícito al final — ver
+> "Uso manual con `docker run`" más abajo.
+
+---
+
+## Uso manual con `docker run` (para scripts / control fino)
+
+Si preferís invocar Docker vos mismo (automatización, CI, una sola misión
+puntual) en vez de la webapp, seguí esta guía:
+
+### Guía rápida: de la tarjeta SD al geovisor
+
+### Requisitos
+
+- Docker
+- GPU NVIDIA + `nvidia-container-toolkit` (opcional; sin GPU, ODM usa CPU)
+
+```bash
+# Ubuntu 24.04:
+sudo apt install docker.io nvidia-container-toolkit
+sudo systemctl restart docker
+```
+
+### Paso 1 — Construir la imagen
+
+```bash
+docker build -t raptor .
+```
+
+### Paso 2 — Ejecutar (¡todo en un comando!)
+
+```bash
+docker run --gpus all -v /ruta/a/fotos:/input -p 8080:8080 raptor run
+```
+
+> El argumento `run` al final es obligatorio: el `CMD` por defecto de la
+> imagen es `webapp` (ver arriba), así que para el modo batch/CLI clásico
+> hay que pedirlo explícitamente.
+
+Sin GPU en el host, omitir `--gpus all`: ODM detecta la ausencia de
+`nvidia-smi` en tiempo de ejecución y cae a CPU automáticamente. El
+mismatch de versión CUDA (driver algo más viejo que lo que pide la imagen
+de ODM) ya viene resuelto por defecto (`NVIDIA_DISABLE_REQUIRE=1` horneado
+en la imagen) — no hace falta pasarlo a mano.
+
+`processing/`, `preprocessing/`, `outputs/` y `geovisor/tiles/` son
+`VOLUME` de la imagen: si no los montás, Docker los persiste solo en
+volúmenes anónimos y el pipeline funciona igual. Solo hace falta montarlos
+a una ruta del host si querés ver los archivos directamente (p.ej. los
+TIFF de temperatura °C en `preprocessing/thermal_dji_sdk/` para usarlos en
+otro programa) o no perder el trabajo de ODM si el pipeline falla a mitad
+de camino (para poder retomar con `SKIP_ODM=1`):
+
+```bash
+docker run --gpus all \
+  -v /ruta/a/fotos:/input \
+  -v $PWD/processing:/app/processing \
+  -v $PWD/preprocessing:/app/preprocessing \
+  -v $PWD/outputs:/app/outputs \
+  -v $PWD/geovisor/tiles:/app/geovisor/tiles \
+  -p 8080:8080 \
+  raptor run
+```
+
+Si ya corriste sin montar `preprocessing/` (como en un `docker run` previo
+sin `--rm`), sacá los archivos con `docker cp <container>:/app/preprocessing/thermal_dji_sdk ./preprocessing`.
+
+**Una carpeta por misión (recomendado):** `processing/`, `outputs/` y
+`geovisor/tiles/` guardan el estado de LA misión que se procesó ahí — si
+corrés una misión nueva montando las mismas rutas de una anterior, ODM
+reconstruye sobre datos mezclados de dos vuelos distintos (ver incidente
+jul 2026, corregido en `prepare-rgb`, pero evitarlo de raíz es más simple).
+Usá una carpeta `runs/<nombre-misión>/` por corrida:
+
+```bash
+mkdir -p runs/la_clara/{processing,outputs,tiles}
+docker run --gpus all --rm \
+  -v /ruta/a/la_clara:/input \
+  -v $PWD/runs/la_clara/processing:/app/processing \
+  -v $PWD/runs/la_clara/outputs:/app/outputs \
+  -v $PWD/runs/la_clara/tiles:/app/geovisor/tiles \
+  -p 8080:8080 \
+  raptor run
+```
+
+Así ninguna corrida pisa ni mezcla el trabajo de otra. Para ver el geovisor
+de una misión ya procesada más adelante: `docker run --rm -p 8080:8080 -v
+$PWD/runs/la_clara/tiles:/app/geovisor/tiles raptor serve`.
+
+> Nota: si preferís no lidiar con volúmenes/rutas del host a mano, la
+> [webapp por defecto](#modo-webapp--por-defecto) resuelve exactamente este
+> mismo problema (una carpeta por misión, sin mezclar corridas) subiendo
+> las fotos por navegador en vez de montarlas.
+
+**Multiespectral (DJI M3M, opcional):** si además tenés un vuelo multiespectral
+de la misma zona, montá un SEGUNDO volumen aparte de `/input` (es otro
+vuelo/sensor, no se mezcla con el RGB+térmico):
+
+```bash
+docker run --gpus all \
+  -v /ruta/a/fotos:/input \
+  -v /ruta/al/vuelo-m3m:/input_ms \
+  -v $PWD/outputs:/app/outputs \
+  -v $PWD/geovisor/tiles:/app/geovisor/tiles \
+  -p 8080:8080 \
+  raptor run
+```
+
+También se puede correr un vuelo M3M **solo** (sin `/input`), montando
+únicamente `/input_ms` y pasando `-e MODE=none`: en ese caso el DSM sale del
+propio proyecto multiespectral (que también corre con `--dsm`).
+
+Si `/input_ms` no está montado, este módulo ni se toca — cero impacto en
+misiones RGB+térmico existentes. El vuelo M3M se procesa con ODM (que soporta
+multiespectral nativamente vía el tag XMP `Camera:BandName`) usando
+`--radiometric-calibration camera+sun` (calibra a reflectancia con el sensor
+de sol embebido en cada banda, sin necesitar panel de calibración física). La
+cámara RGB "D" del M3M (sensor aparte de las 4 lentes MS) no se procesa por
+este módulo.
+
+Variables de entorno útiles (`-e VAR=valor`):
+
+| Variable | Default | Uso |
+|---|---|---|
+| `MODE` | `rgb+thermal` | `rgb` para saltar todo el térmico; `none` si la misión NO tiene vuelo RGB/térmico (solo multiespectral — requiere `/input_ms`) |
+| `SKIP_ODM` | `0` | `1` para reusar `processing/*_odm/` de una corrida previa |
+| `MS_SOURCE_DIR` | `/input_ms` | Carpeta fuente del vuelo multiespectral (el módulo corre SOLO si existe) |
+| `PORT` | `8080` | Puerto del geovisor |
+| `SERVE` | `1` | `0` para no levantar el geovisor al terminar |
+
+El entrypoint hace **todo automáticamente**:
+1. **Organiza** las imágenes desde `/input` (busca `*_V.JPG`, `*_W.JPG`, `*_T.JPG` recursivamente) y, si `/input_ms` existe, las bandas MS desde ahí (`*_MS_G/R/RE/NIR.TIF`)
+2. **Extrae metadatos** GPS/EXIF; **convierte** R-JPEG → °C (DJI SDK) + denoise + re-encoding para ODM
+3. **Ejecuta ODM RGB** (SfM + DSM + ortofoto, ~20-30 min con GPU), **ODM Térmico nativo** (SfM + malla + textura + ortofoto calibrada en °C, ~15-20 min) y, si aplica, **ODM Multiespectral** (SfM + calibración + ortofoto multibanda)
+4. **Recorta bordes** de bajo solape (mismo criterio para los tres productos, con máscara de confianza según solape de cámaras) y limpia el DSM (descarta relleno sintético); si aplica, **calcula NDVI/GNDVI/NDRE/MSAVI2** y clasifica **área afectada, severidad y hotspot térmico** (combina brillo multiespectral + anomalía térmica)
+5. **Genera tiles** + exporta COG/COPC
+6. **Despliega** el geovisor en `http://localhost:8080`
+
+### Paso 3 — Abrir el geovisor
+
+**http://localhost:8080**
+
+Incluye:
+- Capas RGB y térmica con opacidad ajustable
+- **Selector de combinación de bandas** (desplegable): para la capa RGB,
+  reordenar sus canales R/G/B; para multiespectral, elegir entre
+  combinaciones predefinidas (CIR, RedEdge) o armar una personalizada
+  combinando cualquiera de las 4 bandas espectrales (Red/Green/RedEdge/NIR)
+- Paletas de color (inferno, viridis, jet, ironbow, hot/cold)
+- Slider de comparación RGB vs térmico
+- Detección de hotspots
+- Herramienta de medición de distancias
+- Hillshade del DSM
+- Exportación de vista
+- Capas de índices de vegetación (NDVI/GNDVI/NDRE/MSAVI2, paleta RdYlGn),
+  área afectada, severidad y hotspot térmico, si la misión incluyó un vuelo
+  multiespectral
+
+---
+
+## Pipeline
+
+```
+data/rgb_mosaico/ + data/termica_mosaico/ [+ data/multiespectral_mosaico/]
+        │
+        ▼
+  1. Metadatos (GPS, EXIF)
+  2. Preparación: geo.txt/imágenes RGB+MS; térmico → DJI SDK °C + denoise +
+     re-encode Kelvin×100 (formato que ODM calibra nativamente)
+  3. ODM RGB (SfM+DSM+orto) + ODM Térmico nativo (SfM+malla+textura+orto en °C)
+     [+ ODM Multiespectral (SfM+calibración+orto multibanda)]
+  4. Limpieza DSM (descarta relleno sintético) + recorte de bordes de bajo
+     solape (mismo criterio geométrico para los 3 productos, máscara de
+     confianza según solape de cámaras)
+     [+ índices de vegetación + área afectada/severidad/hotspot térmico]
+  5. Tiles XYZ + geovisor (con selector de combinación de bandas)
+  6. Exportación cloud-optimized: rasters → COG, nubes de puntos → COPC
+        │
+        ▼
+  outputs/: dsm.tif, rgb_orthomosaic.tif, thermal_orthomosaic.tif (todos COG)
+            [multispectral_orthomosaic.tif,
+             indices/{ndvi,gndvi,ndre,msavi2}.tif (COG),
+             area_afectada.geojson, severidad_class.tif, termico_hotspot_class.tif]
+            point_cloud_{rgb,thermal}.copc.laz [point_cloud_multispectral.copc.laz]
+  geovisor/: http://localhost:8080
+```
+
+**Tiempos estimados** (con GPU):
+
+| Etapa | Tiempo |
+|---|---|
+| Preparación + metadatos | ~2 min |
+| ODM RGB | 20-30 min |
+| ODM Térmico nativo | ~15-20 min |
+| ODM Multiespectral (si aplica) | ~10-15 min (114 capturas × 4 bandas) |
+| Recorte + tiles + export | 10-15 min |
+| **Total** | **~50-80 min** (+~15 min si hay multiespectral) |
+
+---
+
+## Estructura del proyecto
+
+```
+raptor/
+├── data/                          ← Imágenes fuente (organizadas por el entrypoint desde /input)
+├── preprocessing/thermal_dji_sdk/ ← TIFF °C (regenerables)
+├── processing/                    ← Directorios de trabajo ODM
+├── outputs/                       ← Productos finales
+├── scripts/                       ← Pipeline (Python)
+│   ├── progress.py, progress.sh   ← Barras de progreso
+│   ├── extract_metadata.py        ← 1. GPS/EXIF
+│   ├── generate_geo.py            ← 2. geo.txt RGB
+│   ├── prepare_multispectral_odm.py ← 2. Preparación multiespectral (geo.txt 4 bandas)
+│   ├── convert_thermal_tiff.py    ← 2. R-JPEG → °C (DJI SDK)
+│   ├── denoise_thermal_frames.py  ← 2. Filtro bilateral
+│   ├── prepare_thermal_native_odm.py ← 2. Re-encode °C→Kelvin×100 + tags para ODM
+│   ├── camera_ns.exiftool.config  ← config exiftool (namespace XMP Camera:BandName)
+│   ├── dsm_clean.py               ← 3. Limpieza DSM (RGB)
+│   ├── trim_low_overlap_edges.py  ← 4. Recorte bordes (RGB, térmico nativo, multiespectral)
+│   ├── confidence_mask.py         ← 4. Máscara confianza
+│   ├── compute_vegetation_indices.py ← 4. NDVI/GNDVI/NDRE/MSAVI2
+│   ├── detect_area_afectada.py    ← 4. Área afectada (multiespectral+térmico)
+│   ├── compute_severity_classes.py ← 4. Severidad + hotspot térmico
+│   ├── compute_situation_summary.py ← 4. Resumen ejecutivo (situation.json): área, focos discretos, confianza
+│   ├── export_flight_path.py      ← 0. Ruta de vuelo (GeoJSON), antes de ODM — geovisor muestra algo desde el minuto uno
+│   ├── generate_tiles.py          ← 5. Tiles XYZ (incluye índices y bandas MS)
+│   ├── export_cog.py              ← 6. Rasters finales → COG
+│   ├── export_copc.py             ← 6. Nubes de puntos → COPC
+│   └── debug/thermal_diag.py      ← Diagnóstico
+├── geovisor/                      ← Dashboard Leaflet (selector de bandas, panel "Situación actual")
+├── webapp/                        ← Webapp interactiva (FastAPI): main.py, static/index.html
+├── core/                          ← Orquestador del pipeline (activate_mission, PipelineRun, escaneo de
+│                                     misiones) — lo usa webapp/main.py; vivía en tui/ cuando existía
+│                                     además una interfaz de terminal (Textual, retirada jul 2026)
+├── docker/                        ← entrypoint.sh (orquesta todo) + setup-data.sh + setup-data-multispectral.sh
+├── dji_thermal_sdk/               ← DJI Thermal SDK (incluido)
+├── docs/PIPELINE.md               ← Documentación técnica
+├── Dockerfile
+├── Makefile
+└── README.md
+```
+
+---
+
+## Uso avanzado
+
+### Pasos individuales (dentro del contenedor)
+
+Para debug manual, entrá a un shell del contenedor (monta los mismos
+volúmenes que la corrida normal) y corré targets de `make` sueltos:
+
+```bash
+docker run --rm -it \
+  -v $PWD/processing:/app/processing -v $PWD/outputs:/app/outputs \
+  --entrypoint bash raptor
+
+# dentro del contenedor:
+make clean-dsm trim-edges-dsm trim-edges-rgb
+make sdk-convert denoise-thermal prepare-thermal-native  # antes de invocar ODM térmico
+make trim-edges-thermal confidence-mask
+make prepare-multispectral trim-edges-multispectral compute-indices  # Solo si hay /input_ms
+make detect-area-afectada compute-severity                 # Solo si hay MS + térmico
+make tiles serve                                            # Tiles + visor
+make export-cog export-copc                                 # Rasters → COG, nubes → COPC
+make info                                                   # Estado
+make clean-all                                              # Limpiar resultados
+```
+
+(El SfM/MVS/malla/textura/orto de ODM —para los tres sensores— no tiene
+target de `make` — se invoca directamente como `python3 /code/run.py ...`,
+ver `docker/entrypoint.sh`, función `run_odm()`.)
+
+---
+
+## Estructura esperada en `/input`
+
+El pipeline está diseñado para **no versionar datos** — solo se monta la
+carpeta de la misión como volumen:
+
+```
+<directorio_fuente>/
+├── DJI_20240615100000_0001_V.JPG   ← RGB
+├── DJI_20240615100003_0002_V.JPG
+├── ...
+└── THERMAL/                        ← o en la misma carpeta
+    ├── DJI_20240615100000_0001_T.JPG   ← Térmico
+    ├── DJI_20240615100003_0002_T.JPG
+    └── ...
+```
+
+El entrypoint busca recursivamente `*_V.JPG`, `*_W.JPG` (RGB) y `*_T.JPG` (térmico)
+dentro de `/input` (tarjeta SD, disco, o carpeta local montada con `-v`).
+
+### Estructura esperada en `/input_ms` (multiespectral, opcional)
+
+Vuelo DJI M3M, montado como volumen SEPARADO de `/input` (es otro dron/sensor
+de la misma zona, no se mezcla):
+
+```
+<vuelo-m3m>/
+├── DJI_20240615100000_0001_MS_G.TIF    ← Green
+├── DJI_20240615100000_0001_MS_R.TIF    ← Red
+├── DJI_20240615100000_0001_MS_RE.TIF   ← RedEdge
+├── DJI_20240615100000_0001_MS_NIR.TIF  ← NIR
+├── DJI_20240615100000_0001_D.JPG       ← RGB "display" (sensor aparte, no se usa acá)
+└── ...
+```
+
+El entrypoint busca recursivamente `*_MS_G.TIF`, `*_MS_R.TIF`, `*_MS_RE.TIF`,
+`*_MS_NIR.TIF` dentro de `/input_ms` — la banda `_D.JPG` se ignora (cámara RGB
+físicamente aparte de las 4 lentes MS, fuera de alcance de este módulo).
+
+### Solo el visor (si ya tienes tiles generados)
+
+```bash
+docker run --rm -p 8080:8080 -v $PWD/geovisor/tiles:/app/geovisor/tiles \
+  raptor serve
+```
+
+---
+
+## Notas
+
+- **Sensor térmico**: El SDK de DJI calibra la corrección atmosférica hasta
+  25m. A ~500m AGL esto es una limitación del hardware.
+- **Sin GPU**: omitir `--gpus all` — ODM detecta la ausencia de `nvidia-smi`
+  y usa CPU (más lento pero funcional).
+- **EPSG**: 32618 (UTM 18N). Ajusta `UTM_EPSG` en scripts para otras zonas.
+- **Reprocesar**: borrar `processing/` y `outputs/` (o `make clean-all`
+  dentro del contenedor) y volver a correr `docker run ... raptor run`
+  (o resubir la misión desde la webapp).
+- **DSM y recorte de bordes**: `dsm_clean.py` descarta el relleno sintético
+  de huecos que aplica ODM (una plataforma de altura constante, no terreno
+  real) sin rellenarlo con ningún valor inventado; `trim_low_overlap_edges.py`
+  aplica el mismo criterio geométrico de solape de cámaras a los tres
+  productos (RGB, térmico, multiespectral) para que sus bordes recortados
+  coincidan entre sí.
+- **Térmico nativo (ODM)**: el ortomosaico térmico se genera con el
+  renderizador de malla 3D de ODM (igual que RGB/multiespectral), no con un
+  blending heurístico propio. `scripts/prepare_thermal_native_odm.py`
+  re-encodea los TIFF Float32 °C (`convert_thermal_tiff.py`) a uint16
+  Kelvin×100 y los etiqueta como `Make=DJI`/`Model=ZH20T`/XMP
+  `Camera:BandName=LWIR` — el formato exacto que `opendm/thermal.py` de ODM
+  reconoce para aplicar su propia calibración Kelvin→°C durante el render de
+  textura. Reemplaza (jul 2026) el pipeline anterior tras compararse contra
+  una entrega de referencia de Agisoft: 16.9%→68.6% de cobertura, sin
+  artefactos de fragmentación, mayor resolución. Ver `docs/PIPELINE.md`.
+- **TIFF térmico geolocalizado**: cada TIFF de temperatura en
+  `preprocessing/thermal_dji_sdk/*.tif` trae embebido el GPS/gimbal EXIF de
+  su R-JPEG fuente — lo usa `prepare_thermal_native_odm.py` para armar el
+  `geo.txt` del proyecto ODM térmico, y además permite exportar/entregar
+  estos TIFF Float32 °C a un software externo (Agisoft, Pix4D) que arma su
+  propia alineación a partir del GPS de cada foto.
+- **Productos cloud-optimized (COG + COPC)**: todos los rasters finales en
+  `outputs/*.tif` (RGB, térmico, DSM, máscara de confianza, multiespectral,
+  índices) se convierten a **COG** (Cloud Optimized GeoTIFF — overviews
+  embebidos, se pueden leer por rangos HTTP sin bajar el archivo entero;
+  QGIS/ArcGIS los abren igual que un GeoTIFF normal). Las nubes de puntos
+  densas georreferenciadas de ODM (`odm_georeferencing/odm_georeferenced_model.laz`,
+  de los tres proyectos: RGB, térmico nativo, multiespectral si aplica) se
+  exportan además a **COPC** (`outputs/point_cloud_{rgb,thermal,multispectral}.copc.laz`)
+  para streaming en Potree/QGIS/CloudCompare. Targets manuales:
+  `make export-cog` / `make export-copc`.
+- **Multiespectral**: la calibración `camera+sun` usa el sensor de sol
+  embebido en cada banda del M3M — no hace falta panel de calibración física.
+  Corrección PPK no soportada todavía (requiere archivo de estación base, no
+  incluido); se usa el GPS RTK ya embebido en el EXIF, igual que RGB/térmico.
+  La banda RGB "D" del M3M (sensor aparte, no coalineado con las 4 lentes MS)
+  no se reconstruye automáticamente — se puede procesar aparte con el
+  pipeline RGB existente apuntándolo a `*_D.JPG` (`RGB_PATH=outputs/multispectral_rgb_dband.tif`
+  para no pisar el RGB principal) y sus 3 canales quedan disponibles como
+  bandas adicionales en el selector de combinaciones del geovisor.
+
+---
+
+## Documentación técnica
+
+Ver `docs/PIPELINE.md` para:
+- Detalles de cada etapa
+- Parámetros ajustables de ODM (RGB, térmico nativo, multiespectral)
+- Criterios de recorte de bordes (estilo Agisoft/Pix4D)
+- Diagnóstico de artefactos (arcos, peine, barridos)
