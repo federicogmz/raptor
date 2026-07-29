@@ -92,13 +92,18 @@ mismatch de versión CUDA (driver algo más viejo que lo que pide la imagen
 de ODM) ya viene resuelto por defecto (`NVIDIA_DISABLE_REQUIRE=1` horneado
 en la imagen) — no hace falta pasarlo a mano.
 
-`processing/`, `preprocessing/`, `outputs/` y `geovisor/tiles/` son
-`VOLUME` de la imagen: si no los montás, Docker los persiste solo en
-volúmenes anónimos y el pipeline funciona igual. Solo hace falta montarlos
-a una ruta del host si querés ver los archivos directamente (p.ej. los
-TIFF de temperatura °C en `preprocessing/thermal_dji_sdk/` para usarlos en
-otro programa) o no perder el trabajo de ODM si el pipeline falla a mitad
-de camino (para poder retomar con `SKIP_ODM=1`):
+> **Montá los volúmenes en este modo.** La imagen **ya no declara `VOLUME`**
+> para `processing/`, `preprocessing/`, `outputs/` ni `geovisor/tiles/` (la
+> webapp necesita poder reemplazar esas rutas por symlinks en runtime para
+> manejar varias misiones en una sesión — ver el comentario en el
+> `Dockerfile`). Sin `VOLUME` declarado ya no hay red de seguridad de volumen
+> anónimo: **si no montás nada en modo `run`, los productos se pierden al
+> borrar el contenedor.**
+
+Montalos para conservar los resultados, ver los archivos directamente (p.ej.
+los TIFF de temperatura °C en `preprocessing/thermal_dji_sdk/` para usarlos en
+otro programa) y no perder el trabajo de ODM si el pipeline falla a mitad de
+camino (para poder retomar con `SKIP_ODM=1`):
 
 ```bash
 docker run --gpus all \
@@ -257,8 +262,6 @@ raptor/
 ├── outputs/                       ← Productos finales
 ├── scripts/                       ← Pipeline (Python)
 │   ├── progress.py, progress.sh   ← Barras de progreso
-│   ├── extract_metadata.py        ← 1. GPS/EXIF
-│   ├── generate_geo.py            ← 2. geo.txt RGB
 │   ├── prepare_multispectral_odm.py ← 2. Preparación multiespectral (geo.txt 4 bandas)
 │   ├── convert_thermal_tiff.py    ← 2. R-JPEG → °C (DJI SDK)
 │   ├── denoise_thermal_frames.py  ← 2. Filtro bilateral
@@ -374,7 +377,10 @@ docker run --rm -p 8080:8080 -v $PWD/geovisor/tiles:/app/geovisor/tiles \
   25m. A ~500m AGL esto es una limitación del hardware.
 - **Sin GPU**: omitir `--gpus all` — ODM detecta la ausencia de `nvidia-smi`
   y usa CPU (más lento pero funcional).
-- **EPSG**: 32618 (UTM 18N). Ajusta `UTM_EPSG` en scripts para otras zonas.
+- **EPSG**: se toma de la proyección del propio raster de cada misión (la UTM
+  que ODM eligió según su GPS) — no hay que ajustar nada para volar en otra
+  zona. `UTM_EPSG` en `trim_low_overlap_edges.py` es solo el respaldo si un
+  raster llegara sin proyección legible.
 - **Reprocesar**: borrar `processing/` y `outputs/` (o `make clean-all`
   dentro del contenedor) y volver a correr `docker run ... raptor run`
   (o resubir la misión desde la webapp).
