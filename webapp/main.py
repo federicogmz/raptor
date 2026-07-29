@@ -54,6 +54,18 @@ GEOVISOR_DIR = APP_DIR / "geovisor"
 UPLOAD_KINDS = ("rgb_thermal", "multispectral")
 VALID_MODES = ("rgb", "rgb+thermal", "none")
 
+# ── Exportación de la entrega ───────────────────────────────────────────
+# Catálogo y formatos los define scripts/export_products.py; acá solo se
+# valida lo que llega del formulario para poder devolver un error corregible
+# ANTES de arrancar (mismo principio que _validate() para los sensores).
+EXPORT_PRODUCTS = ("rgb", "thermal", "dsm", "multispectral", "indices", "classes",
+                   "confidence", "area", "flight_path", "situation", "pointclouds")
+EXPORT_RASTER_FORMATS = ("cog", "gtiff")
+EXPORT_VECTOR_FORMATS = ("geojson", "gpkg", "shp", "kml")
+# Destino por defecto: adentro de la misión. Si el usuario montó -v .../runs,
+# la entrega aparece sola en el host sin tener que montar otro volumen.
+DEFAULT_EXPORT_SUBDIR = "export"
+
 app = FastAPI(title="Pipeline UAV de respuesta rápida")
 RUNS_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -350,6 +362,7 @@ def mission_status(mission: str):
     # un F5 en vez de arrancar de nuevo en 00:00.
     elapsed = round(_state.elapsed()) if (_state and _state.mission_name == safe) else None
     return {"name": safe, "uploads": uploads, "odm": _odm_projects(mission_dir),
+            "default_export_dir": str(mission_dir / DEFAULT_EXPORT_SUBDIR),
             "has_tiles": tiles_ready, "running": running, "last_run": last_run,
             "elapsed": elapsed, "mode": _state.mode if (_state and _state.mission_name == safe) else None,
             "has_multispectral": _state.has_ms if (_state and _state.mission_name == safe) else None,
@@ -427,6 +440,90 @@ def _validate(mode, has_ms, uploads):
     return errors
 
 
+def _validate_export(mission_dir, export_dir, products, raster_fmt, vector_fmt, epsg):
+    """Valida la configuración de entrega y devuelve (errores, dict EXPORT_*).
+
+    Se comprueba acá —no adentro del pipeline— que la carpeta destino se pueda
+    CREAR y ESCRIBIR: es el error más probable de esta pantalla (una ruta del
+    host que no está montada en el contenedor no existe acá adentro) y
+    descubrirlo recién al final, con la misión ya procesada, sería
+    exactamente lo que la validación previa existe para evitar."""
+    errors = []
+    if not export_dir:
+        return errors, {}
+
+    if not os.path.isabs(export_dir):
+        export_dir = str(mission_dir / export_dir)
+
+    desconocidos = [p for p in products if p not in EXPORT_PRODUCTS]
+    if desconocidos:
+        errors.append(f"Productos de exportación desconocidos: {', '.join(desconocidos)}.")
+    if not products:
+        errors.append("Elegiste exportar pero no marcaste ningún producto.")
+    if raster_fmt not in EXPORT_RASTER_FORMATS:
+        errors.append(f"Formato ráster inválido: {raster_fmt}.")
+    if vector_fmt not in EXPORT_VECTOR_FORMATS:
+        errors.append(f"Formato vectorial inválido: {vector_fmt}.")
+
+    epsg = (epsg or "").strip().lower()
+    if epsg and epsg != "source":
+        # RuntimeError incluido: con gdal.UseExceptions() activo (arriba de este
+        # módulo), ImportFromEPSG LANZA en vez de devolver un código de error.
+        try:
+            osr.SpatialReference().ImportFromEPSG(int(epsg))
+        except (ValueError, TypeError, RuntimeError):
+            errors.append(f"EPSG «{epsg}» no existe o no lo reconoce PROJ. "
+                          "Usá un código numérico válido, p. ej. 9377.")
+
+    try:
+        os.makedirs(export_dir, exist_ok=True)
+        probe = os.path.join(export_dir, ".raptor_write_test")
+        with open(probe, "w") as f:
+            f.write("")
+        os.remove(probe)
+    except OSError as exc:
+        errors.append(
+            f"No se puede escribir en la carpeta de entrega «{export_dir}»: {exc}. "
+            "Si es una ruta del host, montala en el contenedor "
+            "(docker run -v /ruta/del/host:/entregas …) y usá la ruta de adentro.")
+
+    if errors:
+        return errors, {}
+    return [], {"EXPORT_DIR": export_dir,
+                "EXPORT_PRODUCTS": ",".join(products),
+                "EXPORT_RASTER_FORMAT": raster_fmt,
+                "EXPORT_VECTOR_FORMAT": vector_fmt,
+                "EXPORT_EPSG": epsg or "source"}
+
+
+def _parse_products(raw):
+    return [p.strip() for p in (raw or "").split(",") if p.strip()]
+
+
+@app.post("/api/missions/{mission}/check-export")
+def check_export(mission: str, export_dir: str = Form(""), export_epsg: str = Form("")):
+    """Comprueba carpeta destino y EPSG sin arrancar nada, para poder avisar
+    mientras el usuario escribe. El error típico es una ruta del host que no
+    está montada dentro del contenedor: acá se ve al instante en vez de al
+    final de una corrida de una hora."""
+    _safe, mission_dir = _mission_dir(mission)
+    errors, env = _validate_export(mission_dir, export_dir.strip(), ["rgb"],
+                                   "cog", "geojson", export_epsg)
+    resolved = env.get("EXPORT_DIR") or (
+        export_dir.strip() if os.path.isabs(export_dir.strip())
+        else str(mission_dir / export_dir.strip()) if export_dir.strip() else "")
+    nombre = None
+    epsg = (export_epsg or "").strip().lower()
+    if epsg and epsg != "source" and not errors:
+        srs = osr.SpatialReference()
+        try:
+            srs.ImportFromEPSG(int(epsg))
+            nombre = srs.GetName()
+        except (ValueError, TypeError, RuntimeError):
+            pass
+    return {"ok": not errors, "errors": errors, "resolved": resolved, "crs_name": nombre}
+
+
 @app.post("/api/missions/{mission}/validate")
 def validate_mission(mission: str, mode: str = Form(...), has_multispectral: bool = Form(False)):
     _safe, mission_dir = _mission_dir(mission)
@@ -440,7 +537,12 @@ def validate_mission(mission: str, mode: str = Form(...), has_multispectral: boo
 @app.post("/api/missions/{mission}/start")
 async def start_mission(mission: str, mode: str = Form(...),
                         has_multispectral: bool = Form(False),
-                        reuse_odm: bool = Form(False)):
+                        reuse_odm: bool = Form(False),
+                        export_dir: str = Form(""),
+                        export_products: str = Form(""),
+                        export_raster_format: str = Form("cog"),
+                        export_vector_format: str = Form("geojson"),
+                        export_epsg: str = Form("9377")):
     global _state
     if _state is not None and not _state.done:
         raise HTTPException(409, f"Ya hay una misión procesándose: {_state.mission_name}")
@@ -449,6 +551,11 @@ async def start_mission(mission: str, mode: str = Form(...),
     uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k))
                for k in UPLOAD_KINDS}
     errors = _validate(mode, has_multispectral, uploads)
+    export_errors, export_env = _validate_export(
+        mission_dir, export_dir.strip(), _parse_products(export_products),
+        export_raster_format.strip().lower(), export_vector_format.strip().lower(),
+        export_epsg)
+    errors += export_errors
     if errors:
         raise HTTPException(400, " ".join(errors))
 
@@ -463,6 +570,7 @@ async def start_mission(mission: str, mode: str = Form(...),
     run_obj = PipelineRun(
         mode=mode, source_dir=source_dir, ms_source_dir=ms_source_dir,
         skip_odm=reuse_odm, port=8080, progress_file=progress_file,
+        export=export_env,
     )
     await run_obj.start()
     _state = RunState(safe, mission_dir, run_obj, mode, has_multispectral)

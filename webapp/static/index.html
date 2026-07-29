@@ -106,9 +106,25 @@ main{max-width:840px;margin:0 auto;padding:28px 20px 60px}
 .spread{justify-content:space-between}
 .hidden{display:none!important}
 
-input[type=text]{background:var(--bg);border:1px solid var(--bd2);color:var(--tx);
+input[type=text],.in{background:var(--bg);border:1px solid var(--bd2);color:var(--tx);
   padding:10px 12px;border-radius:8px;font-family:inherit;font-size:.92em;width:100%}
-input[type=text]:focus{outline:none;border-color:var(--ac)}
+input[type=text]:focus,.in:focus{outline:none;border-color:var(--ac)}
+select.in{cursor:pointer}
+
+/* ── Entrega: ruta, checks de productos, formatos ───────────────────── */
+.hint{font-size:.76em;color:var(--tx3);margin-top:6px;line-height:1.45}
+.hint code{background:var(--bg3);padding:1px 5px;border-radius:4px;font-size:.95em}
+.checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:8px}
+.chk{display:flex;gap:9px;align-items:flex-start;background:var(--bg3);border:1.5px solid var(--bd);
+  border-radius:9px;padding:10px 12px;cursor:pointer;transition:border-color .15s,background .15s;
+  user-select:none}
+.chk:hover{border-color:var(--bd2)}
+.chk.on{border-color:var(--ac);background:var(--sel-bg)}
+.chk.dis{opacity:.45;cursor:not-allowed}
+.chk input{margin-top:2px;accent-color:var(--ac);flex-shrink:0}
+.chk .ct{font-size:.84em;font-weight:500;line-height:1.3}
+.chk .cd{font-size:.73em;color:var(--tx3);margin-top:2px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:4px}
 
 /* ── Tarjetas de sensor (seleccionables) ───────────────────────────── */
 .sensors{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
@@ -291,6 +307,61 @@ input[type=text]:focus{outline:none;border-color:var(--ac)}
       </div>
     </div>
 
+    <!-- Entrega: dónde, qué, en qué formato y en qué CRS -->
+    <div class="section-label">Entrega de los productos</div>
+    <div class="opts">
+      <label class="opt on" id="o-exp-y">
+        <input type="radio" name="doexport" value="1" checked onchange="refreshUI()">
+        <div><div class="ot">Exportar a una carpeta</div>
+          <div class="od">Copia los productos elegidos en el formato y el sistema de referencia que necesites</div></div>
+      </label>
+      <label class="opt" id="o-exp-n">
+        <input type="radio" name="doexport" value="0" onchange="refreshUI()">
+        <div><div class="ot">No exportar</div>
+          <div class="od">Los productos quedan solo en la misión, en la UTM que eligió ODM</div></div>
+      </label>
+    </div>
+
+    <div id="blk-export">
+      <div class="section-label">Carpeta de destino</div>
+      <input class="in" id="exp-dir" placeholder="/app/runs/&lt;misión&gt;/export">
+      <div class="hint" id="exp-dir-h">Ruta <b>dentro del contenedor</b>. Para escribir en el disco del
+        host, montalo primero (<code>docker run -v /ruta/del/host:/entregas …</code>) y poné esa ruta.</div>
+
+      <div class="section-label">Qué exportar</div>
+      <div class="checks" id="exp-products"></div>
+
+      <div class="grid2">
+        <div>
+          <div class="section-label">Sistema de referencia</div>
+          <select class="in" id="exp-epsg" onchange="onEpsgChange()">
+            <option value="9377" selected>EPSG:9377 — MAGNA-SIRGAS / Origen-Nacional (recomendado)</option>
+            <option value="source">La de la misión — UTM WGS84 (sin reproyectar)</option>
+            <option value="4326">EPSG:4326 — WGS84 lat/lon</option>
+            <option value="custom">Otro código EPSG…</option>
+          </select>
+          <input class="in hidden" id="exp-epsg-custom" placeholder="p. ej. 32618"
+                 style="margin-top:8px" oninput="checkExport()">
+          <div class="hint" id="exp-epsg-h">Sistema único nacional de Colombia (IGAC). Es el que
+            esperan las entidades para cartografía oficial.</div>
+        </div>
+        <div>
+          <div class="section-label">Formatos</div>
+          <select class="in" id="exp-rfmt">
+            <option value="cog" selected>Ráster: GeoTIFF cloud-optimized (COG)</option>
+            <option value="gtiff">Ráster: GeoTIFF clásico</option>
+          </select>
+          <select class="in" id="exp-vfmt" style="margin-top:8px">
+            <option value="geojson" selected>Vectorial: GeoJSON</option>
+            <option value="gpkg">Vectorial: GeoPackage (.gpkg)</option>
+            <option value="shp">Vectorial: Shapefile</option>
+            <option value="kml">Vectorial: KML (siempre en WGS84)</option>
+          </select>
+        </div>
+      </div>
+      <div id="exp-note" class="note hidden" style="margin-top:12px"><span class="ni">📁</span><div id="exp-note-t"></div></div>
+    </div>
+
     <div id="setup-err" class="note err hidden"><span class="ni">⚠️</span><div id="setup-err-t"></div></div>
 
     <div class="up hidden" id="upbox">
@@ -460,6 +531,10 @@ async function openSetup(name){
   $('upbox').classList.add('hidden');
   $('in-rt').value = ''; $('in-ms').value = '';
   stored = {rgb_thermal:null, multispectral:null}; odmPrev = {};
+  // La carpeta de entrega vuelve a seguir al nombre de la misión hasta que el
+  // usuario la escriba a mano (ver expDirTouched).
+  expDirTouched = false;
+  expChecked = new Set(EXPORT_CATALOG.map(p=>p.k));
 
   if(name){
     $('setup-title').textContent = 'Misión: ' + name;
@@ -486,6 +561,10 @@ async function loadStatus(name){
   try{
     const s = await (await fetch(`/api/missions/${encodeURIComponent(name)}/status`)).json();
     stored = s.uploads; odmPrev = s.odm;
+    // Destino por defecto: la subcarpeta export/ de la propia misión, que el
+    // servidor resuelve (queda dentro de runs/, así que si el usuario montó esa
+    // carpeta la entrega aparece sola en el host). Solo mientras no la editen.
+    if(!expDirTouched && s.default_export_dir) $('exp-dir').value = s.default_export_dir;
     // Preseleccionar los sensores según lo que la misión YA tiene subido.
     if(s.uploads.rgb_thermal.total) sensors.rt = true;
     if(s.uploads.multispectral.total) sensors.ms = true;
@@ -535,6 +614,14 @@ function refreshUI(){
   document.querySelectorAll('.opt input[name=reuse]').forEach(i=>
     i.closest('.opt').classList.toggle('on', i.checked));
 
+  // Entrega: la lista de productos depende de los sensores y del modo, así que
+  // se re-renderiza con cada cambio del formulario.
+  document.querySelectorAll('.opt input[name=doexport]').forEach(i=>
+    i.closest('.opt').classList.toggle('on', i.checked));
+  $('blk-export').classList.toggle('hidden', !exporting());
+  renderExportProducts();
+  if(exporting()) checkExport(); else $('exp-note').classList.add('hidden');
+
   $('btn-start').disabled = !sensors.rt && !sensors.ms;
 }
 
@@ -562,6 +649,109 @@ function selectedMode(){
   if(!sensors.rt) return 'none';
   return document.querySelector('input[name=prod]:checked').value;
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Entrega: qué productos, dónde, en qué formato y CRS
+// ═══════════════════════════════════════════════════════════════════
+// `avail` decide si el producto puede existir CON LA CONFIGURACIÓN ACTUAL.
+// Los que no, se muestran deshabilitados en vez de ocultarse: así queda claro
+// qué habría que activar para obtenerlos, en vez de que desaparezcan sin
+// explicación. Las claves son las mismas de CATALOG en export_products.py.
+const EXPORT_CATALOG = [
+  {k:'rgb',           t:'Ortomosaico RGB',        d:'rgb_orthomosaic.tif',    avail:()=>sensors.rt},
+  {k:'thermal',       t:'Ortomosaico térmico',    d:'temperaturas en °C',     avail:()=>selectedMode()==='rgb+thermal'},
+  {k:'dsm',           t:'Modelo de superficie',   d:'dsm.tif',                avail:()=>true},
+  {k:'multispectral', t:'Ortomosaico multiespectral', d:'4 bandas + alpha',   avail:()=>sensors.ms},
+  {k:'indices',       t:'Índices de vegetación',  d:'NDVI, GNDVI, NDRE, MSAVI2', avail:()=>sensors.ms},
+  {k:'classes',       t:'Severidad y hotspots',   d:'rásters de clases',      avail:()=>sensors.ms&&selectedMode()==='rgb+thermal'},
+  {k:'area',          t:'Área afectada',          d:'polígono vectorial',     avail:()=>sensors.ms&&selectedMode()==='rgb+thermal'},
+  {k:'confidence',    t:'Máscara de confianza',   d:'RGB ∩ térmico',          avail:()=>selectedMode()==='rgb+thermal'},
+  {k:'situation',     t:'Resumen de situación',   d:'situation.json',         avail:()=>sensors.ms&&selectedMode()==='rgb+thermal'},
+  {k:'flight_path',   t:'Ruta de vuelo',          d:'recorrido + capturas',   avail:()=>true},
+  {k:'pointclouds',   t:'Nubes de puntos',        d:'COPC (.copc.laz)',       avail:()=>true},
+];
+let expChecked = new Set(EXPORT_CATALOG.map(p=>p.k));   // todo marcado por defecto
+
+function exporting(){
+  const el = document.querySelector('input[name=doexport]:checked');
+  return !el || el.value === '1';
+}
+
+function renderExportProducts(){
+  const box = $('exp-products');
+  box.innerHTML = EXPORT_CATALOG.map(p=>{
+    const ok = p.avail();
+    const on = ok && expChecked.has(p.k);
+    return `<label class="chk ${on?'on':''} ${ok?'':'dis'}">
+      <input type="checkbox" ${on?'checked':''} ${ok?'':'disabled'}
+             onchange="toggleExportProduct('${p.k}',this.checked)">
+      <div><div class="ct">${p.t}</div><div class="cd">${ok?p.d:'no aplica a esta configuración'}</div></div>
+    </label>`;
+  }).join('');
+}
+
+function toggleExportProduct(k, on){
+  if(on) expChecked.add(k); else expChecked.delete(k);
+  renderExportProducts();
+}
+
+function selectedExportProducts(){
+  return EXPORT_CATALOG.filter(p=>p.avail() && expChecked.has(p.k)).map(p=>p.k);
+}
+
+function selectedEpsg(){
+  const v = $('exp-epsg').value;
+  return v === 'custom' ? $('exp-epsg-custom').value.trim() : v;
+}
+
+const EPSG_HINTS = {
+  '9377':   'Sistema único nacional de Colombia (IGAC). Es el que esperan las entidades para cartografía oficial.',
+  'source': 'Se entrega tal cual la produjo ODM, sin reproyectar. Es lo más fiel al dato original.',
+  '4326':   'Coordenadas geográficas en grados. Útil para web, no para medir áreas o distancias.',
+  'custom': 'Cualquier código EPSG proyectado o geográfico que reconozca PROJ.',
+};
+
+function onEpsgChange(){
+  const v = $('exp-epsg').value;
+  $('exp-epsg-custom').classList.toggle('hidden', v !== 'custom');
+  $('exp-epsg-h').textContent = EPSG_HINTS[v] || '';
+  checkExport();
+}
+
+// Comprobación en vivo de la carpeta y el EPSG: el error más probable acá es
+// una ruta del host que no está montada en el contenedor, y descubrirlo recién
+// al final de una corrida de una hora sería justo lo que la validación previa
+// existe para evitar.
+let expTimer = null;
+function checkExport(){
+  clearTimeout(expTimer);
+  expTimer = setTimeout(async ()=>{
+    const name = $('mname').value.trim();
+    const dir  = $('exp-dir').value.trim();
+    const note = $('exp-note'), noteT = $('exp-note-t');
+    if(!name || !dir || !exporting()){ note.classList.add('hidden'); return; }
+    try{
+      const fd = new FormData();
+      fd.append('export_dir', dir);
+      fd.append('export_epsg', selectedEpsg());
+      const r = await fetch(`/api/missions/${encodeURIComponent(name)}/check-export`,
+                            {method:'POST', body:fd});
+      const d = await r.json();
+      note.classList.remove('hidden','ok','err');
+      if(d.ok){
+        note.classList.add('ok');
+        noteT.innerHTML = `Se escribirá en <b>${d.resolved}</b>` +
+          (d.crs_name ? ` · reproyectado a <b>${d.crs_name}</b>` : ' · sin reproyectar');
+      }else{
+        note.classList.add('err');
+        noteT.innerHTML = d.errors.join(' ');
+      }
+    }catch(e){ note.classList.add('hidden'); }
+  }, 450);
+}
+let expDirTouched = false;
+$('exp-dir').addEventListener('input', ()=>{ expDirTouched = true; checkExport(); });
+$('exp-epsg-custom').addEventListener('input', checkExport);
 
 // ═══════════════════════════════════════════════════════════════════
 // Subida + arranque
@@ -616,6 +806,17 @@ async function uploadAndStart(){
   if(sensors.ms && !cMS.ms)
     return setupError('El vuelo M3M no tiene bandas multiespectrales (<code>*_MS_*.TIF</code>). '
       + 'Elegí la carpeta correcta, o desmarcá ese sensor.');
+  if(exporting()){
+    if(!$('exp-dir').value.trim())
+      return setupError('Elegiste exportar pero no indicaste la carpeta de destino. '
+        + 'Poné una ruta, o cambiá la entrega a «No exportar».');
+    if(!selectedExportProducts().length)
+      return setupError('Elegiste exportar pero no marcaste ningún producto. '
+        + 'Marcá al menos uno, o cambiá la entrega a «No exportar».');
+    if($('exp-epsg').value === 'custom' && !$('exp-epsg-custom').value.trim())
+      return setupError('Elegiste «Otro código EPSG» pero no escribiste ninguno. '
+        + 'Poné el código (p. ej. <code>32618</code>) o elegí una de las opciones de la lista.');
+  }
 
   const btn = $('btn-start'); btn.disabled = true;
   try{
@@ -629,6 +830,13 @@ async function uploadAndStart(){
     fd.append('mode', mode);
     fd.append('has_multispectral', hasMS ? 'true':'false');
     fd.append('reuse_odm', reuse === '1' ? 'true':'false');
+    if(exporting()){
+      fd.append('export_dir', $('exp-dir').value.trim());
+      fd.append('export_products', selectedExportProducts().join(','));
+      fd.append('export_raster_format', $('exp-rfmt').value);
+      fd.append('export_vector_format', $('exp-vfmt').value);
+      fd.append('export_epsg', selectedEpsg());
+    }
     const r = await fetch(`/api/missions/${encodeURIComponent(mission)}/start`, {method:'POST', body:fd});
     if(!r.ok){
       let d; try{ d = JSON.parse(await r.text()); }catch(_){ d = null; }
