@@ -1,0 +1,29 @@
+# Todo lo de aquí es regenerable corriendo el pipeline sobre data/ (ver
+# docs/PIPELINE.md) — data/ en sí (imágenes fuente) tampoco se versiona,
+# así que no tiene sentido versionar resultados intermedios/finales que
+# solo cobran sentido junto a ella. Repo = código + docs, no datos.
+data/
+processing/
+preprocessing/
+outputs/
+geovisor/tiles/
+runs/
+agisoft/
+
+# Trabajo en progreso del paper académico (pipeline deep-research/paper-plan/
+# paper-draft) — borrador vivo, no documentación curada del repo. Vive en
+# paper/ para no mezclarse con docs/ (que sí es documentación estable).
+paper/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# SDK (descargable, se incluye extraído pero no el zip)
+*.zip
+
+# Temporales / sistema
+*.log
+*.aux.xml
+.DS_Store

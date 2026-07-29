@@ -1,0 +1,13 @@
+data/
+paper/
+processing/
+outputs/
+preprocessing/
+geovisor/tiles/
+runs/
+venv/
+agisoft/
+.git/
+*.zip
+__pycache__/
+*.pyc

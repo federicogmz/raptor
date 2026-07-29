@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Situación del incendio</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="skip-link" href="#panel-heading">Saltar al panel de situación</a>
+
+<!-- Barra superior: responde "qué es esto" y "qué tan fresco es el dato"
+     antes que nada — nombre del incidente, frescura/confianza, fecha de
+     captura, acción de compartir y ayuda. Sin iconos sueltos sin etiqueta. -->
+<header id="topbar">
+  <button id="btn-back" class="reset" title="Volver a las misiones" aria-label="Volver a las misiones">←</button>
+  <div class="incident-id">
+    <span class="name" id="incident-name">Cargando…</span>
+    <span class="zone" id="incident-zone"></span>
+  </div>
+
+  <div class="freshness" id="freshness-chip" role="status">
+    <span class="confidence-ticks" id="confidence-ticks" aria-hidden="true"><i></i><i></i><i></i></span>
+    <span id="freshness-text">—</span>
+  </div>
+
+  <span class="spacer"></span>
+
+  <button class="date-select reset" id="btn-date" title="Fecha de la captura mostrada">
+    <span aria-hidden="true">📅</span>
+    <span><span class="lbl">Captura: </span><b id="capture-date-label">—</b></span>
+  </button>
+
+  <button class="btn primary reset" id="btn-report">Generar resumen de situación</button>
+
+  <div class="menu-wrap">
+    <button class="btn ghost reset" id="btn-help" aria-haspopup="true" aria-expanded="false">
+      Ayuda <span class="chev" aria-hidden="true">▾</span>
+    </button>
+    <div class="menu-panel" id="help-menu" role="menu">
+      <div class="menu-section">
+        <h4>Cómo usar</h4>
+        <div class="help-row"><span class="k">◉</span><span class="d">Solo — muestra únicamente esta capa</span></div>
+        <div class="help-row"><span class="k">🔍</span><span class="d">Click en el mapa — ver qué significa ese punto</span></div>
+        <div class="help-row"><span class="k">M</span><span class="d">Medir distancia/área (modo operativo)</span></div>
+        <div class="help-row"><span class="k">T</span><span class="d">Cambiar tema claro/oscuro</span></div>
+        <div class="help-row"><span class="k">Esc</span><span class="d">Cerrar lo que esté abierto</span></div>
+      </div>
+      <div class="menu-section">
+        <h4>Accesibilidad</h4>
+        <div class="pref-row">
+          <span>Tamaño de texto</span>
+          <div class="step-group" role="group" aria-label="Tamaño de texto">
+            <button class="reset" data-scale="0.92" aria-label="Texto pequeño">A</button>
+            <button class="reset" data-scale="1" aria-label="Texto normal">A</button>
+            <button class="reset" data-scale="1.18" aria-label="Texto grande">A</button>
+          </div>
+        </div>
+        <div class="pref-row">
+          <span>Alto contraste</span>
+          <button class="switch reset" id="switch-contrast" role="switch" aria-checked="false" aria-label="Alto contraste"></button>
+        </div>
+        <div class="pref-row">
+          <span>Reducir movimiento</span>
+          <button class="switch reset" id="switch-motion" role="switch" aria-checked="false" aria-label="Reducir movimiento"></button>
+        </div>
+        <div class="pref-row">
+          <span>Tema</span>
+          <button class="btn sm reset" id="btn-theme" style="width:100%;justify-content:center">
+            <span id="theme-ic">🌙</span>&nbsp;Cambiar tema</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="body" id="main-body">
+  <section class="map-area" aria-label="Mapa de la zona">
+    <div class="map-viewmode" role="group" aria-label="Formato de visualización">
+      <button class="reset" id="btn-view-map" aria-pressed="true">Mapa</button>
+      <button class="reset" id="btn-view-list" aria-pressed="false">Lista</button>
+    </div>
+
+    <div id="map"></div>
+
+    <!-- Comparador lado a lado — herramienta de modo operativo -->
+    <div id="compare-container">
+      <div id="compare-right"></div>
+      <div id="compare-left"><div id="compare-left-map"></div></div>
+      <div id="compare-slider"></div>
+      <span class="compare-label left"></span>
+      <span class="compare-label right"></span>
+    </div>
+
+    <!-- Leyenda contextual: aparece con interpretación accionable cuando hay
+         una capa de impacto activa — la llena renderMapLegend() (app.js). -->
+    <div class="map-legend" id="map-legend"></div>
+
+    <!-- Ficha "qué significa este punto" — clic en el mapa la llena con
+         datos reales (severidad/temperatura/NDVI) vía /api/.../sample. -->
+    <div class="point-card" id="point-card" role="dialog" aria-label="Detalle del punto seleccionado"></div>
+
+    <!-- Medición (modo operativo) -->
+    <div id="measure-panel" class="hud-frame">
+      <div class="mp-row"><b>Medición</b><button class="btn sm" onclick="clearMeasure()">Limpiar</button></div>
+      <div class="mp-stat"><span>Distancia</span><b id="measure-dist">0 m</b></div>
+      <div class="mp-stat"><span>Área</span><b id="measure-area">—</b></div>
+      <div class="mp-hint">Click para agregar puntos · doble click para cerrar el área · Esc para salir</div>
+    </div>
+
+    <!-- Edición del polígono de área afectada (modo operativo) -->
+    <div id="area-edit-panel" class="hud-frame">
+      <div class="area-edit-row">
+        <span class="area-edit-icon">📐</span>
+        <span id="area-edit-ha">—</span>
+        <button id="btn-area-edit" class="btn" onclick="toggleAreaEdit()">✏️ Editar</button>
+      </div>
+      <div class="area-edit-tools">
+        <button id="btn-area-new" class="btn" onclick="startDrawNewArea()">➕ Nueva área</button>
+        <button class="btn primary" onclick="saveAreaAfectada()">💾 Guardar</button>
+        <button class="btn" onclick="discardAreaEdits()">↩️ Descartar</button>
+      </div>
+      <div id="area-edit-hint">Click en un vértice para borrarlo · click en el punto medio de un borde para agregar uno · 🗑 borra el polígono completo · Esc cancela el dibujo</div>
+      <div id="area-edit-status"></div>
+    </div>
+
+    <!-- HUD de progreso: la misión activa procesándose se ve acá mismo, sin
+         pantalla aparte — wireProgressHud()/connectLiveMission() (app.js). -->
+    <div id="progress-hud" class="hud-frame">
+      <div class="ph-top">
+        <span class="ph-dot"></span>
+        <span class="ph-stage" id="ph-stage">Iniciando…</span>
+        <span class="ph-time" id="ph-time">00:00</span>
+      </div>
+      <div class="ph-bar"><div class="ph-bar-fill" id="ph-bar-fill"></div></div>
+      <div class="ph-actions" id="ph-actions"></div>
+      <button class="ph-log-toggle" id="ph-log-toggle" onclick="toggleProgressLog()">▾ Ver log</button>
+      <div class="ph-log" id="ph-log"></div>
+    </div>
+
+    <button class="panel-toggle reset" id="panel-toggle" aria-label="Mostrar panel de situación">☰</button>
+  </section>
+
+  <!-- Vista de lista: alternativa textual accesible al mapa -->
+  <section class="list-view" id="list-view" aria-label="Lista de zonas críticas"></section>
+
+  <aside class="panel" id="panel">
+    <!-- ═══ Modo simple (por defecto): lo que necesita alguien sin
+         experiencia en SIG para decidir en segundos. ═══ -->
+    <div id="panel-simple">
+      <div class="panel-head">
+        <div class="panel-head-row">
+          <h2 id="panel-heading">Situación actual</h2>
+          <button class="panel-close reset" id="panel-close" aria-label="Ocultar panel">✕</button>
+        </div>
+      </div>
+      <div class="panel-scroll">
+        <div class="summary-grid" id="summary-grid">
+          <div class="stat-card"><div class="l">Cargando datos de la misión…</div></div>
+        </div>
+
+        <div class="mode-tabs" role="tablist" aria-label="Modo de información">
+          <button role="tab" aria-selected="true" id="tab-impacto" aria-controls="panel-impacto">Impacto</button>
+          <button role="tab" aria-selected="false" id="tab-vegetacion" aria-controls="panel-vegetacion">Vegetación</button>
+          <button role="tab" aria-selected="false" id="tab-contexto" aria-controls="panel-contexto">Contexto</button>
+        </div>
+
+        <div class="mode-panel active" id="panel-impacto" role="tabpanel" aria-labelledby="tab-impacto"></div>
+        <div class="mode-panel" id="panel-vegetacion" role="tabpanel" aria-labelledby="tab-vegetacion"></div>
+        <div class="mode-panel" id="panel-contexto" role="tabpanel" aria-labelledby="tab-contexto"></div>
+
+        <button class="ajustes-toggle reset" id="ajustes-toggle" aria-expanded="false">
+          <span>Ajustes de visualización</span><span aria-hidden="true">▾</span>
+        </button>
+        <div class="ajustes-body" id="ajustes-body">
+          <div class="opacity-row"><span style="width:110px">Transparencia</span>
+            <input type="range" min="0" max="100" value="85" id="global-opacity"
+              aria-label="Transparencia de las capas activas"></div>
+        </div>
+      </div>
+      <div class="panel-footer">
+        <a class="link-advanced reset" href="#" id="link-advanced">¿Sos personal técnico? Cambiar a modo operativo →</a>
+      </div>
+    </div>
+
+    <!-- ═══ Modo operativo: el gestor de capas técnico completo (buscar,
+         reordenar, opacidad por capa, bandas, comparar, medir). Mismo
+         motor de siempre — layersPanelHTML()/wireLayersPanel() en app.js,
+         sin tocar. ═══ -->
+    <div id="panel-advanced" hidden>
+      <div id="sidebar-head">
+        <div class="search-row">
+          <div class="search-wrap">
+            <span class="search-ic">🔍</span>
+            <input type="text" id="layer-search" placeholder="Buscar capa…" autocomplete="off">
+            <button id="search-clear" title="Limpiar">×</button>
+          </div>
+        </div>
+        <div class="sidebar-actions">
+          <button class="btn sm" id="btn-compare" title="Comparar dos capas lado a lado (C)">◫ Comparar</button>
+          <button class="btn sm" id="btn-measure" title="Medir distancia y área (M)">📏 Medir</button>
+          <button class="btn sm" id="btn-export" title="Descargar una imagen del mapa actual">🖼️ Exportar</button>
+        </div>
+        <div class="sidebar-actions">
+          <button class="btn sm" onclick="setAllLayers(false)" title="Apagar todas las capas">Ocultar todo</button>
+          <button class="btn sm" onclick="resetLayers()" title="Volver a la vista inicial">Restablecer</button>
+        </div>
+      </div>
+      <div id="tab-content" style="flex:1;overflow-y:auto;padding:12px"></div>
+      <div class="panel-footer">
+        <a class="link-advanced reset" href="#" id="link-simple">← Volver al modo simple</a>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<!-- Comparar en el tiempo: SOLO existe si hay más de una misión capturada
+     en esta misma zona (ver related_missions, /api/.../status) — con una
+     sola captura no hay nada que comparar, así que no ocupa espacio. -->
+<div class="timebar" id="timebar">
+  <div class="timebar-head" id="timebar-head">
+    <h3>Comparar en el tiempo</h3>
+    <div class="timebar-dates" id="timebar-dates"></div>
+    <span class="timebar-chev" aria-hidden="true">▾</span>
+  </div>
+  <div class="timebar-body">
+    <p class="timebar-note" id="timebar-note"></p>
+  </div>
+</div>
+
+<!-- Generar resumen de situación -->
+<div class="modal-overlay" id="report-overlay">
+  <div class="report-modal" role="dialog" aria-label="Resumen de situación">
+    <div class="report-modal-head">
+      <div><h2>Resumen de situación</h2><div class="sub" id="report-sub"></div></div>
+      <button class="reset" id="report-close" aria-label="Cerrar" style="font-size:1.2em;color:var(--ink-muted)">✕</button>
+    </div>
+    <div class="report-stats" id="report-stats"></div>
+    <div class="report-preview" id="report-preview"></div>
+    <p class="report-text" id="report-text"></p>
+    <div class="report-actions">
+      <button class="btn primary reset" id="report-download">Descargar imagen</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

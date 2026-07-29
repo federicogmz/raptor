@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pipeline UAV de respuesta rápida</title>
+<style>
+/* Public Sans auto-hospedada (fonts/*.woff2, NO Google Fonts CDN): esta app
+   se usa en campo, donde puede no haber internet — los archivos viven en la
+   imagen y se sirven desde el mismo origen (symlink static/fonts ->
+   ../../geovisor/fonts, una sola copia para las dos UIs). */
+@font-face{font-family:'Public Sans';font-style:normal;font-weight:400;font-display:swap;
+  src:url('fonts/pubsans-400.woff2') format('woff2')}
+@font-face{font-family:'Public Sans';font-style:normal;font-weight:500;font-display:swap;
+  src:url('fonts/pubsans-500.woff2') format('woff2')}
+@font-face{font-family:'Public Sans';font-style:normal;font-weight:600;font-display:swap;
+  src:url('fonts/pubsans-600.woff2') format('woff2')}
+@font-face{font-family:'Public Sans';font-style:normal;font-weight:700;font-display:swap;
+  src:url('fonts/pubsans-700.woff2') format('woff2')}
+@font-face{font-family:'Public Sans';font-style:normal;font-weight:800;font-display:swap;
+  src:url('fonts/pubsans-800.woff2') format('woff2')}
+/* Mismos tokens que geovisor/style.css — esta pantalla y el geovisor son
+   UN SOLO producto (arrancar una misión desemboca directo en el geovisor):
+   teal institucional (identidad de SIATA, ver geovisor/style.css) en vez
+   del azul/ámbar de cualquier dashboard genérico, Public Sans como única
+   tipografía. */
+:root{
+  --font:'Public Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --bg:#F4F7F8; --bg2:#FFFFFF; --bg3:#EAF1F2; --bg4:#DBE5E7;
+  --bd:#DBE5E7; --bd2:#8B9CA0;
+  --tx:#15262C; --tx2:#55696E; --tx3:#8B9CA0;
+  --ac:#157A8C; --ac2:#0F5C6B; --on-ac:#fff;
+  --ok:#2E8256; --warn:#B9791C; --err:#C1401A;
+  --rgb:#157A8C; --ther:#C1401A; --ms:#2E8256;
+  --note-info-bg:#DEF0F2; --note-info-bd:#A9D6DC; --note-info-tx:#0F4650;
+  --note-warn-bg:#FBF0DB; --note-warn-bd:#E9C97E; --note-warn-tx:#6b4c00;
+  --note-err-bg:#FBE7DE;  --note-err-bd:#EFB69C;  --note-err-tx:#7a2415;
+  --note-ok-bg:#DFF0E6;   --note-ok-bd:#A0CDB2;   --note-ok-tx:#1d4a30;
+  --sel-bg:#DEF0F2;
+  --logbg:#EAF1F2;
+}
+/* Modo oscuro: mismo teal institucional, pizarra oscura (identidad SIATA). */
+:root[data-theme="dark"]{
+  --bg:#0C1A1F; --bg2:#142428; --bg3:#1A2D31; --bg4:#2A3F43;
+  --bd:#2A3F43; --bd2:#3f5459;
+  --tx:#EAF3F4; --tx2:#9CB2B5; --tx3:#6E8386;
+  --ac:#5CC2CF; --ac2:#3fa0ad; --on-ac:#072024;
+  --ok:#7FCB9C; --warn:#F0BE68; --err:#FF9166;
+  --rgb:#5CC2CF; --ther:#FF9166; --ms:#7FCB9C;
+  --note-info-bg:#1B3438; --note-info-bd:#2F4F54; --note-info-tx:#bfe4e9;
+  --note-warn-bg:#3A2E15; --note-warn-bd:#6B5726; --note-warn-tx:#F0BE68;
+  --note-err-bg:#3A2418;  --note-err-bd:#6B4128;  --note-err-tx:#ffb59e;
+  --note-ok-bg:#1B3327;   --note-ok-bd:#365E46;   --note-ok-tx:#a8e6bd;
+  --sel-bg:#1B3438;
+  --logbg:#0b1518;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font);background:var(--bg);
+  color:var(--tx);min-height:100vh;-webkit-font-smoothing:antialiased;line-height:1.5;
+  transition:background .2s,color .2s}
+/* appearance:none — sin esto el navegador puede dibujar el chrome nativo
+   del sistema operativo (ButtonFace/ButtonText) en hover/focus de un
+   <button>, ajeno a nuestro tema: fondo y texto quedaban blancos sobre
+   blanco (o negro sobre negro en modo oscuro) porque era EL NAVEGADOR
+   pintando encima, no un color mal calculado por esta hoja de estilos. */
+button{font-family:inherit;color:inherit;cursor:pointer;
+  appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  background:transparent}
+
+header{background:var(--bg2);border-bottom:1px solid var(--bd);
+  padding:14px 22px;display:flex;align-items:center;gap:13px;position:sticky;top:0;z-index:20}
+header .logo{font-size:1.5em;line-height:1}
+header h1{font-size:1.05em;font-weight:650;letter-spacing:-.01em}
+header .sub{font-size:.75em;color:var(--tx3);margin-top:1px}
+header .title-block{min-width:0}
+#btn-back,#btn-theme{width:32px;height:32px;border-radius:9px;background:var(--bg4);
+  border:1px solid var(--bd);color:var(--tx);cursor:pointer;font-size:1em;
+  display:grid;place-items:center;flex-shrink:0;font-family:inherit;transition:background .15s}
+#btn-back:hover,#btn-theme:hover{background:var(--ac);border-color:var(--ac);color:var(--on-ac)}
+main{max-width:840px;margin:0 auto;padding:28px 20px 60px}
+
+.card{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:22px;margin-bottom:16px}
+.card>h2{font-size:1.05em;font-weight:650;margin-bottom:4px}
+.card>.card-sub{font-size:.84em;color:var(--tx2);margin-bottom:18px}
+.section-label{font-size:.72em;color:var(--tx3);text-transform:uppercase;letter-spacing:.08em;
+  font-weight:600;margin:22px 0 10px}
+.section-label:first-of-type{margin-top:0}
+
+.btn{background:var(--bg4);border:1px solid var(--bd2);color:var(--tx);padding:9px 16px;
+  border-radius:8px;cursor:pointer;font-size:.87em;font-family:inherit;font-weight:500;
+  transition:background .15s,border-color .15s}
+/* :not(.primary):not(.ghost) — SIN esto, esta regla (más específica que
+   el .btn.primary{background:...} de base) le pisaba el fondo teal al
+   botón primario en hover, dejando SU texto blanco (pensado para
+   contrastar con teal) sobre gris claro: casi invisible en tema claro.
+   .primary/.ghost ya tienen su propio hover completo (filter / bg+color
+   a juego) un poco más abajo — esta regla es solo para el botón "neutro". */
+.btn:hover:not(:disabled):not(.primary):not(.ghost){background:var(--bd);border-color:var(--bd2)}
+.btn.primary{background:var(--ac2);border-color:var(--ac2);color:var(--on-ac);font-weight:600}
+.btn.primary:hover:not(:disabled){filter:brightness(1.1)}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--tx2)}
+.btn.ghost:hover:not(:disabled){background:var(--bg3);color:var(--tx)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.sm{padding:5px 11px;font-size:.8em}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.spread{justify-content:space-between}
+.hidden{display:none!important}
+
+input[type=text]{background:var(--bg);border:1px solid var(--bd2);color:var(--tx);
+  padding:10px 12px;border-radius:8px;font-family:inherit;font-size:.92em;width:100%}
+input[type=text]:focus{outline:none;border-color:var(--ac)}
+
+/* ── Tarjetas de sensor (seleccionables) ───────────────────────────── */
+.sensors{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.sensor{background:var(--bg3);border:1.5px solid var(--bd);border-radius:10px;padding:14px 16px;
+  cursor:pointer;transition:border-color .15s,background .15s;position:relative;user-select:none}
+.sensor:hover{border-color:var(--bd2)}
+.sensor.on{border-color:var(--ac);background:var(--sel-bg)}
+.sensor .st{display:flex;align-items:center;gap:9px}
+.sensor .tick{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--bd2);
+  display:grid;place-items:center;font-size:.7em;color:transparent;flex-shrink:0;transition:all .15s}
+.sensor.on .tick{background:var(--ac);border-color:var(--ac);color:var(--on-ac)}
+.sensor .nm{font-weight:600;font-size:.92em}
+.sensor .dsc{font-size:.78em;color:var(--tx2);margin-top:5px;padding-left:27px}
+
+/* ── Dropzone + chips de detección ─────────────────────────────────── */
+.dz{border:1.5px dashed var(--bd2);border-radius:10px;padding:20px;text-align:center;
+  cursor:pointer;transition:all .15s;background:var(--bg3);margin-top:10px}
+.dz:hover,.dz.drag{border-color:var(--ac);background:var(--sel-bg)}
+.dz input{display:none}
+.dz .ic{font-size:1.5em;display:block;margin-bottom:4px;opacity:.7}
+.dz .t{font-size:.87em;font-weight:500}
+.dz .h{font-size:.75em;color:var(--tx3);margin-top:3px}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px;justify-content:center}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--bd);
+  border-radius:20px;padding:4px 11px;font-size:.78em;font-variant-numeric:tabular-nums}
+.chip .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.chip.rgb .dot{background:var(--rgb)} .chip.ther .dot{background:var(--ther)}
+.chip.ms .dot{background:var(--ms)}   .chip.other .dot{background:var(--tx3)}
+.chip.warn{border-color:var(--note-warn-bd);background:var(--note-warn-bg);color:var(--note-warn-tx)}
+.stored{font-size:.78em;color:var(--tx2);margin-top:9px;text-align:center}
+.stored b{color:var(--ok);font-weight:600}
+
+/* ── Opciones (radio en tarjeta) ───────────────────────────────────── */
+.opts{display:flex;flex-direction:column;gap:8px}
+.opt{display:flex;gap:11px;align-items:flex-start;background:var(--bg3);border:1.5px solid var(--bd);
+  border-radius:9px;padding:12px 14px;cursor:pointer;transition:border-color .15s,background .15s}
+.opt:hover{border-color:var(--bd2)}
+.opt.on{border-color:var(--ac);background:var(--sel-bg)}
+.opt.dis{opacity:.5;cursor:not-allowed}
+.opt input{margin-top:3px;accent-color:var(--ac);flex-shrink:0}
+.opt .ot{font-size:.89em;font-weight:550}
+.opt .od{font-size:.78em;color:var(--tx2);margin-top:2px}
+
+/* ── Avisos ────────────────────────────────────────────────────────── */
+.note{border-radius:9px;padding:13px 15px;font-size:.84em;display:flex;gap:11px;align-items:flex-start;
+  margin-top:14px;line-height:1.55}
+.note .ni{flex-shrink:0;font-size:1.05em;line-height:1.3}
+.note.info{background:var(--note-info-bg);border:1px solid var(--note-info-bd);color:var(--note-info-tx)}
+.note.warn{background:var(--note-warn-bg);border:1px solid var(--note-warn-bd);color:var(--note-warn-tx)}
+.note.err{background:var(--note-err-bg);border:1px solid var(--note-err-bd);color:var(--note-err-tx)}
+.note.ok{background:var(--note-ok-bg);border:1px solid var(--note-ok-bd);color:var(--note-ok-tx)}
+.note ul{margin:5px 0 0 16px}
+.note li{margin-bottom:4px}
+
+/* ── Lista de misiones ─────────────────────────────────────────────── */
+.mission{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:14px 16px;
+  background:var(--bg3);border:1px solid var(--bd);border-radius:10px;margin-bottom:9px}
+.mission .nm{font-weight:600;font-size:.94em;display:flex;align-items:center;gap:8px}
+.mission .tg{font-size:.77em;color:var(--tx3);margin-top:3px}
+.badge{font-size:.68em;padding:2px 8px;border-radius:20px;font-weight:600;letter-spacing:.02em}
+.badge.run{background:var(--note-ok-bg);color:var(--ok);border:1px solid var(--note-ok-bd)}
+.badge.fail{background:var(--note-err-bg);color:var(--err);border:1px solid var(--note-err-bd)}
+.empty{text-align:center;padding:34px 20px;color:var(--tx3);font-size:.87em}
+.empty .ic{font-size:2.4em;display:block;margin-bottom:10px;opacity:.45}
+
+.up{margin-top:14px}
+.up .ut{display:flex;justify-content:space-between;font-size:.8em;color:var(--tx2);margin-bottom:6px;
+  font-variant-numeric:tabular-nums}
+.small{font-size:.79em;color:var(--tx3)}
+</style>
+</head>
+<body>
+<header>
+  <button id="btn-back" class="hidden" onclick="goBack()" title="Volver">←</button>
+  <span class="logo">🛰️</span>
+  <div class="title-block">
+    <h1>Pipeline UAV de respuesta rápida</h1>
+    <div class="sub">Ortomosaicos RGB · térmicos · multiespectrales — DJI H20T / M3T / M3M</div>
+  </div>
+  <span style="flex:1"></span>
+  <button id="btn-theme" onclick="toggleTheme()" title="Cambiar entre modo claro y oscuro">
+    <span id="theme-ic">🌙</span></button>
+</header>
+<main>
+
+<!-- ═══ LANDING ═══ -->
+<section id="v-landing" class="hidden">
+  <div class="card">
+    <div class="row spread" style="margin-bottom:16px">
+      <div>
+        <h2 style="margin:0">Misiones</h2>
+        <div class="card-sub" style="margin:0">Vuelos procesados en este contenedor</div>
+      </div>
+      <button class="btn primary" onclick="openSetup()">+ Nueva misión</button>
+    </div>
+    <div id="mlist"></div>
+  </div>
+</section>
+
+<!-- ═══ SETUP (nueva misión / corregir y reintentar) ═══ -->
+<section id="v-setup" class="hidden">
+  <div class="card">
+    <h2 id="setup-title">Nueva misión</h2>
+    <div class="card-sub">Elegí qué vuelos vas a procesar. Podés cargar uno solo o los dos.</div>
+
+    <div class="section-label">Nombre de la misión</div>
+    <input type="text" id="mname" placeholder="p. ej. Barbosa_2026-07-24" autocomplete="off">
+
+    <div class="section-label">¿Qué vuelos tenés?</div>
+    <div class="sensors">
+      <div class="sensor" id="s-rt" onclick="toggleSensor('rt')">
+        <div class="st"><span class="tick">✔</span><span class="nm">DJI M3T / H20T</span></div>
+        <div class="dsc">Cámara RGB + sensor térmico radiométrico</div>
+      </div>
+      <div class="sensor" id="s-ms" onclick="toggleSensor('ms')">
+        <div class="st"><span class="tick">✔</span><span class="nm">DJI M3M</span></div>
+        <div class="dsc">4 bandas multiespectrales (G/R/RE/NIR) + cámara D</div>
+      </div>
+    </div>
+
+    <!-- Bloque RGB/térmico -->
+    <div id="blk-rt" class="hidden">
+      <div class="section-label">Fotos del vuelo M3T / H20T</div>
+      <div class="dz" id="dz-rt" onclick="document.getElementById('in-rt').click()">
+        <input type="file" id="in-rt" webkitdirectory multiple>
+        <span class="ic">📁</span>
+        <div class="t">Elegí la carpeta completa del vuelo</div>
+        <div class="h">Busca <code>*_V.JPG</code> · <code>*_W.JPG</code> · <code>*_T.JPG</code> en subcarpetas</div>
+        <div class="chips" id="ch-rt"></div>
+      </div>
+      <div class="stored hidden" id="st-rt"></div>
+
+      <div class="section-label">Productos a generar</div>
+      <div class="opts">
+        <label class="opt" id="o-rt-both">
+          <input type="radio" name="prod" value="rgb+thermal" checked onchange="refreshUI()">
+          <div><div class="ot">Ortomosaico RGB + térmico</div>
+            <div class="od">Ambos mosaicos, más máscara de confianza y detección de hotspots</div></div>
+        </label>
+        <label class="opt" id="o-rt-rgb">
+          <input type="radio" name="prod" value="rgb" onchange="refreshUI()">
+          <div><div class="ot">Solo ortomosaico RGB</div>
+            <div class="od">Salta todo el procesamiento térmico (más rápido)</div></div>
+        </label>
+      </div>
+    </div>
+
+    <!-- Bloque multiespectral -->
+    <div id="blk-ms" class="hidden">
+      <div class="section-label">Bandas del vuelo M3M</div>
+      <div class="dz" id="dz-ms" onclick="document.getElementById('in-ms').click()">
+        <input type="file" id="in-ms" webkitdirectory multiple>
+        <span class="ic">📁</span>
+        <div class="t">Elegí la carpeta completa del vuelo</div>
+        <div class="h">Busca <code>*_MS_G/R/RE/NIR.TIF</code> y <code>*_D.JPG</code></div>
+        <div class="chips" id="ch-ms"></div>
+      </div>
+      <div class="stored hidden" id="st-ms"></div>
+    </div>
+
+    <!-- Procesamiento previo detectado -->
+    <div id="blk-reuse" class="hidden">
+      <div class="section-label">Procesamiento previo detectado</div>
+      <div class="note info" style="margin-top:0">
+        <span class="ni">♻️</span>
+        <div>Esta misión ya tiene reconstrucciones 3D de ODM: <b id="reuse-list"></b>.
+          Reusarlas salta la parte más lenta del pipeline (SfM + nube de puntos).</div>
+      </div>
+      <div class="opts" style="margin-top:10px">
+        <label class="opt on" id="o-reuse-y">
+          <input type="radio" name="reuse" value="1" checked onchange="refreshUI()">
+          <div><div class="ot">Reusar lo ya reconstruido</div>
+            <div class="od">Rehace solo recortes, índices, tiles y exportación — minutos en vez de horas</div></div>
+        </label>
+        <label class="opt" id="o-reuse-n">
+          <input type="radio" name="reuse" value="0" onchange="refreshUI()">
+          <div><div class="ot">Empezar de cero</div>
+            <div class="od">Reconstruye todo otra vez. Usalo si cambiaste o agregaste fotos del vuelo</div></div>
+        </label>
+      </div>
+    </div>
+
+    <div id="setup-err" class="note err hidden"><span class="ni">⚠️</span><div id="setup-err-t"></div></div>
+
+    <div class="up hidden" id="upbox">
+      <div class="ut"><span id="uplabel">Subiendo…</span><span id="uppct">0%</span></div>
+      <div class="bar"><i id="upbar"></i></div>
+    </div>
+
+    <div class="row" style="margin-top:20px">
+      <button class="btn primary" id="btn-start" onclick="uploadAndStart()">Iniciar procesamiento</button>
+      <button class="btn ghost" onclick="showLanding()">Cancelar</button>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+// Estado
+// ═══════════════════════════════════════════════════════════════════
+let sensors = {rt:true, ms:false};   // qué vuelos declaró el usuario
+let stored  = {rgb_thermal:null, multispectral:null};  // ya subido al server
+let odmPrev = {};                    // reconstrucciones ODM existentes
+
+const $ = id => document.getElementById(id);
+const views = ['v-landing','v-setup'];
+function show(v){
+  views.forEach(x=>$(x).classList.toggle('hidden', x!==v));
+  // El botón de volver solo aparece donde hay a dónde volver: en el listado
+  // de misiones (la raíz) no tiene sentido.
+  $('btn-back').classList.toggle('hidden', v==='v-landing');
+  currentView = v;
+}
+let currentView = 'v-landing';
+function goBack(){
+  // Desde el progreso de una corrida EN CURSO se vuelve al listado (la
+  // corrida sigue en el servidor); desde el formulario, se cancela.
+  showLanding();
+}
+
+// ── Tema claro / oscuro ──────────────────────────────────────────────
+// Mismo mecanismo y misma clave que el geovisor, para que la preferencia
+// valga en las dos pantallas y no haya que elegirla dos veces.
+const THEME_KEY='raptor-geovisor-theme';
+function applyTheme(t){
+  document.documentElement.setAttribute('data-theme',t);
+  $('theme-ic').textContent = t==='light' ? '☀️' : '🌙';
+  try{ localStorage.setItem(THEME_KEY,t); }catch(e){}
+}
+function toggleTheme(){
+  const cur=document.documentElement.getAttribute('data-theme')||'dark';
+  applyTheme(cur==='dark'?'light':'dark');
+}
+(function initTheme(){
+  let t=null;
+  try{ t=localStorage.getItem(THEME_KEY); }catch(e){}
+  if(!t)t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';
+  applyTheme(t);
+})();
+
+// ═══════════════════════════════════════════════════════════════════
+// Clasificación de archivos — mismos sufijos que docker/setup-data.sh.
+// Se hace en el navegador para dar feedback ANTES de subir nada (el
+// backend revalida igual antes de lanzar el pipeline).
+// ═══════════════════════════════════════════════════════════════════
+function classify(files){
+  const c = {rgb:0, thermal:0, ms:0, dband:0, otros:0, total:0};
+  for(const f of files){
+    const u = f.name.toUpperCase();
+    if(u.endsWith('_V.JPG') || u.endsWith('_W.JPG')) c.rgb++;
+    else if(u.endsWith('_T.JPG')) c.thermal++;
+    else if(u.includes('_MS_') && u.endsWith('.TIF')) c.ms++;
+    else if(u.endsWith('_D.JPG')) c.dband++;
+    else c.otros++;
+    c.total++;
+  }
+  return c;
+}
+
+function renderChips(el, c, expect){
+  if(!c || !c.total){ el.innerHTML=''; return; }
+  const p = [];
+  if(c.rgb)     p.push(`<span class="chip rgb"><i class="dot"></i>${c.rgb} RGB</span>`);
+  if(c.thermal) p.push(`<span class="chip ther"><i class="dot"></i>${c.thermal} térmicas</span>`);
+  if(c.ms)      p.push(`<span class="chip ms"><i class="dot"></i>${c.ms} bandas MS</span>`);
+  if(c.dband)   p.push(`<span class="chip rgb"><i class="dot"></i>${c.dband} banda D</span>`);
+  if(c.otros)   p.push(`<span class="chip other"><i class="dot"></i>${c.otros} otros</span>`);
+  for(const e of (expect||[])){
+    if(!c[e.k]) p.push(`<span class="chip warn">⚠ sin ${e.n}</span>`);
+  }
+  el.innerHTML = p.join('');
+}
+
+// suma de lo ya subido al server + lo recién elegido en el input
+function totalFor(kind, inputId){
+  const s = stored[kind] || {};
+  const l = classify($(inputId).files);
+  const out = {};
+  for(const k of ['rgb','thermal','ms','dband','otros','total'])
+    out[k] = (s[k]||0) + (l[k]||0);
+  return out;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Landing
+// ═══════════════════════════════════════════════════════════════════
+function showLanding(){ show('v-landing'); loadMissions(); }
+
+async function loadMissions(){
+  const box = $('mlist');
+  box.innerHTML = '<div class="empty">Cargando…</div>';
+  try{
+    const d = await (await fetch('/api/missions')).json();
+    if(!d.missions.length){
+      box.innerHTML = `<div class="empty"><span class="ic">🛩️</span>
+        Todavía no procesaste ninguna misión.<br>Empezá con «+ Nueva misión».</div>`;
+      return;
+    }
+    box.innerHTML = d.missions.map(m=>{
+      const running = d.active === m.name;
+      const failed  = !running && d.last_run && d.last_run.name===m.name && !d.last_run.ok;
+      const tags = [ m.has_tiles?'tiles listos':(m.has_outputs?'productos generados':'sin productos'),
+                     m.has_processing?'reconstrucción ODM guardada':null ].filter(Boolean).join(' · ');
+      // El geovisor integrado es el mismo destino esté procesándose (con su
+      // HUD de progreso en vivo) o ya terminada (solo el mapa) — no hace
+      // falta una pantalla de progreso aparte acá, ver geovisor/app.js.
+      let btn = '';
+      if(running)          btn = `<button class="btn sm primary" onclick="location.href='/view/${encodeURIComponent(m.name)}'">Ver en vivo</button>`;
+      else if(m.has_tiles) btn = `<button class="btn sm primary" onclick="location.href='/view/${encodeURIComponent(m.name)}'">Geovisor</button>`;
+      else                 btn = `<button class="btn sm" onclick="openSetup('${m.name}')">Continuar</button>`;
+      // Sin borrar mientras corre: activate_mission() la tiene symlinkeada a
+      // processing/outputs/tiles — borrar el directorio debajo la dejaría
+      // escribiendo a la nada.
+      const delBtn = running ? '' :
+        `<button class="btn sm ghost" onclick="deleteMission('${m.name}')" title="Eliminar misión">🗑️</button>`;
+      return `<div class="mission">
+        <div><div class="nm">${m.name}
+          ${running?'<span class="badge run">● procesando</span>':''}
+          ${failed ?'<span class="badge fail">falló</span>':''}</div>
+          <div class="tg">${tags}</div></div>
+        <div class="row">${btn}${delBtn}</div></div>`;
+    }).join('');
+  }catch(e){ box.innerHTML = '<div class="empty">No se pudo cargar la lista.</div>'; }
+}
+
+async function deleteMission(name){
+  if(!confirm(`¿Eliminar la misión "${name}"? Esto borra las fotos subidas, la reconstrucción y todos los productos generados. No se puede deshacer.`))return;
+  try{
+    const r = await fetch(`/api/missions/${encodeURIComponent(name)}`, {method:'DELETE'});
+    if(!r.ok){
+      let msg = 'no se pudo eliminar';
+      try{ msg = (await r.json()).detail || msg; }catch(e){}
+      throw new Error(msg);
+    }
+    loadMissions();
+  }catch(e){
+    alert('Error al eliminar la misión: ' + e.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Setup
+// ═══════════════════════════════════════════════════════════════════
+async function openSetup(name){
+  show('v-setup');
+  $('setup-err').classList.add('hidden');
+  $('upbox').classList.add('hidden');
+  $('in-rt').value = ''; $('in-ms').value = '';
+  stored = {rgb_thermal:null, multispectral:null}; odmPrev = {};
+
+  if(name){
+    $('setup-title').textContent = 'Misión: ' + name;
+    $('mname').value = name;
+    await loadStatus(name);
+  }else{
+    $('setup-title').textContent = 'Nueva misión';
+    $('mname').value = 'mision_' + new Date().toISOString().slice(0,10);
+    sensors = {rt:true, ms:false};
+  }
+  refreshUI();
+}
+
+// Al escribir un nombre que ya existe, se traen sus archivos y su estado ODM:
+// así "corregir y reintentar" no obliga a resubir nada.
+let nameTimer = null;
+$('mname').addEventListener('input', ()=>{
+  clearTimeout(nameTimer);
+  nameTimer = setTimeout(async ()=>{ await loadStatus($('mname').value.trim()); refreshUI(); }, 400);
+});
+
+async function loadStatus(name){
+  if(!name){ stored={rgb_thermal:null,multispectral:null}; odmPrev={}; return; }
+  try{
+    const s = await (await fetch(`/api/missions/${encodeURIComponent(name)}/status`)).json();
+    stored = s.uploads; odmPrev = s.odm;
+    // Preseleccionar los sensores según lo que la misión YA tiene subido.
+    if(s.uploads.rgb_thermal.total) sensors.rt = true;
+    if(s.uploads.multispectral.total) sensors.ms = true;
+    if(s.uploads.rgb_thermal.total && !s.uploads.rgb_thermal.thermal)
+      document.querySelector('input[name=prod][value=rgb]').checked = true;
+  }catch(e){ stored={rgb_thermal:null,multispectral:null}; odmPrev={}; }
+}
+
+function toggleSensor(k){ sensors[k] = !sensors[k]; refreshUI(); }
+
+function refreshUI(){
+  $('s-rt').classList.toggle('on', sensors.rt);
+  $('s-ms').classList.toggle('on', sensors.ms);
+  $('blk-rt').classList.toggle('hidden', !sensors.rt);
+  $('blk-ms').classList.toggle('hidden', !sensors.ms);
+
+  const cRT = totalFor('rgb_thermal','in-rt');
+  const cMS = totalFor('multispectral','in-ms');
+  renderChips($('ch-rt'), cRT, sensors.rt ? [{k:'rgb',n:'fotos RGB'}] : []);
+  renderChips($('ch-ms'), cMS, sensors.ms ? [{k:'ms',n:'bandas MS'}] : []);
+
+  // "ya guardado en el servidor" — deja claro qué NO hace falta volver a subir
+  for(const [kind,id] of [['rgb_thermal','st-rt'],['multispectral','st-ms']]){
+    const s = stored[kind];
+    const el = $(id);
+    if(s && s.total){
+      el.classList.remove('hidden');
+      el.innerHTML = `<b>${s.total}</b> archivos ya guardados en el servidor · ` +
+        `<a href="#" onclick="clearUploads('${kind}');return false" style="color:var(--tx2)">vaciar</a>`;
+    }else el.classList.add('hidden');
+  }
+
+  // "Solo RGB" si no hay térmicas: se deshabilita la opción imposible en vez
+  // de dejar que el pipeline falle 40 min después.
+  const both = $('o-rt-both'), noTher = cRT.total>0 && cRT.thermal===0;
+  both.classList.toggle('dis', noTher);
+  both.querySelector('input').disabled = noTher;
+  if(noTher) document.querySelector('input[name=prod][value=rgb]').checked = true;
+  document.querySelectorAll('.opt input[name=prod]').forEach(i=>
+    i.closest('.opt').classList.toggle('on', i.checked));
+
+  // Reusar ODM previo (reemplaza el viejo checkbox SKIP_ODM)
+  const prev = Object.entries(odmPrev||{}).filter(([,v])=>v).map(([k])=>
+    ({rgb:'RGB', thermal:'térmico', multispectral:'multiespectral'}[k]||k));
+  $('blk-reuse').classList.toggle('hidden', !prev.length);
+  if(prev.length) $('reuse-list').textContent = prev.join(', ');
+  document.querySelectorAll('.opt input[name=reuse]').forEach(i=>
+    i.closest('.opt').classList.toggle('on', i.checked));
+
+  $('btn-start').disabled = !sensors.rt && !sensors.ms;
+}
+
+['in-rt','in-ms'].forEach(id=>$(id).addEventListener('change', refreshUI));
+
+// Drag & drop sobre las dropzones
+for(const [dz,inp] of [['dz-rt','in-rt'],['dz-ms','in-ms']]){
+  const el = $(dz);
+  el.addEventListener('dragover', e=>{e.preventDefault(); el.classList.add('drag');});
+  el.addEventListener('dragleave', ()=>el.classList.remove('drag'));
+  el.addEventListener('drop', e=>{
+    e.preventDefault(); el.classList.remove('drag');
+    if(e.dataTransfer.files.length){ $(inp).files = e.dataTransfer.files; refreshUI(); }
+  });
+}
+
+async function clearUploads(kind){
+  const name = $('mname').value.trim(); if(!name) return;
+  const fd = new FormData(); fd.append('kind', kind);
+  await fetch(`/api/missions/${encodeURIComponent(name)}/clear-uploads`, {method:'POST', body:fd});
+  await loadStatus(name); refreshUI();
+}
+
+function selectedMode(){
+  if(!sensors.rt) return 'none';
+  return document.querySelector('input[name=prod]:checked').value;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Subida + arranque
+// ═══════════════════════════════════════════════════════════════════
+async function uploadFiles(mission, kind, fileList, cb){
+  const files = Array.from(fileList);
+  let done = 0, idx = 0;
+  const worker = async () => {
+    while(idx < files.length){
+      const f = files[idx++];
+      const fd = new FormData();
+      fd.append('mission', mission); fd.append('kind', kind); fd.append('file', f);
+      const r = await fetch('/api/upload', {method:'POST', body:fd});
+      if(!r.ok) throw new Error(`no se pudo subir ${f.name}`);
+      cb(++done, files.length);
+    }
+  };
+  await Promise.all(Array.from({length: Math.min(4, files.length)}, worker));
+}
+
+function setUpload(label, done, total){
+  $('upbox').classList.remove('hidden');
+  const pct = total ? Math.round(done/total*100) : 0;
+  $('uplabel').textContent = `${label} — ${done}/${total} archivos`;
+  $('uppct').textContent = pct + '%';
+  $('upbar').style.width = pct + '%';
+}
+
+function setupError(msg){
+  $('setup-err-t').innerHTML = msg;
+  $('setup-err').classList.remove('hidden');
+  $('setup-err').scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+async function uploadAndStart(){
+  $('setup-err').classList.add('hidden');
+  const mission = $('mname').value.trim();
+  const mode = selectedMode();
+  const hasMS = sensors.ms;
+  if(!mission) return setupError('Poné un nombre para la misión.');
+
+  const fRT = sensors.rt ? $('in-rt').files : [];
+  const fMS = sensors.ms ? $('in-ms').files : [];
+  const cRT = totalFor('rgb_thermal','in-rt'), cMS = totalFor('multispectral','in-ms');
+  // Chequeos locales (instantáneos, antes de subir un solo byte)
+  if(sensors.rt && !cRT.rgb)
+    return setupError('El vuelo M3T/H20T no tiene fotos RGB (<code>*_V.JPG</code> / <code>*_W.JPG</code>). '
+      + 'Elegí la carpeta correcta, o desmarcá ese sensor si solo vas a procesar el multiespectral.');
+  if(mode === 'rgb+thermal' && !cRT.thermal)
+    return setupError('Elegiste RGB + térmico pero no hay fotos térmicas (<code>*_T.JPG</code>). '
+      + 'Agregá la carpeta con las térmicas, o cambiá el producto a «Solo ortomosaico RGB».');
+  if(sensors.ms && !cMS.ms)
+    return setupError('El vuelo M3M no tiene bandas multiespectrales (<code>*_MS_*.TIF</code>). '
+      + 'Elegí la carpeta correcta, o desmarcá ese sensor.');
+
+  const btn = $('btn-start'); btn.disabled = true;
+  try{
+    if(fRT.length) await uploadFiles(mission,'rgb_thermal',fRT,(d,t)=>setUpload('Subiendo vuelo RGB/térmico',d,t));
+    if(fMS.length) await uploadFiles(mission,'multispectral',fMS,(d,t)=>setUpload('Subiendo vuelo multiespectral',d,t));
+
+    $('uplabel').textContent = 'Iniciando procesamiento…'; $('uppct').textContent = '';
+    const reuseEl = document.querySelector('input[name=reuse]:checked');
+    const reuse = ($('blk-reuse').classList.contains('hidden') || !reuseEl) ? '0' : reuseEl.value;
+    const fd = new FormData();
+    fd.append('mode', mode);
+    fd.append('has_multispectral', hasMS ? 'true':'false');
+    fd.append('reuse_odm', reuse === '1' ? 'true':'false');
+    const r = await fetch(`/api/missions/${encodeURIComponent(mission)}/start`, {method:'POST', body:fd});
+    if(!r.ok){
+      let d; try{ d = JSON.parse(await r.text()); }catch(_){ d = null; }
+      throw new Error(d && d.detail ? d.detail : 'no se pudo iniciar el procesamiento');
+    }
+    // Arrancó: en vez de mostrar una pantalla de progreso PROPIA acá, se
+    // navega directo al geovisor integrado — /view/ ya activó los symlinks
+    // en /start, así que esto solo redirige (activate_mission() de nuevo es
+    // barato e inofensivo). El geovisor trae su propio HUD de progreso
+    // conectado al mismo SSE, y va sumando capas a medida que existen — ver
+    // geovisor/app.js, connectLiveMission().
+    location.href = `/view/${encodeURIComponent(mission)}`;
+  }catch(e){
+    setupError(e.message);
+    $('upbox').classList.add('hidden');
+    btn.disabled = false;
+  }
+}
+
+showLanding();
+</script>
+</body>
+</html>
