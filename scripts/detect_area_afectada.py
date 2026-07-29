@@ -116,6 +116,15 @@ import numpy as np
 from osgeo import gdal, ogr, osr
 from scipy import ndimage
 
+# Identificación de bandas por NOMBRE: se reusa tal cual la de
+# compute_vegetation_indices.py en vez de duplicar la tabla de alias (las dos
+# leen el MISMO multispectral_orthomosaic.tif — tenían que coincidir y no
+# coincidían, ver _read_bands()). Mismo patrón de import que
+# odm_progress_filter.py (sys.path del propio directorio), para que funcione
+# tanto corriendo este script directo como importándolo desde /app.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from compute_vegetation_indices import _find_band  # noqa: E402
+
 gdal.UseExceptions()
 
 MS_PATH = "outputs/multispectral_orthomosaic.tif"
@@ -151,6 +160,50 @@ def _align_to_grid(src_path, ref_gt, ref_proj, W, H, resample="bilinear"):
     return gdal.Warp("", src_path, options=opts)
 
 
+def _read_bands(ms_ds):
+    """Bandas espectrales por NOMBRE + máscara alpha del ortomosaico MS.
+
+    BUG REAL corregido acá: esto asumía posición fija (banda 1=Red, 2=Green,
+    3=NIR, 4=RedEdge, 5=alpha), pero compute_vegetation_indices.py —que lee
+    ESTE MISMO archivo— documenta explícitamente que "el orden de
+    reconstruction.multi_camera de ODM no está garantizado" y por eso resuelve
+    por GetDescription() desde siempre. Los dos scripts leían el mismo raster
+    con criterios opuestos.
+
+    Con un orden distinto al asumido, `brightness` (promedio de las 4) seguía
+    saliendo bien —es simétrico— así que nada fallaba a la vista; pero el NDVI
+    quedaba calculado con dos bandas cambiadas, y ese NDVI gobierna el techo
+    NDVI_CEILING (semilla y débil) y la compuerta SEED_NDVI_GROWTH_MAX por
+    componente. Es decir: el polígono de área afectada y toda la severidad que
+    se calcula sobre él salían mal, en silencio y sin ningún error.
+
+    Se exigen las 4 bandas: el z-score de brillo está calibrado sobre el
+    promedio de las 4 (ver docstring del módulo), no sobre las que haya.
+    """
+    names = {}
+    for logical in ("nir", "red", "green", "rededge"):
+        idx = _find_band(ms_ds, logical)
+        if idx is None:
+            descs = [ms_ds.GetRasterBand(i + 1).GetDescription() or f"(sin nombre, banda {i+1})"
+                     for i in range(ms_ds.RasterCount)]
+            print(f"❌ ERROR: no se encontró la banda '{logical}' en {MS_PATH}.")
+            print(f"   Bandas presentes: {descs}")
+            print("   ODM las nombra desde el tag XMP Camera:BandName de cada TIFF del M3M.")
+            sys.exit(1)
+        names[logical] = idx
+    bands = {k: ms_ds.GetRasterBand(v).ReadAsArray().astype(np.float32)
+             for k, v in names.items()}
+
+    # Alpha por interpretación de color, no por índice fijo — mismo criterio
+    # que trim_multispectral() y compute_vegetation_indices.py.
+    n = ms_ds.RasterCount
+    if n > 1 and ms_ds.GetRasterBand(n).GetColorInterpretation() == gdal.GCI_AlphaBand:
+        alpha = ms_ds.GetRasterBand(n).ReadAsArray()
+    else:
+        alpha = np.full(bands["nir"].shape, 255, dtype=np.uint8)
+    return bands, alpha
+
+
 def compute_z_scores():
     """Devuelve (z_severidad, temp_abs, valid, ndvi, gt, proj, W, H) — todo
     alineado a la grilla del multiespectral. Cachea en CACHE_PATH."""
@@ -158,11 +211,9 @@ def compute_z_scores():
     gt, proj = ms_ds.GetGeoTransform(), ms_ds.GetProjection()
     W, H = ms_ds.RasterXSize, ms_ds.RasterYSize
 
-    red = ms_ds.GetRasterBand(1).ReadAsArray().astype(np.float32)
-    green = ms_ds.GetRasterBand(2).ReadAsArray().astype(np.float32)
-    nir = ms_ds.GetRasterBand(3).ReadAsArray().astype(np.float32)
-    rededge = ms_ds.GetRasterBand(4).ReadAsArray().astype(np.float32)
-    ms_alpha = ms_ds.GetRasterBand(5).ReadAsArray()
+    bands, ms_alpha = _read_bands(ms_ds)
+    red, green = bands["red"], bands["green"]
+    nir, rededge = bands["nir"], bands["rededge"]
     brightness = (red + green + nir + rededge) / 4
 
     th_w = _align_to_grid(TH_PATH, gt, proj, W, H)
