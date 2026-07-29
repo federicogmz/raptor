@@ -57,6 +57,20 @@
 #                       filtrar. Por defecto (0) solo se ve una barra de
 #                       progreso por etapa; el log completo de cada una
 #                       queda en outputs/logs/ y se vuelca entero si falla.
+#   MAX_CONCURRENCY fuerza el nº de hilos de ODM (por defecto se calcula
+#                    según la RAM disponible, ver safe_concurrency()). Bajalo
+#                    si el proceso muere sin mensaje por falta de memoria.
+#
+# Exportación de la entrega (opcional — sin EXPORT_DIR no se exporta nada):
+#   EXPORT_DIR            carpeta destino de los productos finales
+#   EXPORT_PRODUCTS       qué exportar, claves separadas por coma; "all" = todo
+#                          (rgb, thermal, dsm, multispectral, indices, classes,
+#                           confidence, area, flight_path, situation, pointclouds)
+#   EXPORT_RASTER_FORMAT  cog (default) | gtiff
+#   EXPORT_VECTOR_FORMAT  geojson (default) | gpkg | shp | kml
+#   EXPORT_EPSG           EPSG destino (9377 = MAGNA-SIRGAS / Origen-Nacional,
+#                          el sistema único nacional de Colombia) o "source"
+#                          para entregar en la UTM que eligió ODM.
 # ═══════════════════════════════════════════════════════════════════
 set -euo pipefail
 cd /app
@@ -189,6 +203,39 @@ publish_partial() {
 # el log crudo completo siempre queda en outputs/logs/odm_<label>.log y se
 # vuelca entero si el proceso falla, para no perder nunca un traceback.
 mkdir -p outputs/logs
+
+# ── Concurrencia acotada por MEMORIA ────────────────────────────────
+# ODM documenta su propio consumo: "Peak memory requirement is ~1GB per thread
+# and 2 megapixel image resolution" (--max-concurrency), y por defecto usa TODOS
+# los núcleos. Escala con el tamaño de imagen, así que para un sensor de N MP el
+# pico por hilo es ~N/2 GB.
+#
+# Bug reportado (jul 2026, misión multiespectral de 413 capturas): el log corta
+# en seco justo en "Computing band alignment", sin traceback ni mensaje de
+# error. Esa etapa (opendm/multispectral.py::compute_alignment_matrices) carga
+# DOS imágenes completas por hilo; las bandas del M3M son 2592x1944 = 5 MP, o
+# sea ~2.5 GB por hilo. En una máquina de 20 núcleos eso pide ~50 GB. Cuando el
+# kernel mata el proceso con SIGKILL no hay excepción que loguear — el log
+# simplemente termina, que es exactamente el síntoma reportado.
+#
+# Se acota al 80% de la RAM DISPONIBLE (no la total: el resto del pipeline y el
+# propio contenedor también ocupan). Nunca sube por encima de los núcleos reales
+# ni baja de 1. MAX_CONCURRENCY lo fuerza a mano si hace falta.
+safe_concurrency() {
+  local megapixels="${1:-2}"
+  if [[ -n "${MAX_CONCURRENCY:-}" ]]; then echo "$MAX_CONCURRENCY"; return; fi
+  local cores avail_mb mb_per_thread n
+  cores=$(nproc 2>/dev/null || echo 4)
+  avail_mb=$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null)
+  [[ -z "$avail_mb" || "$avail_mb" -le 0 ]] && { echo "$cores"; return; }
+  mb_per_thread=$(( megapixels * 1024 / 2 ))
+  [[ "$mb_per_thread" -lt 512 ]] && mb_per_thread=512
+  n=$(( avail_mb * 8 / 10 / mb_per_thread ))
+  [[ "$n" -lt 1 ]] && n=1
+  [[ "$n" -gt "$cores" ]] && n=$cores
+  echo "$n"
+}
+
 run_odm() {
   local label="$1" name="$2"; shift 2
   local logfile="outputs/logs/odm_${label}.log"
@@ -200,6 +247,20 @@ run_odm() {
   if [[ $status -ne 0 ]]; then
     echo ""
     echo "❌ ODM (${label}) falló (exit $status). Log completo: ${logfile}"
+    # 137 = 128+9 (SIGKILL) y 143 = 128+15 (SIGTERM): al proceso lo MATÓ el
+    # sistema, no falló por sí solo. Sin este mensaje el usuario ve un log que
+    # termina en seco a mitad de una etapa y no tiene forma de saber por qué
+    # (fue justo el caso del bug de band alignment, ver safe_concurrency).
+    if [[ $status -eq 137 || $status -eq 143 ]]; then
+      echo ""
+      echo "   ⚠ El sistema MATÓ el proceso (señal $((status - 128))) — ODM no falló solo."
+      echo "     Casi siempre es falta de memoria. RAM disponible ahora:"
+      awk '/^MemAvailable:/ {printf "       %.1f GB de %s\n", $2/1048576, "RAM"}' /proc/meminfo 2>/dev/null || true
+      echo "     Probá bajando la concurrencia (menos hilos = menos memoria pico):"
+      echo "       docker run ... -e MAX_CONCURRENCY=4 ... raptor run"
+      echo "     Si corriste con Docker Desktop/WSL, revisá también el límite de"
+      echo "     memoria asignado a la VM (.wslconfig / Settings > Resources)."
+    fi
     echo "─── últimas 150 líneas ───"
     tail -150 "$logfile"
     exit $status
@@ -240,10 +301,18 @@ if [[ "$SKIP_ODM" -eq 0 ]]; then
     # cada banda (DJI M3M) para calibrar a reflectancia sin panel físico.
     # ODM agrupa las 4 bandas por captura vía el tag XMP Camera:BandName —
     # nada que armar de nuestro lado, ya viene correcto en los TIFF del M3M.
+    #
+    # --max-concurrency acotado por RAM: el band alignment de esta etapa carga
+    # dos bandas completas (5 MP) por hilo y ODM usaría todos los núcleos, lo
+    # que en una máquina con muchos cores pide decenas de GB y termina en un
+    # SIGKILL sin traceback. Ver safe_concurrency() arriba.
+    MS_CONCURRENCY=$(safe_concurrency 5)
+    echo "    concurrencia: ${MS_CONCURRENCY} hilos ($(nproc) núcleos, acotado por RAM disponible)"
     run_odm multispectral multispectral_odm \
       --feature-quality high --radiometric-calibration camera+sun \
       --dsm --dem-resolution 8 --crop 0 --dem-gapfill-steps 3 \
       --min-num-features 12000 --matcher-neighbors 0 --pc-quality low \
+      --max-concurrency "$MS_CONCURRENCY" \
       --skip-report --rerun-from dataset
     publish_partial
   fi
@@ -259,6 +328,7 @@ TOTAL_STAGES=3
 [[ "$MODE" == "rgb+thermal" ]] && TOTAL_STAGES=$((TOTAL_STAGES + 1))
 [[ "$RUN_MULTISPECTRAL" -eq 1 ]] && TOTAL_STAGES=$((TOTAL_STAGES + 1))
 [[ "$RUN_MULTISPECTRAL" -eq 1 && "$MODE" == "rgb+thermal" ]] && TOTAL_STAGES=$((TOTAL_STAGES + 1))
+[[ -n "${EXPORT_DIR:-}" ]] && TOTAL_STAGES=$((TOTAL_STAGES + 1))
 STAGE=1
 
 if [[ "$RUN_RGB" -eq 1 ]]; then
@@ -320,6 +390,15 @@ pipeline_progress_start "Exportación cloud-optimized (COG + COPC)" $STAGE $TOTA
 make export-cog
 make export-copc
 pipeline_progress_done "Rasters COG y nubes COPC listos"
+STAGE=$((STAGE + 1))
+
+# Entrega opcional a la carpeta que eligió el usuario (formato + CRS propios).
+# Solo cuenta como etapa si realmente se pidió — ver TOTAL_STAGES arriba.
+if [[ -n "${EXPORT_DIR:-}" ]]; then
+  pipeline_progress_start "Exportación a carpeta de entrega" $STAGE $TOTAL_STAGES
+  make export-products
+  pipeline_progress_done "Entrega exportada a ${EXPORT_DIR}"
+fi
 
 # Todo lo que escribe este contenedor queda dueño de root (corre como root
 # adentro), lo que deja los productos ilegibles para el usuario del host —
