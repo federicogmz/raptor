@@ -15,7 +15,7 @@ recortan bordes de baja confianza y postprocesan (índices, tiles, export).
 ```
 data/rgb_mosaico/*_V.JPG    data/termica_mosaico/*_T.JPG   data/multiespectral_mosaico/*_MS_*.TIF
        │                            │                              │
-       ├─ 1. Metadatos ─────────────┼──────────────────────────────┤
+       ├─ 1. Organización ──────────┼──────────────────────────────┤
        ├─ 2. Preparación GPS/geo.txt│                              ├─ 2. Preparación
        │                            ▼                              │
        │                    DJI Thermal SDK (R-JPEG→°C)             │
@@ -48,16 +48,24 @@ data/rgb_mosaico/*_V.JPG    data/termica_mosaico/*_T.JPG   data/multiespectral_m
 
 ## Etapas en detalle
 
-### 1. Extracción de metadatos (`extract_metadata.py`)
+### 1. Organización de imágenes (`docker/setup-data.sh`)
 
-Extrae GPS, altitud (MSL y relativa — columnas `alt_msl`/`alt_relative`),
-orientación del gimbal y timestamp de cada imagen usando `exiftool`. Genera
-`processing/rgb_metadata.csv` y `processing/thermal_metadata.csv`.
+Busca recursivamente en `/input` los sufijos de cada sensor (`*_V.JPG`,
+`*_W.JPG` RGB; `*_T.JPG` térmico) y los copia a `data/rgb_mosaico/` y
+`data/termica_mosaico/`; `setup-data-multispectral.sh` hace lo propio con las 4
+bandas del M3M desde `/input_ms`, y aborta con un mensaje claro si falta alguna
+(ODM necesita las 4 para agrupar cada captura). No se extrae ningún CSV de
+metadatos: el GPS/EXIF lo leen directamente los scripts que lo necesitan
+(`export_flight_path.py`, `prepare_*_odm.py`) y ODM lo lee del EXIF de cada foto.
 
 ### 2. Preparación de imágenes
 
-- **RGB** (`generate_geo.py`): copia las imágenes a `processing/rgb_odm/images/`
-  y genera `geo.txt` con coordenadas GPS para ODM.
+- **RGB** (target `prepare-rgb` del `Makefile`): copia las imágenes a
+  `processing/rgb_odm/images/` y las re-etiqueta con `exiftool` preservando
+  EXIF completo + XMP de DJI. **No se genera `geo.txt` para RGB a propósito** —
+  ODM lee el GPS del EXIF y detecta solo la precisión RTK; ver el comentario
+  extenso del target, que documenta por qué `-exif:all` (y no `-gps:all`) y por
+  qué hace falta `-api Compact=Shorthand`.
 - **Multiespectral** (`prepare_multispectral_odm.py`): organiza las 4 bandas
   del M3M (ya traen GPS EXIF nativo) y genera `geo.txt`.
 - **Térmico nativo** (`prepare_thermal_native_odm.py`): re-encodea los TIFF
@@ -124,7 +132,17 @@ orientación del gimbal y timestamp de cada imagen usando `exiftool`. Genera
   confiables en ambos productos.
 
 - **Índices de vegetación** (`compute_vegetation_indices.py`): NDVI/GNDVI/NDRE
-  desde el ortofoto multibanda multiespectral, si la misión lo trae.
+  y MSAVI2 desde el ortofoto multibanda multiespectral, si la misión lo trae.
+  Las bandas se identifican por NOMBRE (`GetDescription()`, que ODM escribe
+  desde el XMP `Camera:BandName`), no por posición: el orden de
+  `reconstruction.multi_camera` de ODM no está garantizado.
+
+- **Área afectada y severidad** (`detect_area_afectada.py`,
+  `compute_severity_classes.py`, `compute_situation_summary.py`): solo si la
+  misión tiene multiespectral **y** térmico. Detecta el polígono del incendio
+  por z-score robusto de brillo multiespectral con histéresis y compuerta de
+  NDVI, clasifica severidad y hotspot térmico dentro de ese perímetro, y resume
+  todo en `outputs/situation.json` para el modo simple del geovisor.
 
 ### 6. Tiles y geovisor
 
@@ -159,7 +177,18 @@ orientación del gimbal y timestamp de cada imagen usando `exiftool`. Genera
 
 ## Sistema de referencia
 
-EPSG:32618 (UTM zona 18N). Para otras zonas, modificar `UTM_EPSG` en los scripts.
+El de cada misión: ODM elige la zona UTM según el GPS del vuelo y la escribe en
+todos sus productos. Los scripts que necesitan proyectar (el conteo de solape de
+cámaras en `trim_low_overlap_edges.py`) **derivan la CRS del propio raster que
+están procesando**, así que no hay nada que ajustar para volar en otra zona.
+
+`UTM_EPSG = 32618` sigue en ese script como respaldo para un raster sin
+proyección legible — antes era el valor fijo que se usaba siempre, lo que hacía
+que fuera de la zona 18N las huellas de cámara cayeran a cientos de kilómetros
+del raster y el recorte de bordes se degradara en silencio.
+
+Los productos vectoriales (`area_afectada.geojson`) van en EPSG:4326 por RFC
+7946 — Leaflet ignora cualquier miembro `crs` y asume siempre WGS84.
 
 ## Dependencias
 
