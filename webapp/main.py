@@ -175,11 +175,45 @@ class RunState:
 _state: RunState | None = None
 
 
-def _mission_dir(name):
+def _mission_dir(name, create=False):
+    """(nombre saneado, directorio) de una misión. `create` SOLO en los
+    endpoints que realmente reciben datos (upload/start): antes esto hacía
+    mkdir siempre, así que un GET de lectura —/status, /sample, /view— sobre
+    un nombre inexistente creaba el directorio y esa misión fantasma vacía
+    aparecía después en la lista del selector."""
     safe = sanitize_mission_name(name)
     d = RUNS_ROOT / safe
-    d.mkdir(parents=True, exist_ok=True)
+    if create:
+        d.mkdir(parents=True, exist_ok=True)
     return safe, d
+
+
+def _running_mission():
+    """Nombre de la misión que está procesándose AHORA, o None."""
+    return _state.mission_name if (_state and not _state.done) else None
+
+
+def _refuse_if_other_mission_running(safe):
+    """Rechaza activar una misión DISTINTA de la que está procesándose.
+
+    activate_mission() redirige processing/outputs/preprocessing/geovisor/tiles
+    por symlink (ver core/runner.py) — es un estado GLOBAL del contenedor, no
+    algo por pestaña. Sin esta guarda, abrir el geovisor de una misión vieja
+    mientras otra está corriendo movía esos symlinks debajo del pipeline en
+    curso, que seguía escribiendo tan tranquilo en el directorio equivocado:
+    los productos de la misión que corre terminaban mezclados dentro de la
+    misión que se abrió para mirar. Es la misma clase de incidente de mezcla
+    de misiones que documenta `clean-all` en el Makefile, pero disparado por
+    un simple clic en el selector.
+
+    /clear-uploads y DELETE /misión ya se protegían así; /activate y /view
+    eran los dos que faltaban — y son justo los que tocan los symlinks."""
+    running = _running_mission()
+    if running is not None and running != safe:
+        raise HTTPException(
+            409, f"«{running}» está procesándose ahora mismo. Abrir otra misión "
+                 f"redirigiría los directorios de trabajo del pipeline en curso "
+                 f"y mezclaría los productos de las dos. Esperá a que termine.")
 
 
 def _sample_raster(path: Path, lat: float, lon: float, band_idx: int = 1):
@@ -291,7 +325,7 @@ def list_missions():
     for r in scan_existing_runs():
         out.append({"name": r.name, "has_outputs": r.has_outputs,
                     "has_processing": r.has_processing, "has_tiles": r.has_tiles})
-    running = _state.mission_name if (_state and not _state.done) else None
+    running = _running_mission()
     last = None
     if _state and _state.done:
         last = {"name": _state.mission_name, "ok": _state.returncode == 0}
@@ -335,7 +369,7 @@ async def upload(mission: str = Form(...), kind: str = Form(...), file: UploadFi
         raise HTTPException(400, f"kind debe ser uno de {UPLOAD_KINDS}")
     if file is None:
         raise HTTPException(400, "falta el archivo")
-    safe, mission_dir = _mission_dir(mission)
+    safe, mission_dir = _mission_dir(mission, create=True)
     dest_dir = mission_dir / "raw" / kind
     dest_dir.mkdir(parents=True, exist_ok=True)
     fname = os.path.basename(file.filename or "archivo")
@@ -411,7 +445,7 @@ async def start_mission(mission: str, mode: str = Form(...),
     if _state is not None and not _state.done:
         raise HTTPException(409, f"Ya hay una misión procesándose: {_state.mission_name}")
 
-    safe, mission_dir = _mission_dir(mission)
+    safe, mission_dir = _mission_dir(mission, create=True)
     uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k))
                for k in UPLOAD_KINDS}
     errors = _validate(mode, has_multispectral, uploads)
@@ -560,6 +594,7 @@ def sample_point(mission: str, lat: float, lon: float):
 @app.post("/api/missions/{mission}/activate")
 def activate_mission_endpoint(mission: str):
     safe, mission_dir = _mission_dir(mission)
+    _refuse_if_other_mission_running(safe)
     if not (mission_dir / "tiles" / "bounds.json").exists():
         raise HTTPException(404, "esta misión todavía no tiene tiles generados")
     activate_mission(mission_dir)
@@ -578,7 +613,8 @@ def activate_mission_endpoint(mission: str):
 @app.get("/view/{mission}")
 def view_mission(mission: str):
     safe, mission_dir = _mission_dir(mission)
-    running = bool(_state and not _state.done and _state.mission_name == safe)
+    _refuse_if_other_mission_running(safe)
+    running = _running_mission() == safe
     if not running and not (mission_dir / "tiles" / "bounds.json").exists():
         raise HTTPException(404, "esta misión todavía no tiene tiles generados")
     activate_mission(mission_dir)
