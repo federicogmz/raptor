@@ -31,10 +31,40 @@ ya tiene reconstrucciones ODM guardadas, ofrece reusarlas en vez de rehacer
 el SfM.
 
 ```bash
-docker build -t raptor .
-docker run --rm --gpus all -p 8080:8080 raptor
+./raptor build
+./raptor webapp --export ~/entregas
 # abrir http://localhost:8080
 ```
+
+`--export` es la carpeta **de tu disco** donde van a salir los productos: el
+lanzador la monta en el contenedor, así que lo que elijas en el formulario es
+una ruta real del host y no algo que desaparece al cerrar el contenedor. Sin
+`--export` la webapp funciona igual, pero la exportación aparece deshabilitada.
+
+## Automatización y CI
+
+`./raptor run` procesa una misión sin interacción, con códigos de salida y un
+resumen legible por máquina — apto para encadenar en un pipeline:
+
+```bash
+./raptor run \
+  --input ./vuelos/la_clara \
+  --input-ms ./vuelos/la_clara_ms \
+  --export ./entregas/la_clara \
+  --export-products rgb,thermal,dsm,area,classes \
+  --export-epsg 9377 \
+  --json
+```
+
+Sale con código distinto de 0 si el pipeline falla. `--json` imprime
+`run_summary.json`: qué productos salieron, con qué GSD, CRS y cobertura real,
+cuántas entidades tiene cada vector y dónde quedó la entrega **en el disco del
+host**. Ese resumen se escribe siempre, también cuando la corrida falla, con el
+código de salida adentro — en CI importa tanto en qué etapa murió como el
+código. `./raptor run --help` lista todas las opciones.
+
+A diferencia del modo interactivo, `run` **no** deja el geovisor sirviendo al
+terminar (eso sería un cuelgue en CI); agregá `--serve` si lo querés.
 
 Sin GPU, omitir `--gpus all` (ODM cae a CPU solo). Las fotos subidas y los
 resultados quedan en `/app/runs/<misión>/` dentro del contenedor; para
