@@ -1,0 +1,32 @@
+# Dependencias que RAPTOR instala por encima de la imagen base de ODM.
+#
+# Versiones FIJADAS a propósito. La imagen base (opendronemap/odm:gpu) es un
+# tag móvil: cambia sin aviso y con ella cambian numpy, scipy, GDAL y pyproj,
+# que es de donde salen todos los números del pipeline. Sin este archivo, una
+# reconstrucción de la imagen podía traer versiones distintas y nadie se
+# enteraba hasta que algo rompía en una misión real.
+#
+# Para actualizar: subir la versión acá, reconstruir y correr `make test`
+# (los tests de caracterización detectan si el recorte cambió).
+#
+# NO se listan las que se heredan de la imagen base y NO se reinstalan
+# (GDAL 3.11.1, pyproj 3.7.1, Pillow 11.3.0): pinearlas acá forzaría a pip a
+# recompilarlas contra el sistema y a pelearse con el SuperBuild de ODM. Se
+# verifican en runtime con scripts/check_deps.py.
+
+# numpy<2 es OBLIGATORIO, no una preferencia: el _gdal_array.so de ODM
+# (SuperBuild) está compilado contra la ABI de NumPy 1.x y el venv base trae
+# 2.3.2, que revienta con ImportError apenas se usa gdal desde Python
+# (ReadAsArray/UseExceptions). ODM mismo nunca lo toca — usa los binarios
+# gdalbuildvrt/gdal_translate — así que el problema queda latente hasta que
+# lo ejercitan nuestros scripts. Ver el comentario del Dockerfile.
+numpy==1.26.4
+
+# Webapp
+fastapi==0.141.1
+uvicorn[standard]==0.52.0
+python-multipart==0.0.32
+
+# Tests (`make test`). Livianos y sin dependencias nativas, así que se
+# incluyen en la imagen de producción en vez de mantener una variante aparte.
+pytest==8.4.2

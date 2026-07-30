@@ -16,16 +16,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gdal-bin libimage-exiftool-perl make \
     && rm -rf /var/lib/apt/lists/*
 
-# El _gdal_array.so de ODM (SuperBuild) está compilado contra la ABI de
-# NumPy 1.x; el venv del ODM base trae NumPy 2.3.2, que rompe en runtime
-# (ImportError) apenas se usa gdal Python (ReadAsArray/UseExceptions) —
-# ODM mismo nunca lo toca (usa gdalbuildvrt/gdal_translate como binarios,
-# no vía Python), así que el problema es latente hasta que nuestros
-# scripts lo ejercitan. Bajar a NumPy 1.26 lo resuelve.
-RUN pip install --no-cache-dir "numpy<2" fastapi "uvicorn[standard]" python-multipart
+# Versiones FIJADAS en requirements.txt (incluye el motivo de cada una, en
+# particular por qué numpy<2 es obligatorio y no una preferencia). Se copia
+# solo ese archivo antes que el resto del código para que el layer de pip no
+# se invalide con cada cambio de un script.
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
 WORKDIR /app
 COPY . /app
+# Falla el build si la imagen base movió GDAL/pyproj/scipy fuera de lo
+# soportado, en vez de que aparezca como un resultado raro en una misión.
+RUN python3 scripts/check_deps.py
 RUN chmod +x dji_thermal_sdk/utility/bin/linux/release_x64/* \
     && chmod +x docker/entrypoint.sh docker/setup-data.sh docker/setup-data-multispectral.sh \
     && ln -s ../outputs geovisor/outputs
