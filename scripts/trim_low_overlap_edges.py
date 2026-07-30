@@ -15,11 +15,14 @@ BLOQUES (triángulos grandes mal resueltos). Por eso, además del alpha, se apli
 un PISO DE SOLAPE DE CÁMARAS (`_rgb_camera_overlap` proyecta la huella de
 cada foto al suelo y cuenta cuántas cubren cada celda; se descarta <
 REL_MIN_OVERLAP_*) — mismo principio para cualquier sensor. Eso quita justo el
-fleco borroso/en bloques. (Se descartó usar nitidez local —Laplaciano— como
-señal del borroso: no discrimina entre triángulos mal resueltos y tierra
-desnuda/sendero lisos —ambos de nitidez baja— y borraba datos reales. El solape
-de cámaras es la señal correcta y robusta.) La limpieza fina de motas/contorno
-(en todos los productos) corre después, en confidence_mask.py.
+fleco borroso/en bloques.
+
+La señal es geométrica (cuántas cámaras cubren la celda), no fotométrica: la
+nitidez local no sirve acá, porque no distingue un triángulo mal resuelto de
+tierra desnuda o un sendero, que son lisos y nítidos a la vez.
+
+La limpieza fina de motas/contorno (en todos los productos) corre después, en
+confidence_mask.py.
 
 RECORTE DE CONFIABILIDAD (estilo Agisoft/Pix4D/Terra), `_reliability_crop`:
 conserva SOLO el núcleo contiguo bien-solapado, con contorno regular y margen
@@ -149,12 +152,11 @@ def _adaptive_floor(values, requested, population_mask=None, min_keep_frac=0.85,
         return requested
     # Con exclude_zero=True el piso mínimo útil es 1 (0 no tiene sentido —
     # el 0 ya se excluyó de pop). Con exclude_zero=False (0 es medición real)
-    # el piso puede bajar hasta 0 = filtro completamente desactivado — pasa
+    # el piso puede bajar hasta 0 = filtro completamente desactivado. Eso pasa
     # cuando la distribución está tan cargada de ceros (>fallback_percentile%)
-    # que ningún piso entero >=1 alcanza min_keep_frac; forzar piso=1 en ese
-    # caso seguiría descartando la mayoría (el bug real que motivó esto: para
-    # El Cano, n_contrib mediana=0 → percentil15=0 → clamp a 1 igual quitaba
-    # el 72% del área en vez de desactivar la señal que no discrimina acá).
+    # que ningún piso entero >=1 alcanza min_keep_frac; forzar piso=1 ahí
+    # seguiría descartando a esa mayoría en vez de reconocer que la señal no
+    # discrimina en esta misión.
     min_floor = 1.0 if exclude_zero else 0.0
     adaptive = max(min_floor, float(np.percentile(pop, fallback_percentile)))
     if adaptive <= 0:
@@ -170,10 +172,10 @@ def _adaptive_floor(values, requested, population_mask=None, min_keep_frac=0.85,
 def _adaptive_floor_joint(specs, population_mask=None, min_keep_frac=0.85, label=""):
     """Como _adaptive_floor pero para VARIOS pisos combinados con AND (p.ej.
     solape RGB completo Y central). Evaluar cada piso por separado no alcanza:
-    dos pisos que individualmente 'parecen' dejar suficiente (cada uno por
-    encima de min_keep_frac) pueden, combinados, colapsar la cobertura igual
-    — caso real (El Cano): full≥20 deja pasar 61.6%, central≥4 deja pasar
-    76.2%, pero la INTERSECCIÓN de los dos deja solo ~25%. Se relajan TODOS
+    dos pisos que individualmente parecen dejar suficiente (cada uno por
+    encima de min_keep_frac) pueden, combinados, colapsar la cobertura — con
+    señales anticorrelacionadas, full≥20 dejando pasar 61.6% y central≥4
+    dejando pasar 76.2% da una intersección de apenas ~25%. Se relajan TODOS
     los pisos a la vez con un mismo factor de escala (búsqueda binaria) hasta
     que la intersección conjunta alcance min_keep_frac — conserva la relación
     relativa entre pisos en vez de privilegiar uno sobre otro.
@@ -265,16 +267,17 @@ RGB_OV_ZBANDS = 5  # nº de bandas de elevación para el solape de cámaras RGB.
                    # terrenos con cientos de metros de relieve sin volverse
                    # costoso (5× las proyecciones, no por-celda).
 NADIR_MAX_TILT_DEG = 30  # inclinación máxima (respecto a mirar derecho hacia
-                         # abajo) para considerar una foto "nadir". Vuelos
-                         # mixtos nadir+oblicua (común en M3T, ej. El Cano:
-                         # 40 nadir ~0-2° + 94 oblicuas ~45°) pueden reconstruir
-                         # zonas ENTERAS solo con oblicuas si el nadir no llega
-                         # ahí — eso produce textura "fantasma"/duplicada por
-                         # error de correspondencia estéreo entre vistas muy
-                         # oblicuas, un defecto que NO se ve en el tamaño de
-                         # malla ni en el solape total (ver docs/memoria jul
-                         # 2026: 6 señales geométricas probadas, ninguna lo
-                         # detectaba). 30° separa con margen holgado los dos
+                         # abajo) para considerar una foto "nadir". Los vuelos
+                         # mixtos nadir+oblicua son comunes en M3T (del orden de
+                         # 40 nadir a ~0-2° y 94 oblicuas a ~45°) y pueden
+                         # reconstruir zonas ENTERAS solo con oblicuas si el
+                         # nadir no llega ahí — eso produce textura "fantasma"/
+                         # duplicada por error de correspondencia estéreo entre
+                         # vistas muy oblicuas, un defecto que NO se detecta con
+                         # el tamaño de malla ni con el solape total: la única
+                         # señal que lo separa es si hay al menos una foto
+                         # casi-nadir cubriendo la celda. 30° separa con margen
+                         # holgado los dos
                          # grupos típicos (~0-2° vs ~45°).
 
 
@@ -282,16 +285,13 @@ def _target_crs(proj_wkt):
     """CRS a la que se proyectan las huellas de cámara: la del PROPIO raster
     que se está recortando, no una zona UTM fija.
 
-    BUG REAL corregido acá: esto era EPSG:32618 (UTM 18N) hardcodeado, mientras
-    que el geotransform contra el que se comparan esas huellas lo escribe ODM en
-    la UTM real de la misión. En la zona 18N coincidían por casualidad — en 17N
-    o 19N las huellas caen a cientos de KILÓMETROS del raster y el conteo de
-    solape da 0 en todas partes.
-
-    Lo grave es que no falla: _adaptive_floor_joint lee esos ceros como "esta
-    misión tiene poco solape real", relaja o directamente desactiva los pisos, y
-    el recorte de confiabilidad deja de recortar el fleco borroso que existe
-    para recortar. Salida plausible a la vista, geométricamente sin sentido.
+    Tiene que ser la del raster porque las huellas se comparan contra su
+    geotransform, que ODM escribe en la UTM real de la misión. Con una zona
+    fija, cualquier misión fuera de esa zona pone las huellas a cientos de
+    kilómetros del raster y el conteo de solape da 0 en todas partes — sin
+    lanzar excepción: _adaptive_floor_joint lee esos ceros como "esta misión
+    tiene poco solape", relaja o desactiva los pisos, y el recorte deja de
+    recortar. La salida se ve plausible y es geométricamente incorrecta.
     """
     from pyproj import CRS
     if proj_wkt:
@@ -473,14 +473,13 @@ def _reliability_crop(mask, px_size_m, open_m=None, close_m=None):
         m = lbl == int(sz.argmax())
     m = _iter_close(m, r_close)                    # contorno regular
     m = ndimage.binary_erosion(m, iterations=r_erode)  # margen de seguridad
-    # OJO: re-intersectar con `quality_mask` (lo que pasó el piso de solape),
-    # NO con `mask` (el original sin filtrar) — el closing DILATA el
-    # componente limpio, y re-ANDear contra el mask original sin filtrar
-    # reintroduce exactamente las zonas de bajo solape que el piso ya había
-    # descartado (el "peine"/tendrils que closing hace crecer de vuelta desde
-    # el borde). Bug real, no solo cuestión de umbral: se notaba poco con el
-    # piso estricto original (8) porque esas zonas eran finas; con el piso
-    # relajado (adaptativo, misiones de bajo solape) se vuelve muy visible.
+    # OJO: se re-intersecta con `quality_mask` (lo que pasó el piso de solape),
+    # NO con la máscara original sin filtrar. El closing DILATA el componente
+    # limpio, así que volver a intersectar contra el original reintroduciría
+    # justo las zonas de bajo solape que el piso ya descartó — el "peine" que
+    # crece de vuelta desde el borde. Se nota tanto más cuanto más relajado
+    # esté el piso, que es lo que hace el mecanismo adaptativo en misiones de
+    # bajo solape.
     return m & quality_mask
 
 
@@ -563,17 +562,6 @@ def trim_rgb():
         valid = a.mean(axis=0) >= 10  # respaldo si no hay alpha disponible
     before = int(valid.sum())
 
-    # NOTA: el criterio de nitidez (Laplaciano) que documentaba esta función
-    # quedó MAL CALIBRADO para la corrida actual de ODM — se verificó que no
-    # discrimina nada: mediana de nitidez cerca del borde (<30m) vs lejos
-    # (>=30m) son del mismo orden, y a CUALQUIER umbral razonable se excluye
-    # un % similar en ambas zonas (ej. con SHARP_THRESH=700, 83.7% cerca vs
-    # 86.2% lejos — sin separación real). Con el umbral documentado (700)
-    # esto borraba ~85% de TODO el RGB válido cerca de cualquier hueco chico,
-    # produciendo los huecos ramificados (siguiendo senderos/tierra desnuda,
-    # que tienen textura lisa = nitidez baja pero SON datos reales nítidos,
-    # no fantasmas). Se elimina el filtro de nitidez — el alpha real de la
-    # malla 3D de ODM (ya verificado como fuente de verdad) es suficiente.
     # Piso de solape de cámaras RGB: el alpha de ODM incluye el fleco BORROSO/EN
     # BLOQUES del borde (malla reconstruida con vistas oblicuas/escasas). Se
     # calcula el solape real proyectando huellas de foto y se descarta <REL_MIN_
@@ -588,27 +576,21 @@ def trim_rgb():
         #     los dips interiores encerrados y deja fuera solo las fingers del borde.
         # (3) piso NADIR: zonas reconstruidas SOLO con fotos oblicuas (sin
         #     ningún nadir de respaldo) — textura "fantasma"/duplicada por mal
-        #     emparejamiento estéreo entre vistas muy oblicuas. Este defecto NO
-        #     se ve en tamaño de malla, solape total, pendiente del DSM ni
-        #     textura (6 señales probadas, jul 2026) — solo en si hay AL MENOS
-        #     una foto casi-nadir cubriendo la celda. Ver NADIR_MAX_TILT_DEG.
-        #     Va como piso DURO (`hard`), no adaptativo: es una señal ya
-        #     VALIDADA con datos reales (zona mala mediana=1, 45% en cero; zona
-        #     buena mediana=9, 15% en cero — ver notas jul 2026), a diferencia
-        #     de n_contrib térmico (ruido sin estructura espacial, confirmado
-        #     correcto desactivarlo). El mecanismo de auto-desactivar por "no
-        #     alcanza min_keep_frac" no distingue "señal sin poder
-        #     discriminante" de "señal que discrimina bien pero la MAYORÍA de
-        #     esta misión es oblicua-only" — este caso es lo segundo, así que
-        #     se exige de verdad aunque deje pasar menos del 20% objetivo.
-        # min_keep_frac bajo (no 0.85): el criterio ya NO es "maximizar
-        # cobertura mientras algo pase" — es "cortar de verdad lo distorsionado
-        # /de bajo solape, aunque quede poca área, mejor que dato malo" (pedido
-        # explícito del usuario tras ver casas/laderas borrosas incluidas).
-        # Confirmado con datos reales (El Cano): en zona distorsionada por bajo
-        # solape, ov_central≈0 en 97% de los píxeles (vs mediana 9.5-10 en
-        # bosque bueno); en zona distorsionada por vuelo oblicuo, ov_nadir
-        # mediana=1 con 45% en cero (vs mediana 9, 15% en cero en zona buena).
+        #     emparejamiento estéreo entre vistas muy oblicuas. Ver
+        #     NADIR_MAX_TILT_DEG.
+        #     Va como piso DURO (`hard`), no adaptativo, porque discrimina de
+        #     forma fiable: en zona distorsionada por vuelo oblicuo la mediana
+        #     de fotos nadir es ~1 con 45% de celdas en cero, contra ~9 y 15%
+        #     en zona sana. El mecanismo de auto-desactivarse por "no alcanza
+        #     min_keep_frac" no distingue "señal sin poder discriminante" de
+        #     "señal que discrimina bien pero la MAYORÍA de esta misión es
+        #     oblicua-only"; acá interesa el segundo caso, así que el piso se
+        #     exige aunque deje pasar menos del 20% objetivo.
+        # min_keep_frac bajo (no 0.85): el criterio no es "maximizar cobertura
+        # mientras algo pase" sino "cortar lo distorsionado/de bajo solape
+        # aunque quede poca área" — un dato malo es peor que menos área. En
+        # zona distorsionada por bajo solape el solape central es ≈0 en el 97%
+        # de los píxeles, contra una mediana de 9.5-10 en bosque bien cubierto.
         valid, _ = _apply_overlap_floors(
             valid,
             [("full", ov_full, REL_MIN_OVERLAP_RGB),
@@ -711,12 +693,12 @@ def trim_multispectral():
                       ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
     out.SetGeoTransform(gt)
     out.SetProjection(proj)
-    # SetColorInterpretation(alpha) tiene que ir ANTES de cualquier
-    # WriteArray: libtiff congela tags baseline como ExtraSamples apenas se
-    # escribe la primera strip/tile del archivo (root cause del
-    # RuntimeError "Cannot modify tag ExtraSamples while writing" — un
-    # GeoTIFF Float32 de 5 bandas no tiene la heurística RGBA implícita que
-    # sí aplica GDAL a un GeoTIFF Byte de 4 bandas, ver trim_rgb()).
+    # SetColorInterpretation(alpha) tiene que ir ANTES de cualquier WriteArray:
+    # libtiff congela tags baseline como ExtraSamples apenas se escribe la
+    # primera strip/tile, y después falla con "Cannot modify tag ExtraSamples
+    # while writing". Un GeoTIFF Float32 de 5 bandas no tiene la heurística
+    # RGBA implícita que GDAL sí aplica a uno Byte de 4 bandas, así que acá el
+    # orden no perdona.
     for b in range(nb):
         out.GetRasterBand(b + 1).SetDescription(band_names[b])
         out.GetRasterBand(b + 1).SetNoDataValue(float("nan"))
@@ -730,21 +712,17 @@ def trim_multispectral():
 
 
 def trim_thermal_native():
-    """Recorta bordes de bajo solape del ortomosaico térmico NATIVO (ODM
-    render de malla 3D real, ver docker/entrypoint.sh + prepare_thermal_native_odm.py
-    — reemplaza el pipeline heurístico anterior, winner-take-all sobre
-    proyección propia). Mismo criterio calidad-sobre-cobertura que
+    """Recorta bordes de bajo solape del ortomosaico térmico NATIVO, que ODM
+    produce renderizando la malla 3D (ver docker/entrypoint.sh +
+    prepare_thermal_native_odm.py). Mismo criterio calidad-sobre-cobertura que
     trim_rgb()/trim_multispectral(): reusa TAL CUAL _rgb_camera_overlap/
     _adaptive_floor_joint/_reliability_crop apuntando al reconstruction.json
     del proyecto ODM térmico nativo — el principio físico (huella de cámara/
     oblicuidad) no depende del sensor.
 
-    A diferencia del pipeline viejo (que necesitaba despike+deband+cotas
-    duras+blandas+fragmentación+"smears" porque el blending propio producía
-    esos artefactos), el render de malla de ODM no los genera — validado
-    visualmente contra la referencia Agisoft (misma escena, sin fragmentación,
-    68.6% cobertura vs 16.9% del pipeline viejo). Solo queda limpieza de
-    valores puntual (despike + cota física dura), no geometría de blending.
+    El render de malla no produce fragmentación ni "smears", así que acá solo
+    hace falta limpieza de VALORES puntual (despike + cota física dura), no
+    corrección de geometría de blending.
     """
     if not os.path.isfile(THNAT_ODM_SRC):
         print(f"  ⚠ {THNAT_ODM_SRC} no encontrado — sin recorte térmico nativo")
@@ -819,16 +797,16 @@ def trim_thermal_native():
 
 def trim_dsm():
     """Recorta bordes de bajo solape del DSM — mismo criterio calidad-sobre-
-    cobertura que trim_rgb()/trim_multispectral()/trim_thermal_native(), que
-    ya lo aplican. El DSM quedaba afuera de este recorte (bug real, no
-    intencional): dsm_clean.py solo filtra relleno sintético (varianza local
-    exactamente 0, ver ese script) y outliers puntuales (mediana+MAD) — pero
-    en el borde de bajo solape ODM interpola la grilla del DEM con valores
-    CON textura/variación real (no planos, no outliers puntuales), así que
-    ninguno de los dos filtros los atrapa. Es la misma extrapolación borrosa/
-    en bloques que ya se ve en el alpha crudo de RGB — mismo piso de solape
-    de cámaras (_rgb_camera_overlap sobre RGB_RECON, la reconstrucción de la
-    que sale el DSM) resuelve el problema en el DSM igual que en RGB.
+    cobertura que trim_rgb()/trim_multispectral()/trim_thermal_native().
+
+    El DSM necesita este recorte igual que los ortomosaicos: dsm_clean.py solo
+    filtra relleno sintético (varianza local exactamente 0, ver ese script) y
+    outliers puntuales (mediana+MAD), pero en el borde de bajo solape ODM
+    interpola la grilla del DEM con valores CON textura y variación real —ni
+    planos ni outliers puntuales—, así que ninguno de los dos filtros los
+    atrapa. Es la misma extrapolación borrosa/en bloques que se ve en el alpha
+    crudo de RGB, y el mismo piso de solape de cámaras (_rgb_camera_overlap
+    sobre RGB_RECON, la reconstrucción de la que sale el DSM) la resuelve.
 
     Corre DESPUÉS de clean-dsm (necesita outputs/dsm.tif ya filtrado de
     relleno sintético/outliers como entrada) — el propio _rgb_camera_overlap
@@ -851,22 +829,19 @@ def trim_dsm():
     ov_full, ov_central, ov_nadir, cf = _rgb_camera_overlap(gt, W, H, recon_path=RGB_RECON,
                                                             proj_wkt=proj)
     if ov_full is not None:
-        # coarse_core_px_m corrige un BUG REAL (visto en Barbosa: dsm_clean
-        # detectó 72.5% de relleno sintético en esta misión, dejando `valid`
-        # fino legítimamente perforado — huecos reales dispersos, no una "zona
-        # mala" contigua). El recorte de confiabilidad (núcleo contiguo,
-        # _reliability_crop) NO puede aplicarse sobre esa máscara fina ya
-        # perforada: el radio de apertura calibrado para el fleco de BORDE de
-        # vuelo (metros) erosiona cualquier salpicado fino a casi nada — visto
-        # en Barbosa: 10.6% tras el piso de solape → 0.03% tras
-        # _reliability_crop sobre la máscara fina (1.8M componentes, mediana
-        # 2px — ruido disperso, no una región recortable).
-        # Fix: el núcleo contiguo se busca en la grilla GRUESA de solape
-        # geométrico (un blob sólido — análogo al alpha de RGB, NO perforado
-        # por dsm_clean), con el radio físico convertido a celdas gruesas (cf
-        # px por celda). Eso recorta el fleco de borde de vuelo real sin
-        # exigirle contigüidad fina a los huecos legítimos de dsm_clean, que
-        # quedan tal cual dentro de la región geométricamente buena.
+        # El núcleo contiguo se busca en la grilla GRUESA de solape geométrico,
+        # no en la máscara fina. dsm_clean deja `valid` legítimamente perforado
+        # de huecos dispersos (puede llegar al 72% del área en misiones con
+        # mucho relleno sintético), y el radio de apertura está calibrado para
+        # el fleco de BORDE de vuelo, en metros: aplicado sobre un salpicado
+        # fino lo erosiona a casi nada — del orden de 10% tras el piso de
+        # solape a 0.03%, porque son millones de componentes de ~2 px, ruido
+        # disperso y no una región recortable.
+        # La grilla gruesa en cambio es un blob sólido —análogo al alpha de
+        # RGB, no perforado por dsm_clean—, así que el radio físico convertido
+        # a celdas gruesas (cf px por celda) recorta el fleco de borde real sin
+        # exigirle contigüidad fina a los huecos legítimos, que quedan tal cual
+        # dentro de la región geométricamente buena.
         valid, _ = _apply_overlap_floors(
             valid,
             [("full", ov_full, REL_MIN_OVERLAP_RGB),
