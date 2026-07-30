@@ -2,100 +2,75 @@
 """Detecta automáticamente el polígono del área afectada por el incendio,
 a partir del ortomosaico multiespectral + térmico ya generados por ODM.
 
-Metodología (validada cruzadamente en La Clara Caldas y Envigado, jul 2026
-— ver "Validación cruzada" más abajo — contra un polígono de referencia
-digitalizado a mano en cada misión):
+Exactitud esperada del método: IoU 0.64-0.89 contra polígono digitalizado a
+mano, según lo homogénea que sea la escena.
+
+Metodología:
   1. Población de referencia = píxeles con NDVI>0.5 en la misma misión
      (vegetación claramente sana, sin necesidad de dibujar nada a mano).
   2. z-score robusto (mediana/MAD) del brillo promedio de las 4 bandas
      multiespectrales, relativo a esa referencia — NO un umbral absoluto:
      así el criterio se autocalibra a la luz/vegetación de cada misión en
      vez de depender de un número fijo ajustado a una sola corrida.
-     El brillo crudo separó mejor que NDVI/GNDVI/NDRE/SAVI/MSAVI/GEMI en
-     las pruebas de esta sesión (AUC 0.880 vs 0.57-0.85) — normalizar en
-     razón (como hace cualquier índice) tira la información de reflectancia
-     absoluta, que es justo la señal que distingue ceniza de suelo desnudo.
+     El brillo crudo separa mejor que NDVI/GNDVI/NDRE/SAVI/MSAVI/GEMI
+     (AUC 0.880 contra 0.57-0.85): normalizar en razón, como hace cualquier
+     índice, tira la información de reflectancia absoluta, que es justo la
+     señal que distingue ceniza de suelo desnudo.
      Corte: z>=2 — regla empírica 68-95-99.7 de control estadístico de
-     procesos (2 sigma = desviación "notable"), NO un número tanteado
-     contra este dataset.
+     procesos (2 sigma = desviación "notable"), no un número tanteado contra
+     un dataset concreto.
   3. Temperatura ABSOLUTA (no anomalía relativa) como segunda confirmación
      — ver paper/CALIBRACION_TERMICA_CAMPO.md y compute_severity_classes.py
      para la justificación: la anomalía relativa da falsos positivos en
-     suelo/cultivo calentado por el sol en días despejados (visto en las
-     pruebas de esta sesión). Se usa un umbral bajo (40°C) solo para
-     confirmar "más caliente que el entorno típico", no el umbral
-     operacional de fuego activo (~88°C/190°F, ver compute_severity_classes.py)
-     que sería demasiado estricto para detectar el área ya enfriada días
-     después del incendio.
-  4. Umbral doble por histéresis (semilla + crecimiento), NO un corte
-     único fijo — validado contra dos polígonos de referencia digitalizados
-     a mano (La Clara Caldas y Envigado) que resultaron necesitar cortes
-     óptimos opuestos (z>=2 vs z>=1) con un solo umbral: la severidad
-     espectral real de un incendio varía demasiado entre misiones para que
-     un número fijo generalice.
+     suelo/cultivo calentado por el sol en días despejados. Se usa un umbral
+     bajo (40°C) solo para confirmar "más caliente que el entorno típico", no
+     el umbral operacional de fuego activo (~88°C/190°F, ver
+     compute_severity_classes.py), que sería demasiado estricto para detectar
+     el área ya enfriada días después del incendio.
+  4. Umbral doble por histéresis (semilla + crecimiento), NO un corte único
+     fijo: la severidad espectral real de un incendio varía tanto entre
+     misiones que el corte óptimo de una puede ser el opuesto al de otra
+     (z>=2 contra z>=1), así que ningún número fijo generaliza.
        - "semilla" (alta confianza): Z_SEVERIDAD_MIN=2 (2-sigma) [+confirmación
          térmica si la misión tiene señal absoluta confiable].
        - "débil" (Z_SEVERIDAD_WEAK=1, el mismo corte que ya usa
          compute_severity_classes.py para la clase "leve"): NO se usa solo
          — solo se agrega si está conectado por vecindad-8 a una semilla.
-  5. Filtro de vegetación viva (NDVI), para el problema que la histéresis
-     por sí sola NO resuelve: un lote de cultivo cercano en La Clara Caldas
-     tiene sus propios píxeles semilla (z>=2 por sombra/orientación), y la
-     histéresis los hace crecer igual que al incendio real. Diagnóstico
-     (esta sesión, ambas misiones): dentro del polígono de referencia
-     digitalizado a mano, la ceniza real tiene NDVI mediana 0.25-0.31 (sin
-     clorofila viva); los falsos positivos (cultivo/vegetación con sombra)
-     están en 0.40-0.68 (vegetación viva). Dos filtros, calibrados juntos
-     y validados por separado contra los dos polígonos de referencia
-     (La Clara Caldas y Envigado — no solo contra uno):
+  5. Filtro de vegetación viva (NDVI), para el problema que la histéresis por
+     sí sola NO resuelve: un lote de cultivo vecino puede tener sus propios
+     píxeles semilla (z>=2 por sombra u orientación), y la histéresis los hace
+     crecer igual que al incendio real. La separación es espectral: la ceniza
+     real tiene NDVI mediana 0.25-0.31 (sin clorofila viva) y los falsos
+     positivos de cultivo o vegetación con sombra están en 0.40-0.68. Dos
+     filtros:
        - techo NDVI_CEILING=0.6 en semilla Y en débil: mismo corte "densa y
          sana" que ya usa compute_severity_classes.py para clasificar
          índices, no un número nuevo.
        - SEED_NDVI_GROWTH_MAX=0.33: un componente semilla solo puede CRECER
          por histéresis si el NDVI PROMEDIO de sus propios píxeles semilla
-         es <0.33 — si es más alto (posible cultivo/vegetación estresada,
+         es <0.33 — si es más alto (posible cultivo o vegetación estresada,
          ambiguo), se queda solo con sus píxeles semilla, sin extenderse.
-         Este valor sí es una calibración de datos (no una constante de la
-         literatura como sigma/°C). Se subió de 0.30 a 0.33 a propósito
-         (decisión explícita del usuario, no un óptimo matemático) para
-         priorizar el recall de Envigado — su lóbulo norte real tenía NDVI
-         semilla 0.310, justo debajo del corte anterior — aceptando que
-         esto vuelve a colar más del cultivo de La Clara Caldas, que ahí se
-         corrige a mano en el geovisor (capa vectorial editable) en vez de
-         perseguir un óptimo espectral automático para ese caso.
+         Este valor SÍ es una calibración de datos, no una constante de la
+         literatura como sigma o los °C, y está puesto del lado del recall:
+         prioriza no perder lóbulos reales de incendio con NDVI semilla
+         apenas por encima de 0.30, aceptando que cuele más cultivo. Ese
+         falso positivo se corrige a mano en el geovisor (capa vectorial
+         editable), que es más barato que perseguir un óptimo espectral
+         automático para ese caso.
   6. Limpieza morfológica: componente conexa principal + fragmentos cercanos
      (siguen siendo la misma mancha, solo separados por una franja delgada
      sin quemar) + relleno de huecos internos (copas sobrevivientes dentro
      de la mancha) + cierre leve del borde (sin inflar el contorno real).
 
-Validación cruzada (IoU/recall/precisión contra polígono de referencia
-digitalizado a mano, jul 2026 — con SEED_NDVI_GROWTH_MAX=0.33):
-  - Envigado: IoU=0.89 (recall=0.94, precisión=0.95).
-  - La Clara Caldas: IoU=0.64 (recall=0.78, precisión=0.78) — el corte más
-    laxo casi no le costó nada (era 0.65 con el corte anterior de 0.30),
-    pero el cultivo sigue coloreado en parte; se corrige a mano ahí en vez
-    de perseguir un óptimo automático (ver arriba).
-
-Intento descartado — filtro de TEXTURA en vez de NDVI: se probó reemplazar
-la compuerta por componente por coherencia de orientación del gradiente
-(banda roja: hileras de cultivo deberían dar bordes alineados en una
-dirección, incendio real no). En una muestra pequeña (los 10 componentes
-semilla más grandes) separaba de forma perfecta — pero al aplicarlo
-completo, varios componentes de cultivo (más chicos, con zonas de suelo
-desnudo/sombra dentro del lote) también dieron coherencia baja, e igual de
-grave, muchos fragmentos reales de incendio con caja delimitadora chica
-dieron coherencia alta por puro ruido estadístico (pocos píxeles para
-estimar el tensor de gradiente). Resultado neto en La Clara Caldas: IoU
-0.647→0.565, empeoró. Se descartó y se volvió a NDVI. Queda como
-antecedente para no repetir el mismo experimento sin datos nuevos.
-
-Limitación conocida: el gate de NDVI por componente reduce pero no elimina
-el falso positivo de cultivo (algunos componentes de cultivo SÍ promedian
-NDVI<0.30) — sigue siendo un filtro espectral, no uno de forma/textura
-verdadero. Un filtro de textura que funcione tendría que operar sobre la
-imagen completa en una ventana regular (no sobre la caja irregular que ya
-definió el propio umbral, que es donde el intento de arriba falló) —
-pendiente si se justifica la inversión.
+Limitación conocida: el gate de NDVI por componente reduce pero no elimina el
+falso positivo de cultivo (algunos componentes de cultivo SÍ promedian
+NDVI<0.30) — sigue siendo un filtro espectral, no uno de forma o textura. Un
+filtro de textura que funcione tendría que operar sobre la imagen completa en
+una ventana regular, no sobre la caja irregular que ya definió el propio
+umbral: sobre cajas chicas el tensor de gradiente se estima con muy pocos
+píxeles y devuelve coherencia alta por puro ruido, justo en los fragmentos
+reales de incendio que interesa conservar. Pendiente si se justifica la
+inversión.
 
 Salida en EPSG:4326 (lon/lat, RFC 7946 — GeoJSON no tiene "crs" propio;
 Leaflet en particular IGNORA cualquier miembro crs y asume siempre 4326,
@@ -138,12 +113,12 @@ Z_SEVERIDAD_WEAK = 1.0   # crecimiento por histéresis — mismo corte de "leve"
 NDVI_CEILING = 0.6       # techo semilla+débil — mismo corte "densa y sana" de
                          # compute_severity_classes.py, no un número nuevo
 SEED_NDVI_GROWTH_MAX = 0.33  # un componente semilla solo crece por histéresis
-                             # si su NDVI semilla promedio es <esto (ver docstring:
-                             # calibrado priorizando recall en Envigado — el lóbulo
-                             # norte real quedaba en 0.310, justo debajo de este corte;
-                             # sube el falso positivo de cultivo en La Clara Caldas,
-                             # aceptado a propósito porque ahí se corrige a mano en
-                             # el geovisor, ver docstring)
+                             # si su NDVI semilla promedio es <esto. Calibrado
+                             # del lado del recall: lóbulos reales de incendio
+                             # aparecen con NDVI semilla ~0.31, así que un corte
+                             # más estricto los perdería. Sube el falso positivo
+                             # de cultivo, que se corrige a mano en el geovisor
+                             # (ver docstring).
 TEMP_MIN_ABS_C = 40.0    # confirmación mínima de calor, ver docstring
 MERGE_DIST_M = 50.0
 MIN_COMPONENT_M2 = 5.0
@@ -163,16 +138,14 @@ def _align_to_grid(src_path, ref_gt, ref_proj, W, H, resample="bilinear"):
 def _read_bands(ms_ds):
     """Bandas espectrales por NOMBRE + máscara alpha del ortomosaico MS.
 
-    BUG REAL corregido acá: esto asumía posición fija (banda 1=Red, 2=Green,
-    3=NIR, 4=RedEdge, 5=alpha), pero compute_vegetation_indices.py —que lee
-    ESTE MISMO archivo— documenta explícitamente que "el orden de
-    reconstruction.multi_camera de ODM no está garantizado" y por eso resuelve
-    por GetDescription() desde siempre. Los dos scripts leían el mismo raster
-    con criterios opuestos.
+    Las bandas se resuelven por GetDescription(), NUNCA por posición: el orden
+    de reconstruction.multi_camera de ODM no está garantizado (mismo criterio
+    que compute_vegetation_indices.py, que lee este mismo archivo y de donde
+    se importa _find_band).
 
-    Con un orden distinto al asumido, `brightness` (promedio de las 4) seguía
-    saliendo bien —es simétrico— así que nada fallaba a la vista; pero el NDVI
-    quedaba calculado con dos bandas cambiadas, y ese NDVI gobierna el techo
+    Con un orden distinto al asumido, `brightness` (promedio de las 4) sale
+    bien igual —es simétrico— así que nada falla a la vista; pero el NDVI
+    quedaría calculado con dos bandas cambiadas, y ese NDVI gobierna el techo
     NDVI_CEILING (semilla y débil) y la compuerta SEED_NDVI_GROWTH_MAX por
     componente. Es decir: el polígono de área afectada y toda la severidad que
     se calcula sobre él salían mal, en silencio y sin ningún error.
@@ -242,26 +215,23 @@ def detect_polygon(z_severidad, temp_abs, valid, ndvi, gt, proj, W, H):
     px = abs(gt[1])
     px_area = px ** 2
 
-    # El umbral térmico absoluto (40°C) asume un incendio todavía caliente
-    # al momento del vuelo. Si la misión se voló con el fuego ya frío (visto
-    # en Envigado: máximo de toda la misión 40.8°C, prácticamente ningún
-    # píxel cruza el corte), exigirlo bloquea la detección por completo aun
-    # cuando la señal espectral (z_severidad) sí muestra una mancha real.
+    # El umbral térmico absoluto (40°C) asume un incendio todavía caliente al
+    # momento del vuelo. En una misión volada con el fuego ya frío el máximo de
+    # toda la escena puede quedar en ~40°C, sin prácticamente ningún píxel por
+    # encima del corte; exigirlo ahí bloquearía la detección por completo aun
+    # cuando la señal espectral (z_severidad) muestra una mancha real.
     # "Alcanza el umbral" exige una cantidad mínima de píxeles, no solo que
-    # exista alguno — unos pocos píxeles sueltos calientes (ruido/artefacto
+    # exista alguno — unos pocos píxeles sueltos calientes (ruido o artefacto
     # puntual) no son lo mismo que una región real todavía caliente.
     #
-    # Respaldo cuando NO hay señal térmica confiable: se probó un percentil
-    # de temperatura de la misma misión como sustituto y fue peor que no usar
-    # térmico — con temperatura casi plana, ese percentil separa por RUIDO,
-    # no por señal real, y termina rechazando la mayoría del área quemada
-    # real (visto en Envigado: detección fragmentada y muy por debajo del
-    # área visible a simple vista en el RGB). También se probó exigir
-    # temp_abs>=40°C siempre (LCC lo cumple de sobra): no ayuda a discriminar
-    # cultivo/suelo soleado de incendio real porque AMBOS llegan a esa
-    # temperatura en un día despejado — es NDVI, no temperatura, lo que los
-    # separa (ver punto 5). Por eso el térmico es una confirmación opcional
-    # cuando existe, nunca el discriminador principal.
+    # Sin señal térmica confiable no se sustituye por nada: un percentil de
+    # temperatura de la propia misión sería peor que no usar térmico, porque
+    # con temperatura casi plana ese percentil separa por RUIDO y termina
+    # rechazando la mayor parte del área quemada real. Y exigir temp>=40°C
+    # siempre tampoco discrimina: cultivo y suelo soleado llegan a esa
+    # temperatura en un día despejado igual que un incendio: lo que los separa
+    # es el NDVI (punto 5), no la temperatura. Por eso el térmico es una
+    # confirmación opcional cuando existe, nunca el discriminador principal.
     #
     # Techo de NDVI en semilla y débil: rechaza vegetación viva (cultivo,
     # árboles con sombra) que casualmente cruza el corte de brillo — ver
@@ -286,9 +256,9 @@ def detect_polygon(z_severidad, temp_abs, valid, ndvi, gt, proj, W, H):
     # débil (z>=1, "leve") SOLO si están conectados (vecindad-8) a una
     # semilla — evita que z_severidad solo (sin núcleo fuerte cerca) cuele
     # ruido disperso, pero sí extiende sobre gradiente real de severidad
-    # espectral contiguo a una detección confirmada (ver docstring: la
-    # mitad del área real de Envigado quedaba en z=[1,2), justo bajo el
-    # corte único anterior, pero conectada a la mancha confirmada).
+    # espectral contiguo a una detección confirmada. Es lo que hace falta:
+    # buena parte del área quemada real cae en z=[1,2) —por debajo del corte
+    # de semilla— pero conectada a la mancha confirmada.
     weak = valid & (z_severidad >= Z_SEVERIDAD_WEAK) & ndvi_ok
     weak_lbl, weak_n = ndimage.label(weak, structure=np.ones((3, 3)))
     if weak_n == 0 or not seed.any():
@@ -300,10 +270,10 @@ def detect_polygon(z_severidad, temp_abs, valid, ndvi, gt, proj, W, H):
     # Compuerta por componente: un componente semilla+débil solo se deja
     # CRECER más allá de sus propios píxeles semilla si el NDVI PROMEDIO de
     # sus propios píxeles semilla es de ceniza inequívoca (<SEED_NDVI_GROWTH_MAX).
-    # Se probó reemplazar esto por coherencia de orientación de textura (ver
-    # docstring, sección "intento descartado") y no generalizó — se queda
-    # con NDVI. Si el componente no pasa la compuerta, conserva sus píxeles
-    # semilla originales (no desaparece del polígono, solo no se expande).
+    # La compuerta es espectral (NDVI) y no de textura: ver la limitación
+    # conocida del docstring. Si el componente no pasa la compuerta, conserva
+    # sus píxeles semilla originales (no desaparece del polígono, solo no se
+    # expande).
     seed_lbl = np.where(seed, weak_lbl, 0)
     ndvi_means = np.atleast_1d(ndimage.mean(ndvi, seed_lbl, seed_ids))
     grow_ids = seed_ids[ndvi_means < SEED_NDVI_GROWTH_MAX]
@@ -357,17 +327,16 @@ def detect_polygon(z_severidad, temp_abs, valid, ndvi, gt, proj, W, H):
     for feat in tmp_layer:
         union_geom = union_geom.Union(feat.GetGeometryRef())
     # gdal.Polygonize() traza un vértice en CADA transición de píxel del
-    # contorno — un perímetro real sale con miles de vértices (7103 vistos
-    # en Barbosa/la_clara), la escalera propia de un raster, no la forma del
-    # incendio. La tolerancia anterior (px*0.5, media resolución de píxel:
-    # ~4cm) era demasiado fina para limarla — apenas si quitaba puntos
-    # colineales exactos. SIMPLIFY_TOLERANCE_M (1.5m) sí borra esa escalera
-    # sin deformar el perímetro a la escala en que importa para una decisión
-    # de respuesta a incendios, y de paso deja un polígono editable a mano
-    # en el geovisor sin generar miles de marcadores de vértice (antes,
-    # entrar a modo edición tardaba muchos segundos en construir un manejador
-    # de arrastre POR CADA vértice — ver toggleAreaEdit()/buildEditHandles()
-    # en geovisor/app.js).
+    # contorno, así que un perímetro real sale con miles de vértices (del
+    # orden de 7000): es la escalera propia de un raster, no la forma del
+    # incendio. La tolerancia tiene que estar en METROS y no en fracción de
+    # píxel — a ~4 cm apenas se quitan los puntos colineales exactos y la
+    # escalera queda. SIMPLIFY_TOLERANCE_M (1.5 m) la borra sin deformar el
+    # perímetro a la escala en que importa para una decisión de respuesta a
+    # incendios, y de paso deja un polígono editable a mano en el geovisor:
+    # con miles de vértices, entrar a modo edición tarda varios segundos
+    # construyendo un manejador de arrastre por cada uno (ver
+    # toggleAreaEdit()/buildEditHandles() en geovisor/app.js).
     union_geom = union_geom.SimplifyPreserveTopology(SIMPLIFY_TOLERANCE_M)
     area_m2 = union_geom.Area()  # calculada en la SRS proyectada (metros), antes de reproyectar
 

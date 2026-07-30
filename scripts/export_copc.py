@@ -15,9 +15,8 @@ OUTPUTS = "outputs"
 # (directorio del proyecto ODM, nombre de salida) — los tres proyectos con
 # reconstrucción 3D propia completa (RGB siempre; MS y térmico nativo si la
 # misión los trae). El térmico usa el renderizador nativo de ODM (malla +
-# textura + ortofoto real, ver prepare_thermal_native_odm.py) — su nube densa
-# es un producto real, no solo un subproducto de poses como en el pipeline
-# heurístico anterior (retirado jul 2026).
+# textura + ortofoto real, ver prepare_thermal_native_odm.py), así que su nube
+# densa es un producto por derecho propio y no un subproducto de las poses.
 PROJECTS = [
     (os.environ.get("ODM_RGB_DIR", "processing/rgb_odm"), "point_cloud_rgb.copc.laz"),
     (os.environ.get("ODM_MS_DIR", "processing/multispectral_odm"), "point_cloud_multispectral.copc.laz"),

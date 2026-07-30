@@ -69,25 +69,25 @@ if m_raw.mean() < MIN_COVERAGE or res * 100 > MAX_RES_CM:
           f"¿Es el DSM nativo de la última corrida de ODM? Revisa {SRC}")
 
 # Detectar relleno sintético: varianza local ~0 dentro de lo "válido"
-# NOTA memoria: este script procesa DSMs de cientos de millones de píxeles
-# (visto: 17223x18793 = 324M px) como variables de módulo (nunca se liberan
-# solas por scope), y varias operaciones aquí generan arrays float64/int64 de
-# tamaño completo (2.6-5.2 GB cada uno) — sin `del` explícito estas se
-# acumulan TODAS simultáneamente hasta el final del script. Causó 3 OOM kills
-# reales (proceso llegó a 21-27GB RSS) en la misión Quitasol 0101. Fix:
-# float32 en vez de float64 (mitad de memoria) + `del` tan pronto un array
-# deja de usarse, para que el refcounting de CPython lo libere de inmediato.
+# MEMORIA: este script procesa DSMs de cientos de millones de píxeles (del
+# orden de 17000x19000 = 324M px) como variables de módulo, que nunca se
+# liberan solas por scope, y varias operaciones de acá generan arrays de
+# tamaño completo (2.6-5.2 GB cada uno). Sin cuidado explícito se acumulan
+# TODAS simultáneamente hasta el final del script y el kernel mata el proceso
+# por falta de memoria. De ahí las dos reglas: float32 en vez de float64
+# (mitad de memoria) y `del` tan pronto un array deja de usarse, para que el
+# refcounting de CPython lo libere de inmediato.
 #
-# NOTA numérica (bug real, visto en Barbosa): varianza local vía
-# E[X²]-E[X]² (fórmula de una pasada) es CANCELACIÓN CATASTRÓFICA en
-# float32 cuando X tiene un offset grande (elevación absoluta, p.ej.
-# ~2000m: X²~4·10⁶ ya satura casi toda la precisión de float32 de ~7
-# dígitos, sin dígitos sobrantes para resolver una varianza objetivo de
-# 1e-5). Resultado: ruido de redondeo random, NO la varianza real —
-# detectó 72.5% de "relleno sintético" en una misión donde la varianza
-# real (recalculada en float64) da 5.5%. Fix: fórmula de DOS pasadas
-# (centrar por la media local antes de elevar al cuadrado) — el residuo
-# local es chico (orden de cm de rugosidad real) sin importar la escala
+# NUMÉRICA: la varianza local se calcula con la fórmula de DOS pasadas
+# (centrar por la media local antes de elevar al cuadrado), no con
+# E[X²]-E[X]². Esta última sufre cancelación catastrófica en float32 cuando X
+# tiene un offset grande, que es exactamente el caso de una elevación absoluta:
+# a ~2000 m, X² ~ 4·10⁶ ya satura casi toda la precisión de float32 (~7
+# dígitos) y no quedan dígitos para resolver una varianza objetivo de 1e-5. El
+# resultado sería ruido de redondeo en vez de la varianza real, y con él este
+# script puede marcar como "relleno sintético" más del 70% de un DSM cuya
+# varianza real es del orden del 5%. Con dos pasadas el residuo local es chico
+# (orden de cm de rugosidad real) sin importar la escala
 # absoluta de Z, así que el cuadrado es numéricamente estable en float32
 # también. Mismo conteo de arrays temporales que antes, sin regresión de
 # memoria.

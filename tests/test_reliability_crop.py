@@ -1,9 +1,9 @@
 """_reliability_crop: núcleo contiguo con contorno regular y margen.
 
 Es el recorte que decide la forma final del ortomosaico. El test más
-importante es el último: protege un bug REAL documentado en el propio código
-(el closing dilata y, si se re-intersecta contra la máscara equivocada,
-reintroduce justo las zonas de bajo solape que el piso acababa de descartar).
+importante es el de subconjunto: el closing dilata y, si se re-intersecta
+contra la máscara equivocada, reintroduce justo las zonas de bajo solape que
+el piso acaba de descartar.
 """
 import numpy as np
 
@@ -40,12 +40,11 @@ class TestReliabilityCrop:
         assert out[100, 100], "pero el centro se conserva"
 
     def test_el_resultado_es_siempre_subconjunto_de_la_entrada(self):
-        """BUG REAL protegido acá (documentado en la función): el closing
-        DILATA el componente limpio. Si se re-intersecta contra la máscara
-        original sin filtrar en vez de contra la ya filtrada, reaparecen las
-        zonas de bajo solape que el piso había descartado — el "peine" que
-        crece de vuelta desde el borde. El resultado NUNCA puede tener un
-        píxel que no estuviera en la entrada."""
+        """El closing DILATA el componente limpio. Si se re-intersecta contra
+        la máscara original sin filtrar en vez de contra la ya filtrada,
+        reaparecen las zonas de bajo solape que el piso había descartado — el
+        "peine" que crece de vuelta desde el borde. El resultado NUNCA puede
+        tener un píxel que no estuviera en la entrada."""
         rng = np.random.default_rng(7)
         m = np.zeros((200, 200), bool)
         m[40:160, 40:160] = True

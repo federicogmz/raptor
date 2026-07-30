@@ -1,8 +1,7 @@
 """Umbrales adaptativos de trim_low_overlap_edges.py.
 
 Son el corazón calibrado del recorte: deciden cuánto ortomosaico sobrevive.
-Cada test nombra el comportamiento documentado que protege — varios vienen de
-incidentes reales citados en los propios docstrings (El Cano, Barbosa).
+Cada test nombra el comportamiento documentado que protege.
 """
 import numpy as np
 
@@ -17,8 +16,8 @@ class TestAdaptiveFloor:
         assert _adaptive_floor(vals, 8, min_keep_frac=0.85) == 8
 
     def test_relaja_cuando_el_vuelo_tiene_menos_solape_que_la_calibracion(self):
-        # El caso que motivó la función: piso calibrado para M300, vuelo M3T con
-        # menos solape real -> el piso fijo descartaría casi todo.
+        # Un piso calibrado para un vuelo de solape denso, aplicado a uno con
+        # menos solape real, descartaría casi todo.
         vals = np.array([3] * 100, float)
         out = _adaptive_floor(vals, 20, min_keep_frac=0.85, fallback_percentile=15)
         assert out < 20, "un piso que deja pasar 0% tiene que relajarse"
@@ -35,9 +34,9 @@ class TestAdaptiveFloor:
         assert _adaptive_floor(vals, 8, exclude_zero=True) == 8
 
     def test_con_exclude_zero_false_el_filtro_puede_desactivarse(self):
-        # Bug real de El Cano citado en el docstring: n_contrib mediana=0,
-        # forzar piso=1 igual quitaba el 72% del área. Con 0 como medición
-        # legítima el piso puede bajar a 0 = señal desactivada.
+        # Con una señal de mediana 0, forzar el piso a 1 descartaría a la
+        # mayoría de la población. Con 0 como medición legítima el piso puede
+        # bajar hasta 0 = señal desactivada.
         vals = np.array([0] * 80 + [5] * 20, float)
         out = _adaptive_floor(vals, 4, min_keep_frac=0.85, exclude_zero=False)
         assert out == 0.0, "una señal sin poder discriminante debe desactivarse, no forzarse a 1"
@@ -58,9 +57,9 @@ class TestAdaptiveFloor:
 
 class TestAdaptiveFloorJoint:
     def test_detecta_el_colapso_de_la_interseccion(self):
-        """El caso que justifica la función (El Cano, citado en el docstring):
-        cada piso por separado parece dejar pasar suficiente, pero la
-        intersección de los dos colapsa la cobertura."""
+        """El caso que justifica la función: cada piso por separado parece
+        dejar pasar suficiente, pero la intersección de los dos colapsa la
+        cobertura."""
         n = 1000
         rng = np.random.default_rng(0)
         # Anticorrelacionadas: donde una es alta la otra es baja

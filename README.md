@@ -41,6 +41,12 @@ lanzador la monta en el contenedor, así que lo que elijas en el formulario es
 una ruta real del host y no algo que desaparece al cerrar el contenedor. Sin
 `--export` la webapp funciona igual, pero la exportación aparece deshabilitada.
 
+Sin GPU se cae a CPU solo (`--no-gpu` lo fuerza). Las fotos subidas y los
+resultados quedan en `runs/<misión>/`, que el lanzador monta por vos;
+`--runs DIR` lo cambia de lugar.
+
+---
+
 ## Automatización y CI
 
 `./raptor run` procesa una misión sin interacción, con códigos de salida y un
@@ -66,19 +72,9 @@ código. `./raptor run --help` lista todas las opciones.
 A diferencia del modo interactivo, `run` **no** deja el geovisor sirviendo al
 terminar (eso sería un cuelgue en CI); agregá `--serve` si lo querés.
 
-Sin GPU, omitir `--gpus all` (ODM cae a CPU solo). Las fotos subidas y los
-resultados quedan en `/app/runs/<misión>/` dentro del contenedor; para
-persistirlos entre corridas, montá esa carpeta:
-
-```bash
-docker run --rm --gpus all -p 8080:8080 -v $PWD/runs:/app/runs raptor
-```
-
-> **Importante:** el `CMD` por defecto de la imagen cambió de `run` a
-> `webapp`. Cualquier script/automatización que dependía del comportamiento
-> implícito anterior (procesar `/input` directo al arrancar el contenedor)
-> ahora necesita agregar el argumento `run` explícito al final — ver
-> "Uso manual con `docker run`" más abajo.
+> **Nota:** el `CMD` por defecto de la imagen es `webapp`. Para el pipeline
+> batch hay que pasar `run` como argumento explícito — `./raptor run` ya lo
+> hace; ver "Uso manual con `docker run`" más abajo si invocás Docker a mano.
 
 ---
 
@@ -126,9 +122,9 @@ en la imagen) — no hace falta pasarlo a mano.
 > para `processing/`, `preprocessing/`, `outputs/` ni `geovisor/tiles/` (la
 > webapp necesita poder reemplazar esas rutas por symlinks en runtime para
 > manejar varias misiones en una sesión — ver el comentario en el
-> `Dockerfile`). Sin `VOLUME` declarado ya no hay red de seguridad de volumen
+> `Dockerfile`). Sin `VOLUME` declarado no hay red de seguridad de volumen
 > anónimo: **si no montás nada en modo `run`, los productos se pierden al
-> borrar el contenedor.**
+> borrar el contenedor.** `./raptor run` monta lo necesario por vos.
 
 Montalos para conservar los resultados, ver los archivos directamente (p.ej.
 los TIFF de temperatura °C en `preprocessing/thermal_dji_sdk/` para usarlos en
@@ -152,8 +148,7 @@ sin `--rm`), sacá los archivos con `docker cp <container>:/app/preprocessing/th
 **Una carpeta por misión (recomendado):** `processing/`, `outputs/` y
 `geovisor/tiles/` guardan el estado de LA misión que se procesó ahí — si
 corrés una misión nueva montando las mismas rutas de una anterior, ODM
-reconstruye sobre datos mezclados de dos vuelos distintos (ver incidente
-jul 2026, corregido en `prepare-rgb`, pero evitarlo de raíz es más simple).
+reconstruye sobre datos mezclados de dos vuelos distintos.
 Usá una carpeta `runs/<nombre-misión>/` por corrida:
 
 ```bash
@@ -355,8 +350,7 @@ raptor/
 ├── geovisor/                      ← Dashboard Leaflet (selector de bandas, panel "Situación actual")
 ├── webapp/                        ← Webapp interactiva (FastAPI): main.py, static/index.html
 ├── core/                          ← Orquestador del pipeline (activate_mission, PipelineRun, escaneo de
-│                                     misiones) — lo usa webapp/main.py; vivía en tui/ cuando existía
-│                                     además una interfaz de terminal (Textual, retirada jul 2026)
+│                                     misiones) — lo usa webapp/main.py
 ├── docker/                        ← entrypoint.sh (orquesta todo) + setup-data.sh + setup-data-multispectral.sh
 ├── dji_thermal_sdk/               ← DJI Thermal SDK (incluido)
 ├── docs/PIPELINE.md               ← Documentación técnica
@@ -490,9 +484,9 @@ docker run --rm -p 8080:8080 -v $PWD/geovisor/tiles:/app/geovisor/tiles \
   Kelvin×100 y los etiqueta como `Make=DJI`/`Model=ZH20T`/XMP
   `Camera:BandName=LWIR` — el formato exacto que `opendm/thermal.py` de ODM
   reconoce para aplicar su propia calibración Kelvin→°C durante el render de
-  textura. Reemplaza (jul 2026) el pipeline anterior tras compararse contra
-  una entrega de referencia de Agisoft: 16.9%→68.6% de cobertura, sin
-  artefactos de fragmentación, mayor resolución. Ver `docs/PIPELINE.md`.
+  textura. Contra una entrega de referencia de Agisoft, el render nativo da
+  68.6% de cobertura frente al 16.9% de un blending heurístico propio, sin
+  artefactos de fragmentación y a mayor resolución. Ver `docs/PIPELINE.md`.
 - **TIFF térmico geolocalizado**: cada TIFF de temperatura en
   `preprocessing/thermal_dji_sdk/*.tif` trae embebido el GPS/gimbal EXIF de
   su R-JPEG fuente — lo usa `prepare_thermal_native_odm.py` para armar el

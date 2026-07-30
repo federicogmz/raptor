@@ -88,10 +88,10 @@ metadatos: el GPS/EXIF lo leen directamente los scripts que lo necesitan
   `opendm/thermal.py::dn_to_temperature`, rama `DJI ZH20T`) durante el
   render de textura, así que el ortofoto final ya sale en °C reales.
   `--orthophoto-resolution 10 --pc-quality medium`. ~15-20 min.
-  Reemplaza (jul 2026) el pipeline heurístico anterior (proyección inversa +
-  winner-take-all propio) tras compararse contra una entrega de referencia
-  de Agisoft para la misma misión: el pipeline propio daba 16.9% de
-  cobertura con artefactos de fragmentación en los bordes; el render nativo
+  Se usa el render nativo y no un blending heurístico propio: contra una
+  entrega de referencia de Agisoft sobre la misma misión, una proyección
+  inversa con winner-take-all propio da 16.9% de cobertura con artefactos de
+  fragmentación en los bordes; el render nativo
   de ODM da 68.6% sin artefactos, a mayor resolución.
 
 - **ODM Multiespectral**: SfM + calibración a reflectancia (sensor de sol,
@@ -199,10 +199,10 @@ todos sus productos. Los scripts que necesitan proyectar (el conteo de solape de
 cámaras en `trim_low_overlap_edges.py`) **derivan la CRS del propio raster que
 están procesando**, así que no hay nada que ajustar para volar en otra zona.
 
-`UTM_EPSG = 32618` sigue en ese script como respaldo para un raster sin
-proyección legible — antes era el valor fijo que se usaba siempre, lo que hacía
-que fuera de la zona 18N las huellas de cámara cayeran a cientos de kilómetros
-del raster y el recorte de bordes se degradara en silencio.
+`UTM_EPSG = 32618` queda en ese script solo como respaldo para un raster sin
+proyección legible. No se usa como valor fijo: fuera de la zona 18N eso pondría
+las huellas de cámara a cientos de kilómetros del raster y degradaría el
+recorte de bordes en silencio.
 
 Los productos vectoriales (`area_afectada.geojson`) van en EPSG:4326 por RFC
 7946 — Leaflet ignora cualquier miembro `crs` y asume siempre WGS84.

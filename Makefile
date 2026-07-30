@@ -84,12 +84,12 @@ endef
 # verifico que sin este flag gps_xy_stddev quedaba en None pese a copiar
 # los tags "correctamente" segun exiftool.
 #
-# Se restaura -exif:all y NO solo -gps:all (bug real, mision la_clara jul 2026):
-# -gps:all devolvia la posicion pero NO Make/Model/FocalLength, asi que ODM veia
-# una camara anonima y usaba su focal por defecto (focal_ratio 0.85) en vez de la
-# real del M3T (0.667) - 27% de error inicial. Con esa semilla el bundle
-# adjustment divergio a focal_x=75 y la reconstruccion COLAPSO de escala: un
-# vuelo de 500x416 m produjo una ortofoto de 34x23 m, y el recorte por solape
+# Se restaura -exif:all y NO solo -gps:all: -gps:all devuelve la posicion pero
+# NO Make/Model/FocalLength, asi que ODM ve una camara anonima y usa su focal
+# por defecto (focal_ratio 0.85) en vez de la real del M3T (0.667) - 27% de
+# error inicial. Con esa semilla el bundle adjustment diverge a focal_x=75 y la
+# reconstruccion COLAPSA de escala: un vuelo de 500x416 m produce una ortofoto
+# de 34x23 m, y el recorte por solape
 # —haciendo lo correcto sobre una geometria imposible— dejo el mosaico en 2% de
 # cobertura. -exif:all es superconjunto de -gps:all (el GPS vive en el EXIF), asi
 # que preserva la posicion igual y ademas la identidad de la camara. Verificado
@@ -112,7 +112,7 @@ prepare-multispectral:
 # ── 3. ODM ─────────────────────────────────────────────────────────
 # El SfM/MVS de ODM (RGB y térmico) lo invoca directamente el entrypoint
 # del contenedor (python3 /code/run.py ...) — no hay target de Make para
-# eso, porque ya no se lanza como un `docker run` anidado. Ver
+# eso: no se lanza como un `docker run` anidado. Ver
 # docker/entrypoint.sh, función run_odm() (usa scripts/odm_progress_filter.py
 # para mostrar el mismo estilo de barra de progreso sobre la salida nativa
 # de ODM, que es MUY verbosa).
@@ -276,7 +276,7 @@ clean:
 clean-all: clean
 	@echo "🧹 Limpieza total — deja el repo listo para una misión nueva …"
 	@echo "   (borra TAMBIÉN data/: si queda de una misión vieja y no se limpia,"
-	@echo "    la siguiente corrida mezcla dos vuelos — ver incidente jul 2026)"
+	@echo "    la siguiente corrida mezcla dos vuelos)"
 	rm -rf $(DATA_RGB) $(DATA_THERMAL) $(DATA_MS)
 	rm -rf $(RGB_PROC) $(THNAT_PROC) $(MS_PROC)
 	rm -f $(PROCESSING)/*.csv
