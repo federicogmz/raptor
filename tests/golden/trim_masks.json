@@ -1,0 +1,18 @@
+{
+  "dsm": {
+    "n": 15791,
+    "sha1": "8e563a403d49e049"
+  },
+  "multispectral": {
+    "n": 22758,
+    "sha1": "43fac92e3e291bd5"
+  },
+  "rgb": {
+    "n": 22758,
+    "sha1": "43fac92e3e291bd5"
+  },
+  "thermal": {
+    "n": 22758,
+    "sha1": "43fac92e3e291bd5"
+  }
+}

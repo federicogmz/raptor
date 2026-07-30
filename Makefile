@@ -17,7 +17,7 @@
         sdk-convert denoise-thermal clean-dsm \
         trim-edges trim-edges-rgb trim-edges-dsm trim-edges-thermal trim-edges-multispectral \
         compute-indices confidence-mask detect-area-afectada compute-severity \
-        situation-summary flight-path tiles export-cog export-copc export-products serve info \
+        situation-summary flight-path tiles export-cog export-copc export-products serve info test \
         clean clean-all
 
 # ── Modo ───────────────────────────────────────────────────────────
@@ -171,7 +171,11 @@ trim-edges-multispectral:
 	$(call run_quiet,python3 -c "from scripts.trim_low_overlap_edges import trim_multispectral; trim_multispectral()",trim-edges-multispectral)
 	@python3 scripts/progress.py done "Bordes multiespectrales recortados"
 
-trim-edges: trim-edges-rgb trim-edges-dsm trim-edges-thermal
+# El multiespectral va incluido: quedaba afuera y `make trim-edges` recortaba
+# tres de los cuatro productos sin decir nada. El target es idempotente y
+# trim_multispectral() sale solo si no hay ortomosaico MS, así que incluirlo no
+# afecta a las misiones sin vuelo M3M.
+trim-edges: trim-edges-rgb trim-edges-dsm trim-edges-thermal trim-edges-multispectral
 
 compute-indices:
 	@python3 scripts/progress.py stage-header "Índices de vegetación (NDVI/GNDVI/NDRE)" 1 1
@@ -223,6 +227,14 @@ export-copc:
 	@python3 scripts/progress.py stage-header "Nubes de puntos → COPC" 1 1
 	$(call run_quiet,python3 scripts/export_copc.py,export-copc)
 	@python3 scripts/progress.py done "Nubes de puntos COPC listas"
+
+# ── Tests ───────────────────────────────────────────────────────────
+# Corren sin datos de vuelo: los cuatro trim_* se ejercitan sobre una misión
+# sintética (tests/synthetic.py). El test de caracterización compara contra
+# tests/golden/trim_masks.json — si cambia un solo píxel del recorte, falla.
+test:
+	python3 scripts/check_deps.py
+	python3 -m pytest tests/ -q
 
 # ── 7b. Entrega al usuario (opcional) ───────────────────────────────
 # Copia los productos elegidos a EXPORT_DIR, en el formato y la CRS pedidos
