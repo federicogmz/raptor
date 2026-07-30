@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Prepara las térmicas para el pipeline ODM NATIVO (malla 3D + textura +
-ortofoto real vía el propio renderizador de ODM — reemplaza el blending
-heurístico propio anterior, orthorectify_thermal_rigorous.py).
+Prepara las térmicas para el pipeline ODM NATIVO: malla 3D + textura +
+ortofoto real vía el propio renderizador de ODM, sin blending heurístico
+propio.
 
 ODM tiene soporte NATIVO para calibración radiométrica DJI H20T
 (opendm/thermal.py) pero exige un formato específico que nuestra fuente (DJI

@@ -29,7 +29,7 @@ no ajustados a mano contra este dataset:
   rango (88°C) como corte de "foco activo".
     1=normal(<40°C) 2=elevado(40-60°C) 3=caliente(60-88°C) 4=foco activo(>=88°C, umbral operacional citado)
   Fuente: literatura de UAV thermal imaging para wildfire hotspot/mop-up
-  detection (predetermined threshold 190-250°F), jul 2026.
+  detection (predetermined threshold 190-250°F).
 
   ÍNDICES DE VEGETACIÓN (NDVI/GNDVI/NDRE/MSAVI2): cortes estándar de
   teledetección agrícola/forestal, no inventados:

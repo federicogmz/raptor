@@ -46,24 +46,21 @@ RUN chmod +x dji_thermal_sdk/utility/bin/linux/release_x64/* \
 ENV NVIDIA_DISABLE_REQUIRE=1
 
 # NO se declaran /app/processing, /app/outputs, /app/preprocessing ni
-# /app/geovisor/tiles como VOLUME (a diferencia de versiones anteriores):
+# /app/geovisor/tiles como VOLUME:
 # la webapp necesita poder REEMPLAZARLOS por symlinks a
 # /app/runs/<misión>/* en runtime (activate_mission(), core/runner.py) para
 # procesar varias misiones en una sola sesión de contenedor — un VOLUME fija
 # esos paths como mountpoints reales, imposibles de symlinkear desde
 # adentro. El modo `run` de un solo `docker run` por misión sigue
 # funcionando igual montándolos con `-v` explícito (ver README) — sin
-# VOLUME declarado ya no hay "red de seguridad" de volumen anónimo si el
-# usuario NO monta nada en ese modo, pero ese caso ya perdía los datos al
-# borrar el contenedor igual.
+# VOLUME declarado no hay "red de seguridad" de volumen anónimo si el usuario
+# NO monta nada en ese modo: sin montaje los datos se pierden al borrar el
+# contenedor.
 EXPOSE 8080
 
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
 # Default: webapp interactiva (subir fotos + elegir parámetros + progreso en
 # vivo + geovisor, todo por navegador — ver docker/entrypoint.sh case
-# `webapp` y webapp/main.py). Scripts de automatización existentes que ya
-# pasaban `-e MODE=... -v ...:/input` SIN un argumento final explícito
-# quedan afectados por este cambio de default (antes corrían el pipeline
-# batch directo) — agregar `run` como argumento explícito al final del
-# `docker run` para preservar el comportamiento anterior.
+# `webapp` y webapp/main.py). El pipeline batch necesita `run` como argumento
+# explícito al final del `docker run`; ./raptor run ya lo pasa.
 CMD ["webapp"]

@@ -47,9 +47,7 @@ class Colors:
 # webapp (webapp/main.py, vía core/runner.py) no quiere parsear eso — si
 # PROGRESS_FILE está seteado, además se apendean líneas planas tab-separadas
 # key=value, fáciles de tailear sin tocar el comportamiento normal de
-# terminal. Se llamaba TUI_PROGRESS_FILE de cuando el único consumidor era
-# la interfaz de terminal (retirada jul 2026) — el nombre quedaba mintiendo
-# sobre quién lo usa hoy (la webapp).
+# terminal.
 _PROGRESS_FILE = os.environ.get("PROGRESS_FILE")
 
 

@@ -1,8 +1,7 @@
 """Activación de misión (symlinks) + invocación del pipeline real
 (docker/entrypoint.sh) como subprocess, reusando toda la lógica ya
 validada — este módulo no reimplementa nada del pipeline, solo lo orquesta.
-Lo usa webapp/main.py; vivía en tui/ cuando existía además una interfaz de
-terminal, retirada en jul 2026 (la webapp la reemplaza por completo).
+Lo usa webapp/main.py.
 """
 import asyncio
 import os
@@ -76,7 +75,7 @@ class PipelineRun:
             env.pop("MS_SOURCE_DIR", None)
         # Se limpian SIEMPRE las EXPORT_* heredadas del proceso padre antes de
         # aplicar las de esta corrida: si no, una misión configurada sin
-        # exportación heredaría el destino de la anterior y escribiría ahí.
+        # exportación heredaría el destino de otra corrida y escribiría ahí.
         for k in ("EXPORT_DIR", "EXPORT_PRODUCTS", "EXPORT_RASTER_FORMAT",
                   "EXPORT_VECTOR_FORMAT", "EXPORT_EPSG"):
             env.pop(k, None)
@@ -102,11 +101,9 @@ class PipelineRun:
         produce UNA sola "línea" de cientos de KB. asyncio.StreamReader
         .readline() aborta a los 64 KiB con
         `ValueError: Separator is not found, and chunk exceed the limit`,
-        lo que MATABA la tarea que consume la salida: el pipeline seguía
-        corriendo y terminaba bien, pero la UI nunca se enteraba y quedaba
-        colgada para siempre en la última etapa mostrada (visto en la misión
-        la_clara, jul 2026: la corrida terminó completa a las 01:06 y la
-        pantalla siguió diciendo "Nubes de puntos → COPC" indefinidamente).
+        lo que MATA la tarea que consume la salida: el pipeline sigue
+        corriendo y termina bien, pero la UI no se entera y queda colgada
+        para siempre en la última etapa que alcanzó a mostrar.
 
         Se lee por chunks y se corta por `\\r` Y por `\\n`, así cada redibujo
         de la barra es su propia línea — sin límite de tamaño que reventar y

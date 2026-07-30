@@ -106,9 +106,9 @@ def _thermal_clip_range():
     reventar el contraste si la escena es EXTREMADAMENTE uniforme.
     El extremo superior es 99.9, no 99: en misiones de incendio los puntos
     calientes reales (>1% del área en focos activos) son justo el dato de
-    interés — recortar en el percentil 99 los satura todos al mismo blanco
-    plano, perdiendo el detalle de intensidad entre focos (visto en El Cano:
-    1.02% del área ≥33.3°C hasta 44.8°C, todo blindado a un solo blanco)."""
+    interés: recortar en el percentil 99 los satura todos al mismo blanco
+    plano y se pierde el detalle de intensidad entre focos — con ~1% del área
+    repartida entre 33°C y 45°C, todo ese rango colapsaría a un único tono."""
     if not os.path.exists(THERMAL_IN):
         return (15.0, 55.0)
     ds = gdal.Open(THERMAL_IN)

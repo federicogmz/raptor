@@ -20,10 +20,7 @@
 #     raptor:latest run
 #
 # Otros modos: `serve` (solo levantar el geovisor sobre processing/outputs
-# ya existentes), `shell` (debug). Hubo un modo `tui` (misma interacción que
-# `webapp` pero en terminal, sin navegador) — retirado jul 2026, la webapp
-# lo reemplaza por completo y sin ella era una segunda UI para mantener sin
-# ganancia real.
+# ya existentes), `shell` (debug).
 #
 # Multiespectral (DJI M3M u otro dron distinto, misma zona): montar un
 # SEGUNDO volumen aparte de /input (es otro vuelo/sensor, no se mezcla) —
@@ -33,11 +30,7 @@
 #
 # Térmico: se procesa con el renderizador NATIVO de ODM (malla 3D +
 # textura + ortofoto real), no un blending heurístico propio — ver
-# scripts/prepare_thermal_native_odm.py. Reemplaza el pipeline anterior
-# (orthorectify_thermal_rigorous.py/poisson_seam_blend.py, retirados jul
-# 2026 tras compararse contra una entrega de referencia de Agisoft:
-# el pipeline propio daba 16.9% de cobertura con artefactos de
-# fragmentación: el nativo da 68.6%, sin artefactos, más resolución).
+# scripts/prepare_thermal_native_odm.py.
 #
 # Sin GPU disponible en el host, omitir --gpus: ODM detecta nvidia-smi
 # en tiempo de ejecución y cae a CPU automáticamente (más lento, sin
@@ -228,13 +221,12 @@ mkdir -p outputs/logs
 # los núcleos. Escala con el tamaño de imagen, así que para un sensor de N MP el
 # pico por hilo es ~N/2 GB.
 #
-# Bug reportado (jul 2026, misión multiespectral de 413 capturas): el log corta
-# en seco justo en "Computing band alignment", sin traceback ni mensaje de
-# error. Esa etapa (opendm/multispectral.py::compute_alignment_matrices) carga
-# DOS imágenes completas por hilo; las bandas del M3M son 2592x1944 = 5 MP, o
-# sea ~2.5 GB por hilo. En una máquina de 20 núcleos eso pide ~50 GB. Cuando el
-# kernel mata el proceso con SIGKILL no hay excepción que loguear — el log
-# simplemente termina, que es exactamente el síntoma reportado.
+# La etapa crítica es el band alignment del multiespectral
+# (opendm/multispectral.py::compute_alignment_matrices): carga DOS imágenes
+# completas por hilo, y las bandas del M3M son 2592x1944 = 5 MP, o sea ~2.5 GB
+# por hilo. En una máquina de 20 núcleos eso pide ~50 GB. Cuando el kernel mata
+# el proceso con SIGKILL no hay excepción que loguear: el log simplemente
+# termina en seco a mitad de la etapa, sin ninguna pista.
 #
 # Se acota al 80% de la RAM DISPONIBLE (no la total: el resto del pipeline y el
 # propio contenedor también ocupan). Nunca sube por encima de los núcleos reales

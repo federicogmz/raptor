@@ -6,11 +6,8 @@ Backend web de RAPTOR: subida de fotos crudas + selección de sensores/modo
 No reimplementa nada del pipeline — reusa tal cual core/scan.py y
 core/runner.py (activate_mission, PipelineRun, parse_progress_events), que ya
 corren docker/entrypoint.sh como subprocess y exponen progreso estructurado
-(ver PROGRESS_FILE en scripts/progress.py). core/ vivía como tui/ cuando
-existía además una interfaz de terminal (Textual) — se retiró (jul 2026,
-la webapp la reemplaza por completo) y este módulo quedó como lo que
-siempre fue en realidad: el orquestador del pipeline, sin ninguna UI
-propia.
+(ver PROGRESS_FILE en scripts/progress.py). core/ es el orquestador del
+pipeline y no tiene UI propia.
 
 Los tres sensores son OPCIONALES e independientes: se puede volar solo el
 M3T/H20T (RGB+térmico), solo el M3M (multiespectral) o los dos. El modo se
@@ -226,11 +223,12 @@ _state: RunState | None = None
 
 
 def _mission_dir(name, create=False):
-    """(nombre saneado, directorio) de una misión. `create` SOLO en los
-    endpoints que realmente reciben datos (upload/start): antes esto hacía
-    mkdir siempre, así que un GET de lectura —/status, /sample, /view— sobre
-    un nombre inexistente creaba el directorio y esa misión fantasma vacía
-    aparecía después en la lista del selector."""
+    """(nombre saneado, directorio) de una misión.
+
+    `create` SOLO en los endpoints que realmente reciben datos (upload/start).
+    Un GET de lectura —/status, /sample, /view— sobre un nombre inexistente no
+    debe crear nada: el directorio quedaría como una misión fantasma vacía en
+    la lista del selector."""
     safe = sanitize_mission_name(name)
     d = RUNS_ROOT / safe
     if create:
@@ -249,15 +247,13 @@ def _refuse_if_other_mission_running(safe):
     activate_mission() redirige processing/outputs/preprocessing/geovisor/tiles
     por symlink (ver core/runner.py) — es un estado GLOBAL del contenedor, no
     algo por pestaña. Sin esta guarda, abrir el geovisor de una misión vieja
-    mientras otra está corriendo movía esos symlinks debajo del pipeline en
-    curso, que seguía escribiendo tan tranquilo en el directorio equivocado:
-    los productos de la misión que corre terminaban mezclados dentro de la
-    misión que se abrió para mirar. Es la misma clase de incidente de mezcla
-    de misiones que documenta `clean-all` en el Makefile, pero disparado por
-    un simple clic en el selector.
+    mientras otra está corriendo mueve esos symlinks debajo del pipeline en
+    curso, que sigue escribiendo tan tranquilo en el directorio equivocado: los
+    productos de la misión que corre terminan mezclados dentro de la misión que
+    se abrió para mirar, con un simple clic en el selector.
 
-    /clear-uploads y DELETE /misión ya se protegían así; /activate y /view
-    eran los dos que faltaban — y son justo los que tocan los symlinks."""
+    Todos los endpoints que tocan los symlinks o los archivos de una misión
+    (/activate, /view, /clear-uploads, DELETE) tienen que protegerse igual."""
     running = _running_mission()
     if running is not None and running != safe:
         raise HTTPException(
