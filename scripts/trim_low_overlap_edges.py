@@ -447,16 +447,13 @@ def _iter_open(m, r):  # opening por erosión+dilatación iteradas (rápido y se
 def _iter_close(m, r):
     return ndimage.binary_erosion(ndimage.binary_dilation(m, iterations=r), iterations=r) if r else m
 
-def _reliability_crop(mask, px_size_m, reference_population=None,
-                       open_m=None, close_m=None):
+def _reliability_crop(mask, px_size_m, open_m=None, close_m=None):
     """Recorte de confiabilidad (Agisoft/Pix4D/Terra): conserva SOLO el núcleo
     contiguo bien-solapado, con contorno regular y margen de seguridad. El
     piso de solape por sí mismo lo aplica el caller (_adaptive_floor_joint
     sobre _rgb_camera_overlap) — esta función solo impone conectividad/contorno
     sobre lo que ya pasó ese piso.
 
-    reference_population: reservado para pisos adicionales específicos del
-    caller (no usado internamente hoy).
     open_m/close_m: radios de opening/closing en metros, default REL_OPEN_M/
     REL_CLOSE_M si no se pasan — mismo radio en metros erosiona igual sin
     importar el GSD del sensor.
@@ -485,6 +482,70 @@ def _reliability_crop(mask, px_size_m, reference_population=None,
     # piso estricto original (8) porque esas zonas eran finas; con el piso
     # relajado (adaptativo, misiones de bajo solape) se vuelve muy visible.
     return m & quality_mask
+
+
+def _apply_overlap_floors(valid, specs, label, hard=(), min_keep_frac=0.2,
+                           coarse_core_px_m=None):
+    """Aplica los pisos de solape a `valid` y devuelve (valid_recortado, pisos).
+
+    Este bloque estaba COPIADO en las cuatro funciones trim_* (RGB,
+    multiespectral, térmico nativo y DSM). El bug del EPSG fijo existió en las
+    cuatro a la vez precisamente por eso: un arreglo tenía que aplicarse cuatro
+    veces o no llegaba a todos los productos.
+
+    El solape se calcula en una grilla GRUESA (RGB_OV_COARSE px por celda) y
+    `valid` está en la grilla fina del ráster, así que hay que ir y volver:
+    `valid` se submuestrea a gruesa para evaluar la población de los pisos, y
+    el resultado se re-expande a fina para intersecarlo.
+
+    specs: [(nombre, valores_gruesos, piso_pedido)] — se ajustan CONJUNTAMENTE
+        con _adaptive_floor_joint (evaluarlos por separado no alcanza, ver ese
+        docstring). El primero se aplica directo; a los siguientes se les
+        rellenan los huecos interiores encerrados (fill_holes) para que solo
+        queden fuera las "fingers" del borde, no los dips del interior.
+    hard: [(nombre, valores_gruesos, piso_fijo)] — pisos NO adaptativos, para
+        señales ya validadas con datos reales que no deben poder
+        auto-desactivarse (el piso nadir de RGB). Se reportan aparte porque su
+        efecto se mide sobre lo que quedaba, no sobre el total.
+    coarse_core_px_m: si se pasa, se exige núcleo contiguo EN LA GRILLA GRUESA
+        antes de volver a la fina (solo el DSM, ver trim_dsm).
+    """
+    H, W = valid.shape
+    gh, gw = specs[0][1].shape
+    ys = np.minimum(np.arange(H) * gh // H, gh - 1)
+    xs = np.minimum(np.arange(W) * gw // W, gw - 1)
+    ys_c = np.minimum(np.arange(gh) * H // gh, H - 1)
+    xs_c = np.minimum(np.arange(gw) * W // gw, W - 1)
+    valid_coarse = valid[np.ix_(ys_c, xs_c)]
+
+    nombres = [n for n, _, _ in specs]
+    pisos = _adaptive_floor_joint(
+        [(v, r) for _, v, r in specs], valid_coarse, min_keep_frac=min_keep_frac,
+        label=f"piso de solape {label} ({'+'.join(nombres)})")
+
+    keep_coarse = specs[0][1] >= pisos[0]
+    for (_, valores, _), piso in zip(specs[1:], pisos[1:]):
+        keep_coarse = keep_coarse & ndimage.binary_fill_holes(valores >= piso)
+
+    for nombre, valores, piso in hard:
+        antes = int(keep_coarse[valid_coarse].sum())
+        keep_coarse = keep_coarse & ndimage.binary_fill_holes(valores >= piso)
+        despues = int(keep_coarse[valid_coarse].sum())
+        print(f"  piso {nombre} (≥{piso} fotos casi-nadir, no solo oblicuas): "
+              f"−{antes - despues:,} celdas coarse "
+              f"({100*(antes-despues)/max(antes,1):.1f}% de lo que quedaba)")
+
+    extra = ""
+    if coarse_core_px_m is not None:
+        keep_coarse = _reliability_crop(keep_coarse, coarse_core_px_m)
+        extra = f" + núcleo contiguo en grilla gruesa ({coarse_core_px_m:.2f}m/celda)"
+
+    antes_ov = int(valid.sum())
+    valid = valid & keep_coarse[np.ix_(ys, xs)]
+    detalle = ", ".join(f"{n}≥{p:.0f}" for n, p in zip(nombres, pisos))
+    print(f"  piso de solape {label} ({detalle}){extra}: "
+          f"−{antes_ov - int(valid.sum()):,} px")
+    return valid, pisos
 
 
 def trim_rgb():
@@ -521,12 +582,6 @@ def trim_rgb():
     px_size_m = abs(gt[1])
     ov_full, ov_central, ov_nadir, cf = _rgb_camera_overlap(gt, W, H, proj_wkt=proj)
     if ov_full is not None:
-        gh, gw = ov_full.shape
-        ys = np.minimum(np.arange(H) * gh // H, gh - 1)
-        xs = np.minimum(np.arange(W) * gw // W, gw - 1)
-        ys_c = np.minimum(np.arange(gh) * H // gh, H - 1)
-        xs_c = np.minimum(np.arange(gw) * W // gw, W - 1)
-        valid_coarse = valid[np.ix_(ys_c, xs_c)]
         # (1) piso de solape COMPLETO → quita el fleco borroso/en bloques.
         # (2) piso de solape CENTRAL (análogo de n_contrib) → quita el "peine"/
         #     fingers (bordes de footprints). fill_holes en grilla gruesa rellena
@@ -537,6 +592,15 @@ def trim_rgb():
         #     se ve en tamaño de malla, solape total, pendiente del DSM ni
         #     textura (6 señales probadas, jul 2026) — solo en si hay AL MENOS
         #     una foto casi-nadir cubriendo la celda. Ver NADIR_MAX_TILT_DEG.
+        #     Va como piso DURO (`hard`), no adaptativo: es una señal ya
+        #     VALIDADA con datos reales (zona mala mediana=1, 45% en cero; zona
+        #     buena mediana=9, 15% en cero — ver notas jul 2026), a diferencia
+        #     de n_contrib térmico (ruido sin estructura espacial, confirmado
+        #     correcto desactivarlo). El mecanismo de auto-desactivar por "no
+        #     alcanza min_keep_frac" no distingue "señal sin poder
+        #     discriminante" de "señal que discrimina bien pero la MAYORÍA de
+        #     esta misión es oblicua-only" — este caso es lo segundo, así que
+        #     se exige de verdad aunque deje pasar menos del 20% objetivo.
         # min_keep_frac bajo (no 0.85): el criterio ya NO es "maximizar
         # cobertura mientras algo pase" — es "cortar de verdad lo distorsionado
         # /de bajo solape, aunque quede poca área, mejor que dato malo" (pedido
@@ -545,33 +609,11 @@ def trim_rgb():
         # solape, ov_central≈0 en 97% de los píxeles (vs mediana 9.5-10 en
         # bosque bueno); en zona distorsionada por vuelo oblicuo, ov_nadir
         # mediana=1 con 45% en cero (vs mediana 9, 15% en cero en zona buena).
-        floor_full, floor_central = _adaptive_floor_joint(
-            [(ov_full, REL_MIN_OVERLAP_RGB), (ov_central, REL_MIN_CENTRAL_RGB)],
-            valid_coarse, min_keep_frac=0.2, label="piso de solape RGB (completo+central)")
-        keep_coarse = ov_full >= floor_full
-        central_ok = ndimage.binary_fill_holes(ov_central >= floor_central)
-        keep_coarse = keep_coarse & central_ok
-        # Piso NADIR aparte, NO adaptativo/auto-desactivable: es una señal ya
-        # VALIDADA con datos reales (zona mala mediana=1, 45% en cero; zona
-        # buena mediana=9, 15% en cero — ver notas jul 2026), a diferencia de
-        # n_contrib térmico (ruido sin estructura espacial, confirmado
-        # correcto desactivarlo). El mecanismo de auto-desactivar por "no
-        # alcanza min_keep_frac" no distingue "señal sin poder discriminante"
-        # de "señal que discrimina bien pero la MAYORÍA de esta misión es
-        # oblicua-only" — este caso es lo segundo, así que se exige de
-        # verdad aunque dejar pase menos del 20% objetivo.
-        before_nadir = int(keep_coarse[valid_coarse].sum())
-        nadir_ok = ndimage.binary_fill_holes(ov_nadir >= REL_MIN_NADIR_RGB)
-        keep_coarse = keep_coarse & nadir_ok
-        after_nadir = int(keep_coarse[valid_coarse].sum())
-        print(f"  piso NADIR (≥{REL_MIN_NADIR_RGB} fotos casi-nadir, no solo oblicuas): "
-              f"−{before_nadir - after_nadir:,} celdas coarse "
-              f"({100*(before_nadir-after_nadir)/max(before_nadir,1):.1f}% de lo que quedaba)")
-        well_covered = keep_coarse[np.ix_(ys, xs)]
-        before_ov = int(valid.sum())
-        valid = valid & well_covered
-        print(f"  piso de solape RGB (full≥{floor_full:.0f} y central≥{floor_central:.0f}): "
-              f"−{before_ov - int(valid.sum()):,} px (fleco borroso + peine)")
+        valid, _ = _apply_overlap_floors(
+            valid,
+            [("full", ov_full, REL_MIN_OVERLAP_RGB),
+             ("central", ov_central, REL_MIN_CENTRAL_RGB)],
+            "RGB", hard=[("NADIR", ov_nadir, REL_MIN_NADIR_RGB)])
     else:
         print("  ⚠ reconstruction.json no encontrado — sin piso de solape RGB")
 
@@ -647,25 +689,12 @@ def trim_multispectral():
     ov_full, ov_central, ov_nadir, cf = _rgb_camera_overlap(gt, W, H, recon_path=MS_RECON,
                                                             proj_wkt=proj)
     if ov_full is not None:
-        gh, gw = ov_full.shape
-        ys = np.minimum(np.arange(H) * gh // H, gh - 1)
-        xs = np.minimum(np.arange(W) * gw // W, gw - 1)
-        ys_c = np.minimum(np.arange(gh) * H // gh, H - 1)
-        xs_c = np.minimum(np.arange(gw) * W // gw, W - 1)
-        valid_coarse = valid[np.ix_(ys_c, xs_c)]
-        floor_full, floor_central, floor_nadir = _adaptive_floor_joint(
-            [(ov_full, REL_MIN_OVERLAP_MS), (ov_central, REL_MIN_CENTRAL_MS),
-             (ov_nadir, REL_MIN_NADIR_MS)],
-            valid_coarse, min_keep_frac=0.2,
-            label="piso de solape MS (completo+central+nadir)")
-        keep_coarse = ov_full >= floor_full
-        keep_coarse &= ndimage.binary_fill_holes(ov_central >= floor_central)
-        keep_coarse &= ndimage.binary_fill_holes(ov_nadir >= floor_nadir)
-        well_covered = keep_coarse[np.ix_(ys, xs)]
-        before_ov = int(valid.sum())
-        valid = valid & well_covered
-        print(f"  piso de solape MS (full≥{floor_full:.0f}, central≥{floor_central:.0f}, "
-              f"nadir≥{floor_nadir:.0f}): −{before_ov - int(valid.sum()):,} px")
+        valid, _ = _apply_overlap_floors(
+            valid,
+            [("full", ov_full, REL_MIN_OVERLAP_MS),
+             ("central", ov_central, REL_MIN_CENTRAL_MS),
+             ("nadir", ov_nadir, REL_MIN_NADIR_MS)],
+            "MS")
     else:
         print("  ⚠ reconstruction.json multiespectral no encontrado — sin piso de solape")
 
@@ -759,25 +788,12 @@ def trim_thermal_native():
     ov_full, ov_central, ov_nadir, cf = _rgb_camera_overlap(gt, W, H, recon_path=THNAT_RECON,
                                                             proj_wkt=proj)
     if ov_full is not None:
-        gh, gw = ov_full.shape
-        ys = np.minimum(np.arange(H) * gh // H, gh - 1)
-        xs = np.minimum(np.arange(W) * gw // W, gw - 1)
-        ys_c = np.minimum(np.arange(gh) * H // gh, H - 1)
-        xs_c = np.minimum(np.arange(gw) * W // gw, W - 1)
-        valid_coarse = valid[np.ix_(ys_c, xs_c)]
-        floor_full, floor_central, floor_nadir = _adaptive_floor_joint(
-            [(ov_full, REL_MIN_OVERLAP_THNAT), (ov_central, REL_MIN_CENTRAL_THNAT),
-             (ov_nadir, REL_MIN_NADIR_THNAT)],
-            valid_coarse, min_keep_frac=0.2,
-            label="piso de solape térmico nativo (completo+central+nadir)")
-        keep_coarse = ov_full >= floor_full
-        keep_coarse &= ndimage.binary_fill_holes(ov_central >= floor_central)
-        keep_coarse &= ndimage.binary_fill_holes(ov_nadir >= floor_nadir)
-        well_covered = keep_coarse[np.ix_(ys, xs)]
-        before_ov = int(valid.sum())
-        valid = valid & well_covered
-        print(f"  piso de solape térmico (full≥{floor_full:.0f}, central≥{floor_central:.0f}, "
-              f"nadir≥{floor_nadir:.0f}): −{before_ov - int(valid.sum()):,} px")
+        valid, _ = _apply_overlap_floors(
+            valid,
+            [("full", ov_full, REL_MIN_OVERLAP_THNAT),
+             ("central", ov_central, REL_MIN_CENTRAL_THNAT),
+             ("nadir", ov_nadir, REL_MIN_NADIR_THNAT)],
+            "térmico")
     else:
         print("  ⚠ reconstruction.json térmico nativo no encontrado — sin piso de solape")
 
@@ -835,47 +851,28 @@ def trim_dsm():
     ov_full, ov_central, ov_nadir, cf = _rgb_camera_overlap(gt, W, H, recon_path=RGB_RECON,
                                                             proj_wkt=proj)
     if ov_full is not None:
-        gh, gw = ov_full.shape
-        ys = np.minimum(np.arange(H) * gh // H, gh - 1)
-        xs = np.minimum(np.arange(W) * gw // W, gw - 1)
-        ys_c = np.minimum(np.arange(gh) * H // gh, H - 1)
-        xs_c = np.minimum(np.arange(gw) * W // gw, W - 1)
-        valid_coarse = valid[np.ix_(ys_c, xs_c)]
-        floor_full, floor_central, floor_nadir = _adaptive_floor_joint(
-            [(ov_full, REL_MIN_OVERLAP_RGB), (ov_central, REL_MIN_CENTRAL_RGB),
-             (ov_nadir, REL_MIN_NADIR_RGB)],
-            valid_coarse, min_keep_frac=0.2,
-            label="piso de solape DSM (completo+central+nadir)")
-        keep_coarse = ov_full >= floor_full
-        keep_coarse &= ndimage.binary_fill_holes(ov_central >= floor_central)
-        keep_coarse &= ndimage.binary_fill_holes(ov_nadir >= floor_nadir)
-
-        # BUG REAL corregido acá (visto en Barbosa: dsm_clean detectó 72.5%
-        # de relleno sintético en esta misión, dejando `valid` fino
-        # legítimamente perforado — huecos reales dispersos, no una "zona
+        # coarse_core_px_m corrige un BUG REAL (visto en Barbosa: dsm_clean
+        # detectó 72.5% de relleno sintético en esta misión, dejando `valid`
+        # fino legítimamente perforado — huecos reales dispersos, no una "zona
         # mala" contigua). El recorte de confiabilidad (núcleo contiguo,
         # _reliability_crop) NO puede aplicarse sobre esa máscara fina ya
-        # perforada: el radio de apertura calibrado para el fleco de BORDE
-        # de vuelo (metros) erosiona cualquier salpicado fino a casi nada —
-        # visto en Barbosa: 10.6% tras el piso de solape → 0.03% tras
-        # _reliability_crop sobre la máscara fina (1.8M componentes,
-        # mediana 2px — ruido disperso, no una región recortable).
+        # perforada: el radio de apertura calibrado para el fleco de BORDE de
+        # vuelo (metros) erosiona cualquier salpicado fino a casi nada — visto
+        # en Barbosa: 10.6% tras el piso de solape → 0.03% tras
+        # _reliability_crop sobre la máscara fina (1.8M componentes, mediana
+        # 2px — ruido disperso, no una región recortable).
         # Fix: el núcleo contiguo se busca en la grilla GRUESA de solape
-        # geométrico (`keep_coarse`, un blob sólido — análogo al alpha de
-        # RGB, NO perforado por dsm_clean), con el radio físico convertido a
-        # celdas gruesas (cf px por celda). Eso recorta el fleco de borde de
-        # vuelo real sin exigirle contigüidad fina a los huecos legítimos de
-        # dsm_clean, que quedan tal cual dentro de la región geométricamente
-        # buena.
-        coarse_px_size_m = px_size_m * cf
-        keep_coarse = _reliability_crop(keep_coarse, coarse_px_size_m)
-
-        well_covered = keep_coarse[np.ix_(ys, xs)]
-        before_ov = int(valid.sum())
-        valid = valid & well_covered
-        print(f"  piso de solape DSM (full≥{floor_full:.0f}, central≥{floor_central:.0f}, "
-              f"nadir≥{floor_nadir:.0f}) + núcleo contiguo en grilla gruesa ({coarse_px_size_m:.2f}m/celda): "
-              f"−{before_ov - int(valid.sum()):,} px")
+        # geométrico (un blob sólido — análogo al alpha de RGB, NO perforado
+        # por dsm_clean), con el radio físico convertido a celdas gruesas (cf
+        # px por celda). Eso recorta el fleco de borde de vuelo real sin
+        # exigirle contigüidad fina a los huecos legítimos de dsm_clean, que
+        # quedan tal cual dentro de la región geométricamente buena.
+        valid, _ = _apply_overlap_floors(
+            valid,
+            [("full", ov_full, REL_MIN_OVERLAP_RGB),
+             ("central", ov_central, REL_MIN_CENTRAL_RGB),
+             ("nadir", ov_nadir, REL_MIN_NADIR_RGB)],
+            "DSM", coarse_core_px_m=px_size_m * cf)
     else:
         print("  ⚠ reconstruction.json RGB no encontrado — sin piso de solape DSM")
 
@@ -897,6 +894,10 @@ def trim_dsm():
 
 
 if __name__ == "__main__":
+    # Los cuatro productos, en el mismo orden que el entrypoint. trim_dsm() va
+    # después de trim_rgb() porque _rgb_camera_overlap lee outputs/dsm.tif para
+    # el Z-banding de la huella; cada uno sale solo si su ortomosaico no existe.
     trim_rgb()
     trim_dsm()
     trim_thermal_native()
+    trim_multispectral()
