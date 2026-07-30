@@ -418,6 +418,17 @@ docker run --rm -p 8080:8080 -v $PWD/geovisor/tiles:/app/geovisor/tiles \
 
 - **Sensor térmico**: El SDK de DJI calibra la corrección atmosférica hasta
   25m. A ~500m AGL esto es una limitación del hardware.
+- **Tests**: `make test` (dentro del contenedor) corre `scripts/check_deps.py`
+  y la suite de `tests/`. No hacen falta datos de vuelo: los cuatro `trim_*` se
+  ejercitan sobre una misión sintética (`tests/synthetic.py`). El test de
+  caracterización compara el recorte contra `tests/golden/trim_masks.json` —
+  si un cambio mueve un solo píxel, falla. Si el cambio es intencional, borrá
+  ese archivo y regeneralo corriendo la suite dos veces.
+- **Dependencias**: las que RAPTOR instala están fijadas en `requirements.txt`.
+  GDAL, pyproj y scipy se heredan de `opendronemap/odm:gpu` (un tag móvil) y no
+  se pinean con pip para no pelear con su SuperBuild; en su lugar
+  `scripts/check_deps.py` verifica los rangos soportados y **falla el build** si
+  la base se movió.
 - **Sin GPU**: omitir `--gpus all` — ODM detecta la ausencia de `nvidia-smi`
   y usa CPU (más lento pero funcional).
 - **Memoria**: ODM documenta un pico de ~1 GB por hilo cada 2 MP de imagen y por
