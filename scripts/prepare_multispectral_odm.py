@@ -64,11 +64,16 @@ for fname in ms_files:
 # diagnosticado y corregido para el termico esta sesion.
 print(f"🔍 Extrayendo GPS de {len(ms_files)} bandas con exiftool …")
 paths = [os.path.join(IMAGES_DIR, f) for f in ms_files]
+# La lista de archivos va por STDIN (`-@ -`), no como argumentos: un vuelo M3M
+# son 4 archivos por captura, así que una misión mediana ya pasa el millar y la
+# línea de comandos tiene un tope duro (ARG_MAX). Mismo patrón que
+# export_flight_path.py.
 result = subprocess.run(
     ["exiftool", "-j", "-n",
      "-GPSLatitude", "-GPSLongitude", "-GPSAltitude",
      "-GimbalYawDegree", "-GimbalPitchDegree", "-GimbalRollDegree",
-     "-RtkStdLon", "-RtkStdLat", "-RtkStdHgt"] + paths,
+     "-RtkStdLon", "-RtkStdLat", "-RtkStdHgt", "-@", "-"],
+    input="\n".join(paths),
     capture_output=True, text=True, timeout=180
 )
 if result.returncode != 0:
@@ -84,8 +89,17 @@ except json.JSONDecodeError:
 geo_lines = ["EPSG:4326"]
 missing = 0
 n_rtk = 0
-for i, exif in enumerate(all_data):
-    fname = ms_files[i] if i < len(ms_files) else f"unknown_{i}"
+for exif in all_data:
+    # El nombre sale de SourceFile —que exiftool incluye en cada registro—, no
+    # de emparejar por posición con la lista de entrada: ligar la fila i de la
+    # salida al archivo i de la entrada da por sentado un orden y un conteo
+    # exactos, y si alguna vez no se cumplen, geo.txt queda con coordenadas
+    # asignadas al archivo equivocado. Eso no falla: produce una reconstrucción
+    # mal georreferenciada.
+    fname = os.path.basename(exif.get("SourceFile", ""))
+    if not fname:
+        missing += 1
+        continue
     lat = exif.get("GPSLatitude")
     lon = exif.get("GPSLongitude")
     if lat is None or lon is None:

@@ -97,13 +97,16 @@ def main():
     # Makefile:prepare-rgb).
     print("  Etiquetando EXIF/XMP (GPS + Make=DJI/Model=ZH20T + Camera:BandName=LWIR) …")
     src_pattern = os.path.join(src_dir, "%f.tif")
+    # Lista de archivos por STDIN (`-@ -`): una misión térmica son cientos o
+    # miles de frames y la línea de comandos tiene un tope duro (ARG_MAX).
+    # Mismo patrón que export_flight_path.py.
     result = subprocess.run(
         ["exiftool", "-api", "Compact=Shorthand", "-config", EXIFTOOL_CONFIG, "-overwrite_original",
          "-tagsfromfile", src_pattern,
          "-gps:all", "-xmp-drone-dji:all", "-GimbalYawDegree", "-GimbalPitchDegree", "-GimbalRollDegree",
          "-FlightYawDegree", "-FlightPitchDegree", "-FlightRollDegree",
-         "-Make=DJI", "-Model=ZH20T", "-XMP-Camera:BandName=LWIR"]
-        + dst_files,
+         "-Make=DJI", "-Model=ZH20T", "-XMP-Camera:BandName=LWIR", "-@", "-"],
+        input="\n".join(dst_files),
         capture_output=True, text=True
     )
     if result.returncode != 0:
@@ -121,15 +124,23 @@ def main():
     r = subprocess.run(
         ["exiftool", "-j", "-n", "-GPSLatitude", "-GPSLongitude", "-GPSAltitude",
          "-GimbalYawDegree", "-GimbalPitchDegree", "-GimbalRollDegree",
-         "-RtkStdLon", "-RtkStdLat", "-RtkStdHgt"] + dst_files,
+         "-RtkStdLon", "-RtkStdLat", "-RtkStdHgt", "-@", "-"],
+        input="\n".join(dst_files),
         capture_output=True, text=True, timeout=180
     )
     data = json.loads(r.stdout)
     lines = ["EPSG:4326"]
     missing = 0
     n_rtk = 0
-    for i, d in enumerate(data):
-        fname = os.path.basename(dst_files[i])
+    for d in data:
+        # Nombre desde SourceFile, no por posición: emparejar la fila i de la
+        # salida con el archivo i de la entrada asume orden y conteo exactos, y
+        # si fallan, geo.txt queda con coordenadas del archivo equivocado — una
+        # reconstrucción mal georreferenciada, sin ningún error visible.
+        fname = os.path.basename(d.get("SourceFile", ""))
+        if not fname:
+            missing += 1
+            continue
         lat, lon = d.get("GPSLatitude"), d.get("GPSLongitude")
         if lat is None or lon is None:
             missing += 1
