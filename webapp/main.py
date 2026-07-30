@@ -64,7 +64,9 @@ EXPORT_VECTOR_FORMATS = ("geojson", "gpkg", "shp", "kml")
 # (./raptor webapp --export DIR) monta esa carpeta del host en EXPORT_MOUNT y
 # pasa su ruta real en EXPORT_HOST_DIR, para que el formulario pueda mostrar y
 # validar rutas que el usuario reconoce en su propio disco.
-EXPORT_MOUNT = "/export"
+# EXPORT_MOUNT es configurable solo para poder probarlo sin escribir en /: en
+# producción siempre es /export, que es donde monta el lanzador.
+EXPORT_MOUNT = os.environ.get("EXPORT_MOUNT", "/export").rstrip("/")
 EXPORT_HOST_DIR = os.environ.get("EXPORT_HOST_DIR", "").rstrip("/")
 
 
@@ -134,8 +136,15 @@ app.add_middleware(NoCacheStaticMiddleware)
 # Los mismos sufijos que busca docker/setup-data.sh recursivamente. Se
 # clasifica acá para poder decirle al usuario QUÉ subió realmente (y qué le
 # falta) antes de arrancar, en vez de que se entere por un error de ODM.
+MS_BANDS = ("G", "R", "RE", "NIR")
+
+
 def classify_files(names):
     counts = {"rgb": 0, "thermal": 0, "ms": 0, "dband": 0, "otros": 0}
+    # Por banda además del total: ODM necesita las 4 de CADA captura, así que
+    # el total por sí solo no dice si el vuelo está completo (ver
+    # _incomplete_captures).
+    counts["ms_bands"] = {b: 0 for b in MS_BANDS}
     for n in names:
         u = n.upper()
         if u.endswith("_V.JPG") or u.endswith("_W.JPG"):
@@ -144,12 +153,37 @@ def classify_files(names):
             counts["thermal"] += 1
         elif "_MS_" in u and u.endswith(".TIF"):
             counts["ms"] += 1
+            banda = u.rsplit("_MS_", 1)[1][:-4]
+            if banda in counts["ms_bands"]:
+                counts["ms_bands"][banda] += 1
         elif u.endswith("_D.JPG"):
             counts["dband"] += 1
         else:
             counts["otros"] += 1
     counts["total"] = sum(counts[k] for k in ("rgb", "thermal", "ms", "dband", "otros"))
+    counts["incompletas"] = _incomplete_captures(names) if counts["ms"] else []
     return counts
+
+
+def _incomplete_captures(names):
+    """Capturas multiespectrales a las que les falta alguna banda.
+
+    Devuelve [(prefijo, bandas_presentes)] ordenado. ODM empareja las 4 bandas
+    de cada captura por nombre y aborta si a alguna le falta su compañera —
+    pero recién dentro de compute_band_maps(), o sea después del SfM completo y
+    con un mensaje genérico sobre CaptureUUID. Detectarlo acá cuesta
+    milisegundos y evita perder una hora de procesamiento.
+    """
+    capturas = {}
+    for n in names:
+        u = n.upper()
+        if "_MS_" not in u or not u.endswith(".TIF"):
+            continue
+        prefijo, banda = u.rsplit("_MS_", 1)
+        banda = banda[:-4]
+        if banda in MS_BANDS:
+            capturas.setdefault(prefijo, set()).add(banda)
+    return sorted((p, sorted(b)) for p, b in capturas.items() if len(b) != len(MS_BANDS))
 
 
 def _listdir_names(d: Path):
@@ -472,6 +506,24 @@ def _validate(mode, has_ms, uploads):
             "Activaste el multiespectral pero no hay bandas (*_MS_*.TIF) entre "
             f"los {ms['total']} archivos subidos en ese sensor. Subí la carpeta "
             "del vuelo M3M, o desactivá ese sensor.")
+    elif has_ms:
+        por_banda = ms.get("ms_bands", {})
+        faltantes = [b for b in MS_BANDS if not por_banda.get(b)]
+        if faltantes:
+            errors.append(
+                f"Al vuelo multiespectral le faltan bandas enteras: {', '.join(faltantes)}. "
+                f"ODM necesita las 4 (G, R, RE, NIR) para agrupar cada captura. "
+                "Revisá que hayas subido la carpeta completa del M3M.")
+        elif ms.get("incompletas"):
+            incompletas = ms["incompletas"]
+            muestra = "; ".join(f"{p} (solo {', '.join(b)})" for p, b in incompletas[:3])
+            errors.append(
+                f"{len(incompletas)} captura(s) multiespectral(es) están incompletas: {muestra}"
+                + (f"; y {len(incompletas) - 3} más" if len(incompletas) > 3 else "")
+                + ". Cada captura del M3M son 4 archivos y ODM las empareja por nombre: "
+                  "si a una le falta una banda, la reconstrucción aborta después de "
+                  "una hora de procesamiento. Subí las bandas que faltan o quitá "
+                  "esas capturas.")
     if mode == "none" and not has_ms:
         errors.append("No seleccionaste ningún sensor para procesar.")
     return errors
