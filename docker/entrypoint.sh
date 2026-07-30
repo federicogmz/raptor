@@ -84,6 +84,18 @@ SERVE="${SERVE:-1}"
 VERBOSE="${VERBOSE:-0}"
 export MODE VERBOSE
 
+# Resumen JSON también cuando la corrida FALLA: para CI, "en qué etapa murió y
+# qué alcanzó a producir" vale tanto como el código de salida. Solo se arma en
+# modo `run` (los demás modos ni siquiera llegan hasta acá).
+resumen_al_salir() {
+  local codigo=$?
+  if [[ "${RAPTOR_EN_RUN:-0}" -eq 1 && $codigo -ne 0 ]]; then
+    python3 scripts/run_summary.py "$codigo" >/dev/null 2>&1 || true
+  fi
+  return $codigo
+}
+trap resumen_al_salir EXIT
+
 if [[ "$MODE" != "rgb" && "$MODE" != "rgb+thermal" && "$MODE" != "none" ]]; then
   echo "❌ ERROR: MODE debe ser 'rgb', 'rgb+thermal' o 'none' (recibido: $MODE)"; exit 1
 fi
@@ -103,7 +115,12 @@ fi
 
 case "${1:-run}" in
   serve)
-    exec python3 geovisor/serve.py "$PORT"
+    # Ver una misión ya procesada. Es la misma webapp: sirve el geovisor en
+    # /geovisor/ y además trae el HUD de progreso, el muestreo por punto y la
+    # edición del polígono de área afectada. Había un servidor aparte para
+    # esto (geovisor/serve.py) que reimplementaba una parte de lo mismo.
+    export RAPTOR_RUNS_ROOT="${RAPTOR_RUNS_ROOT:-/app/runs}"
+    exec python3 -m webapp.main "$PORT"
     ;;
   shell)
     exec bash
@@ -119,6 +136,7 @@ case "${1:-run}" in
     exec python3 -m webapp.main "$PORT"
     ;;
   run)
+    RAPTOR_EN_RUN=1
     ;;
   *)
     exec "$@"
@@ -407,6 +425,10 @@ fi
 # usuarios al final de cada corrida, no solo una vez a mano.
 chmod -R a+rwX outputs preprocessing processing geovisor/tiles 2>/dev/null || true
 
+# Resumen legible por máquina para automatización/CI (./raptor run --json).
+# No debe tumbar la corrida si algo acá falla: los productos ya están escritos.
+python3 scripts/run_summary.py 0 || echo "  ⚠ no se pudo generar run_summary.json"
+
 echo ""
 echo "═══════════════════════════════════════════════════"
 echo "  ✅ Pipeline completo (MODE=${MODE})"
@@ -428,6 +450,7 @@ echo "Logs de esta corrida: outputs/logs/ (VERBOSE=1 para ver todo en vivo la pr
 
 if [[ "$SERVE" -eq 1 ]]; then
   echo ""
-  echo "🌐 Geovisor: http://localhost:${PORT}"
-  exec python3 geovisor/serve.py "$PORT"
+  echo "🌐 Geovisor: http://localhost:${PORT}/geovisor/index.html"
+  export RAPTOR_RUNS_ROOT="${RAPTOR_RUNS_ROOT:-/app/runs}"
+  exec python3 -m webapp.main "$PORT"
 fi

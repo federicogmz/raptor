@@ -41,7 +41,7 @@ data/rgb_mosaico/*_V.JPG    data/termica_mosaico/*_T.JPG   data/multiespectral_m
        │                            │                              │
        └────────────┬───────────────┴──────────────────────────────┘
                     ▼
-     6. generate_tiles.py → geovisor/tiles/ → serve.py :8080
+     6. generate_tiles.py → geovisor/tiles/ → webapp/main.py :8080
                     ▼
      7. export_cog.py + export_copc.py → outputs/*.tif (COG) + *.copc.laz
 ```
@@ -151,8 +151,10 @@ metadatos: el GPS/EXIF lo leen directamente los scripts que lo necesitan
   rango de color calculado del percentil real de cada misión) e índices
   (paleta divergente RdYlGn).
 
-- **Servidor** (`serve.py`): HTTP server con CORS que sirve el dashboard
-  Leaflet y los tiles.
+- **Servidor** (`webapp/main.py`): sirve el dashboard Leaflet y los tiles bajo
+  `/geovisor/`, más el HUD de progreso en vivo (SSE), el muestreo por punto y
+  el guardado del polígono de área afectada editado a mano. Es el mismo
+  proceso en los modos `webapp` y `serve`.
 
 ### 7. Exportación cloud-optimized
 
