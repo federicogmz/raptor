@@ -313,7 +313,7 @@ select.in{cursor:pointer}
       <label class="opt on" id="o-exp-y">
         <input type="radio" name="doexport" value="1" checked onchange="refreshUI()">
         <div><div class="ot">Exportar a una carpeta</div>
-          <div class="od">Copia los productos elegidos en el formato y el sistema de referencia que necesites</div></div>
+          <div class="od" id="o-exp-y-d">Copia los productos elegidos en el formato y el sistema de referencia que necesites</div></div>
       </label>
       <label class="opt" id="o-exp-n">
         <input type="radio" name="doexport" value="0" onchange="refreshUI()">
@@ -324,9 +324,9 @@ select.in{cursor:pointer}
 
     <div id="blk-export">
       <div class="section-label">Carpeta de destino</div>
-      <input class="in" id="exp-dir" placeholder="/app/runs/&lt;misión&gt;/export">
-      <div class="hint" id="exp-dir-h">Ruta <b>dentro del contenedor</b>. Para escribir en el disco del
-        host, montalo primero (<code>docker run -v /ruta/del/host:/entregas …</code>) y poné esa ruta.</div>
+      <input class="in" id="exp-dir" placeholder="/ruta/de/entregas/&lt;misión&gt;">
+      <div class="hint" id="exp-dir-h">Ruta <b>en tu disco</b>, dentro de la carpeta de entregas
+        con la que arrancaste.</div>
 
       <div class="section-label">Qué exportar</div>
       <div class="checks" id="exp-products"></div>
@@ -564,6 +564,11 @@ async function loadStatus(name){
     // Destino por defecto: la subcarpeta export/ de la propia misión, que el
     // servidor resuelve (queda dentro de runs/, así que si el usuario montó esa
     // carpeta la entrega aparece sola en el host). Solo mientras no la editen.
+    // La exportación solo existe si se arrancó con una carpeta del host
+    // montada (./raptor webapp --export DIR): sin eso los productos no tienen
+    // a dónde salir y ofrecerla sería una promesa vacía.
+    expEnabled = !!s.export_enabled;
+    expHostRoot = s.export_host_root || '';
     if(!expDirTouched && s.default_export_dir) $('exp-dir').value = s.default_export_dir;
     // Preseleccionar los sensores según lo que la misión YA tiene subido.
     if(s.uploads.rgb_thermal.total) sensors.rt = true;
@@ -616,6 +621,19 @@ function refreshUI(){
 
   // Entrega: la lista de productos depende de los sensores y del modo, así que
   // se re-renderiza con cada cambio del formulario.
+  // Sin carpeta del host montada, la exportación se muestra deshabilitada con
+  // la instrucción exacta para habilitarla — en vez de ofrecer un destino que
+  // desaparecería al cerrar el contenedor.
+  const yEl = document.querySelector('input[name=doexport][value="1"]');
+  $('o-exp-y').classList.toggle('dis', !expEnabled);
+  yEl.disabled = !expEnabled;
+  if(!expEnabled){
+    document.querySelector('input[name=doexport][value="0"]').checked = true;
+    $('o-exp-y-d').innerHTML = 'Arrancá con <code>./raptor webapp --export /ruta/de/entregas</code> ' +
+      'para poder escribir en tu disco.';
+  }else{
+    $('o-exp-y-d').textContent = `Copia los productos a ${expHostRoot} en el formato y el sistema de referencia que necesites`;
+  }
   document.querySelectorAll('.opt input[name=doexport]').forEach(i=>
     i.closest('.opt').classList.toggle('on', i.checked));
   $('blk-export').classList.toggle('hidden', !exporting());
@@ -673,6 +691,7 @@ const EXPORT_CATALOG = [
 let expChecked = new Set(EXPORT_CATALOG.map(p=>p.k));   // todo marcado por defecto
 
 function exporting(){
+  if(!expEnabled) return false;
   const el = document.querySelector('input[name=doexport]:checked');
   return !el || el.value === '1';
 }
@@ -750,6 +769,8 @@ function checkExport(){
   }, 450);
 }
 let expDirTouched = false;
+let expEnabled = false;     // ¿se arrancó con una carpeta del host montada?
+let expHostRoot = '';       // qué carpeta del host es esa
 $('exp-dir').addEventListener('input', ()=>{ expDirTouched = true; checkExport(); });
 $('exp-epsg-custom').addEventListener('input', checkExport);
 

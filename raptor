@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+# Lanzador de RAPTOR en el HOST.
+#
+# Existe por dos motivos que no se pueden resolver desde adentro del
+# contenedor:
+#
+#  1. Las rutas que le importan al usuario son las del host, pero el pipeline
+#     corre aislado y solo ve lo que esté montado. Este script recibe rutas del
+#     host —incluida la carpeta de entrega— y arma los -v correspondientes, así
+#     los productos salen a un disco real en vez de morir con el contenedor.
+#  2. Automatización/CI necesita una invocación no interactiva, con códigos de
+#     salida y una salida legible por máquina. El modo `run` por sí solo deja
+#     el geovisor sirviendo para siempre (SERVE=1), que en un pipeline de CI
+#     es un cuelgue.
+#
+# Uso:
+#   ./raptor build
+#   ./raptor run --input ./fotos --export ./entregas/la_clara --export-epsg 9377
+#   ./raptor webapp --runs ./runs --export ./entregas
+#   ./raptor shell
+#
+# `run --help` lista todas las opciones.
+set -euo pipefail
+
+IMAGE="${RAPTOR_IMAGE:-raptor:latest}"
+AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Puntos de montaje FIJOS adentro del contenedor. El usuario nunca los escribe:
+# da rutas del host y este script las mapea.
+C_INPUT=/input
+C_INPUT_MS=/input_ms
+C_EXPORT=/export
+C_RUNS=/app/runs
+
+morir() { echo "❌ $*" >&2; exit 2; }
+
+abs() {  # ruta absoluta sin exigir que exista
+  local p="$1"
+  [[ "$p" = /* ]] || p="$PWD/$p"
+  printf '%s\n' "$p"
+}
+
+gpu_args() {
+  if [[ "${NO_GPU:-0}" -eq 1 ]]; then return; fi
+  if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+    printf '%s' "--gpus all"
+  else
+    echo "ℹ  Sin GPU detectada — ODM correrá en CPU (más lento)." >&2
+  fi
+}
+
+uso_run() {
+  cat <<'EOF'
+Uso: ./raptor run [opciones]
+
+Entrada (al menos una):
+  --input DIR              Carpeta del vuelo RGB/térmico (M3T/H20T)
+  --input-ms DIR           Carpeta del vuelo multiespectral (M3M)
+
+Procesamiento:
+  --mode MODO              rgb+thermal (default) | rgb | none
+  --reuse-odm              Reusar reconstrucciones ODM previas de --runs
+  --max-concurrency N      Hilos de ODM (default: según la RAM disponible)
+  --no-gpu                 Forzar CPU
+  --verbose                Salida cruda de ODM y de los scripts
+
+Entrega (rutas del HOST; se montan solas):
+  --export DIR             Carpeta de destino de los productos
+  --export-products LISTA  Coma-separado, o "all" (default)
+                           rgb,thermal,dsm,multispectral,indices,classes,
+                           confidence,area,flight_path,situation,pointclouds
+  --export-epsg CODIGO     EPSG de salida (9377 = MAGNA-SIRGAS/Origen-Nacional,
+                           el sistema único nacional de Colombia) o "source"
+  --export-raster-format F cog (default) | gtiff
+  --export-vector-format F geojson (default) | gpkg | shp | kml
+
+Persistencia y automatización:
+  --runs DIR               Carpeta de trabajo persistente (default: ./runs)
+  --json                   Imprimir el resumen JSON de la corrida al terminar
+  --serve                  Dejar el geovisor sirviendo al terminar (por
+                           defecto NO: en CI eso sería un cuelgue)
+  --port N                 Puerto del geovisor si se usa --serve
+
+Sale con código != 0 si el pipeline falla, para poder encadenarlo en CI.
+EOF
+}
+
+cmd_build() {
+  echo "🔨 Construyendo ${IMAGE}…"
+  docker build -t "$IMAGE" "$AQUI" "$@"
+}
+
+cmd_run() {
+  local input="" input_ms="" export_dir="" runs="$PWD/runs"
+  local mode="rgb+thermal" reuse=0 verbose=0 json=0 serve=0 port=8080
+  local products="all" epsg="source" rfmt="cog" vfmt="geojson" concurrency=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --input)                 input="$2"; shift 2 ;;
+      --input-ms)              input_ms="$2"; shift 2 ;;
+      --export)                export_dir="$2"; shift 2 ;;
+      --export-products)       products="$2"; shift 2 ;;
+      --export-epsg)           epsg="$2"; shift 2 ;;
+      --export-raster-format)  rfmt="$2"; shift 2 ;;
+      --export-vector-format)  vfmt="$2"; shift 2 ;;
+      --runs)                  runs="$2"; shift 2 ;;
+      --mode)                  mode="$2"; shift 2 ;;
+      --max-concurrency)       concurrency="$2"; shift 2 ;;
+      --port)                  port="$2"; shift 2 ;;
+      --reuse-odm)             reuse=1; shift ;;
+      --no-gpu)                NO_GPU=1; shift ;;
+      --verbose)               verbose=1; shift ;;
+      --json)                  json=1; shift ;;
+      --serve)                 serve=1; shift ;;
+      -h|--help)               uso_run; exit 0 ;;
+      *) morir "opción desconocida: $1  (./raptor run --help)" ;;
+    esac
+  done
+
+  [[ -z "$input" && -z "$input_ms" ]] && morir "hace falta --input y/o --input-ms  (./raptor run --help)"
+  case "$mode" in rgb|rgb+thermal|none) ;; *) morir "--mode inválido: $mode (rgb, rgb+thermal o none)" ;; esac
+  [[ -z "$input" && "$mode" != "none" ]] && morir "sin --input, --mode tiene que ser 'none' (solo multiespectral)"
+
+  local args=(--rm -e "MODE=$mode" -e "SKIP_ODM=$reuse" -e "VERBOSE=$verbose")
+  [[ -n "$concurrency" ]] && args+=(-e "MAX_CONCURRENCY=$concurrency")
+
+  if [[ -n "$input" ]]; then
+    input="$(abs "$input")"
+    [[ -d "$input" ]] || morir "--input no existe: $input"
+    args+=(-v "$input:$C_INPUT:ro")
+  fi
+  if [[ -n "$input_ms" ]]; then
+    input_ms="$(abs "$input_ms")"
+    [[ -d "$input_ms" ]] || morir "--input-ms no existe: $input_ms"
+    args+=(-v "$input_ms:$C_INPUT_MS:ro")
+  else
+    # Sin esto el entrypoint encontraría un /input_ms heredado de la imagen
+    args+=(-e "MS_SOURCE_DIR=/sin_multiespectral")
+  fi
+
+  runs="$(abs "$runs")"; mkdir -p "$runs"
+  args+=(-v "$runs:$C_RUNS")
+
+  if [[ -n "$export_dir" ]]; then
+    export_dir="$(abs "$export_dir")"
+    # Se crea DESDE EL HOST a propósito: así queda del usuario y no de root,
+    # que es lo que pasa cuando el directorio lo crea el contenedor.
+    mkdir -p "$export_dir" 2>/dev/null || morir "no se pudo crear la carpeta de entrega: $export_dir"
+    [[ -w "$export_dir" ]] || morir "sin permiso de escritura en: $export_dir"
+    args+=(-v "$export_dir:$C_EXPORT"
+           -e "EXPORT_DIR=$C_EXPORT"
+           -e "EXPORT_PRODUCTS=$products"
+           -e "EXPORT_EPSG=$epsg"
+           -e "EXPORT_RASTER_FORMAT=$rfmt"
+           -e "EXPORT_VECTOR_FORMAT=$vfmt"
+           -e "EXPORT_HOST_DIR=$export_dir")
+  fi
+
+  if [[ "$serve" -eq 1 ]]; then
+    args+=(-e "SERVE=1" -e "PORT=$port" -p "${port}:${port}")
+  else
+    # El default del contenedor es SERVE=1 y dejaría el proceso sirviendo para
+    # siempre: en CI eso es un cuelgue, no un éxito.
+    args+=(-e "SERVE=0")
+  fi
+
+  # shellcheck disable=SC2046
+  docker run "${args[@]}" $(gpu_args) "$IMAGE" run
+  local status=$?
+
+  if [[ "$json" -eq 1 ]]; then
+    local resumen="$runs/outputs/run_summary.json"
+    [[ -n "$export_dir" && -f "$export_dir/run_summary.json" ]] && resumen="$export_dir/run_summary.json"
+    if [[ -f "$resumen" ]]; then cat "$resumen"; else
+      echo "{\"ok\": false, \"error\": \"no se generó run_summary.json\"}"
+    fi
+  fi
+  return $status
+}
+
+cmd_webapp() {
+  local runs="$PWD/runs" export_dir="" port=8080
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --runs)    runs="$2"; shift 2 ;;
+      --export)  export_dir="$2"; shift 2 ;;
+      --port)    port="$2"; shift 2 ;;
+      --no-gpu)  NO_GPU=1; shift ;;
+      -h|--help) echo "Uso: ./raptor webapp [--runs DIR] [--export DIR] [--port N] [--no-gpu]"; exit 0 ;;
+      *) morir "opción desconocida: $1" ;;
+    esac
+  done
+  runs="$(abs "$runs")"; mkdir -p "$runs"
+  local args=(--rm -p "${port}:${port}" -v "$runs:$C_RUNS" -e "PORT=$port")
+  if [[ -n "$export_dir" ]]; then
+    export_dir="$(abs "$export_dir")"
+    mkdir -p "$export_dir" 2>/dev/null || morir "no se pudo crear la carpeta de entrega: $export_dir"
+    # EXPORT_HOST_DIR le dice a la webapp qué ruta del HOST hay detrás de
+    # /export, para que el formulario muestre y pida rutas reales del disco del
+    # usuario en vez de rutas internas del contenedor.
+    args+=(-v "$export_dir:$C_EXPORT" -e "EXPORT_HOST_DIR=$export_dir")
+  fi
+  echo "🌐 http://localhost:${port}"
+  # shellcheck disable=SC2046
+  docker run "${args[@]}" $(gpu_args) "$IMAGE" webapp
+}
+
+case "${1:-}" in
+  build)  shift; cmd_build "$@" ;;
+  run)    shift; cmd_run "$@" ;;
+  webapp) shift; cmd_webapp "$@" ;;
+  shell)  shift; docker run --rm -it -v "$PWD:/app" "$IMAGE" shell ;;
+  -h|--help|"")
+    cat <<'EOF'
+RAPTOR — pipeline fotogramétrico de respuesta a incendios (DJI M3T/H20T/M3M)
+
+  ./raptor build              Construir la imagen
+  ./raptor run     [opciones] Procesar una misión (no interactivo, apto CI)
+  ./raptor webapp  [opciones] Levantar la interfaz web
+  ./raptor shell              Shell dentro del contenedor
+
+`./raptor run --help` para las opciones de procesamiento y entrega.
+EOF
+    ;;
+  *) morir "comando desconocido: $1  (./raptor --help)" ;;
+esac

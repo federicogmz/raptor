@@ -62,9 +62,47 @@ EXPORT_PRODUCTS = ("rgb", "thermal", "dsm", "multispectral", "indices", "classes
                    "confidence", "area", "flight_path", "situation", "pointclouds")
 EXPORT_RASTER_FORMATS = ("cog", "gtiff")
 EXPORT_VECTOR_FORMATS = ("geojson", "gpkg", "shp", "kml")
-# Destino por defecto: adentro de la misión. Si el usuario montó -v .../runs,
-# la entrega aparece sola en el host sin tener que montar otro volumen.
-DEFAULT_EXPORT_SUBDIR = "export"
+# La entrega va al DISCO DEL HOST, no a una ruta interna del contenedor: un
+# producto que muere con el contenedor no le sirve a nadie. El lanzador
+# (./raptor webapp --export DIR) monta esa carpeta del host en EXPORT_MOUNT y
+# pasa su ruta real en EXPORT_HOST_DIR, para que el formulario pueda mostrar y
+# validar rutas que el usuario reconoce en su propio disco.
+EXPORT_MOUNT = "/export"
+EXPORT_HOST_DIR = os.environ.get("EXPORT_HOST_DIR", "").rstrip("/")
+
+
+def export_disponible():
+    """La exportación solo se ofrece si hay una carpeta del host montada."""
+    return bool(EXPORT_HOST_DIR) and os.path.isdir(EXPORT_MOUNT)
+
+
+def host_a_contenedor(ruta_host):
+    """Traduce una ruta del host a la ruta equivalente dentro del contenedor.
+
+    Devuelve None si cae fuera de la carpeta montada — que es el único
+    subárbol del host que este proceso puede escribir.
+    """
+    if not export_disponible():
+        return None
+    ruta = os.path.normpath(ruta_host.rstrip("/") or EXPORT_HOST_DIR)
+    if ruta == EXPORT_HOST_DIR:
+        return EXPORT_MOUNT
+    prefijo = EXPORT_HOST_DIR + os.sep
+    if not ruta.startswith(prefijo):
+        return None
+    return os.path.join(EXPORT_MOUNT, ruta[len(prefijo):])
+
+
+def contenedor_a_host(ruta_cont):
+    """Inversa de host_a_contenedor, para mostrarle al usuario dónde quedó."""
+    if not EXPORT_HOST_DIR:
+        return ruta_cont
+    if ruta_cont == EXPORT_MOUNT:
+        return EXPORT_HOST_DIR
+    prefijo = EXPORT_MOUNT + os.sep
+    if ruta_cont.startswith(prefijo):
+        return os.path.join(EXPORT_HOST_DIR, ruta_cont[len(prefijo):])
+    return ruta_cont
 
 app = FastAPI(title="Pipeline UAV de respuesta rápida")
 RUNS_ROOT.mkdir(parents=True, exist_ok=True)
@@ -362,7 +400,10 @@ def mission_status(mission: str):
     # un F5 en vez de arrancar de nuevo en 00:00.
     elapsed = round(_state.elapsed()) if (_state and _state.mission_name == safe) else None
     return {"name": safe, "uploads": uploads, "odm": _odm_projects(mission_dir),
-            "default_export_dir": str(mission_dir / DEFAULT_EXPORT_SUBDIR),
+            "export_enabled": export_disponible(),
+            "export_host_root": EXPORT_HOST_DIR,
+            "default_export_dir": (os.path.join(EXPORT_HOST_DIR, safe)
+                                   if export_disponible() else ""),
             "has_tiles": tiles_ready, "running": running, "last_run": last_run,
             "elapsed": elapsed, "mode": _state.mode if (_state and _state.mission_name == safe) else None,
             "has_multispectral": _state.has_ms if (_state and _state.mission_name == safe) else None,
@@ -443,17 +484,27 @@ def _validate(mode, has_ms, uploads):
 def _validate_export(mission_dir, export_dir, products, raster_fmt, vector_fmt, epsg):
     """Valida la configuración de entrega y devuelve (errores, dict EXPORT_*).
 
-    Se comprueba acá —no adentro del pipeline— que la carpeta destino se pueda
-    CREAR y ESCRIBIR: es el error más probable de esta pantalla (una ruta del
-    host que no está montada en el contenedor no existe acá adentro) y
-    descubrirlo recién al final, con la misión ya procesada, sería
+    `export_dir` es una ruta del HOST. Se traduce a la ruta equivalente dentro
+    del contenedor y se comprueba acá —no adentro del pipeline— que se pueda
+    crear y escribir: descubrirlo al final, con la misión ya procesada, sería
     exactamente lo que la validación previa existe para evitar."""
     errors = []
     if not export_dir:
         return errors, {}
 
-    if not os.path.isabs(export_dir):
-        export_dir = str(mission_dir / export_dir)
+    if not export_disponible():
+        return ([f"Para exportar hay que arrancar con una carpeta del host montada: "
+                 f"«./raptor webapp --export /ruta/de/entregas». Sin eso los productos "
+                 f"solo quedan dentro del contenedor y se pierden al cerrarlo."], {})
+
+    host_dir = export_dir
+    if not os.path.isabs(host_dir):
+        host_dir = os.path.join(EXPORT_HOST_DIR, host_dir)
+    export_dir = host_a_contenedor(host_dir)
+    if export_dir is None:
+        return ([f"«{host_dir}» está fuera de la carpeta montada ({EXPORT_HOST_DIR}). "
+                 f"Elegí una ruta adentro de esa carpeta, o reiniciá con "
+                 f"«./raptor webapp --export» apuntando a otro lado."], {})
 
     desconocidos = [p for p in products if p not in EXPORT_PRODUCTS]
     if desconocidos:
@@ -482,14 +533,15 @@ def _validate_export(mission_dir, export_dir, products, raster_fmt, vector_fmt, 
             f.write("")
         os.remove(probe)
     except OSError as exc:
-        errors.append(
-            f"No se puede escribir en la carpeta de entrega «{export_dir}»: {exc}. "
-            "Si es una ruta del host, montala en el contenedor "
-            "(docker run -v /ruta/del/host:/entregas …) y usá la ruta de adentro.")
+        errors.append(f"No se puede escribir en «{host_dir}»: {exc}.")
 
     if errors:
         return errors, {}
     return [], {"EXPORT_DIR": export_dir,
+                # La ruta del host viaja al pipeline para que el manifiesto y
+                # el resumen JSON digan dónde quedaron los archivos EN EL DISCO
+                # DEL USUARIO, no la ruta interna que no le sirve a nadie.
+                "EXPORT_HOST_DIR": host_dir,
                 "EXPORT_PRODUCTS": ",".join(products),
                 "EXPORT_RASTER_FORMAT": raster_fmt,
                 "EXPORT_VECTOR_FORMAT": vector_fmt,
@@ -509,9 +561,7 @@ def check_export(mission: str, export_dir: str = Form(""), export_epsg: str = Fo
     _safe, mission_dir = _mission_dir(mission)
     errors, env = _validate_export(mission_dir, export_dir.strip(), ["rgb"],
                                    "cog", "geojson", export_epsg)
-    resolved = env.get("EXPORT_DIR") or (
-        export_dir.strip() if os.path.isabs(export_dir.strip())
-        else str(mission_dir / export_dir.strip()) if export_dir.strip() else "")
+    resolved = env.get("EXPORT_HOST_DIR", "")
     nombre = None
     epsg = (export_epsg or "").strip().lower()
     if epsg and epsg != "source" and not errors:
@@ -734,9 +784,8 @@ def activate_mission_endpoint(mission: str):
 # solo si hay algo en curso: conecta a /api/missions/<mision>/events y, si el
 # servidor no la tiene activa (404), simplemente no muestra el HUD de
 # progreso. Sirve los estáticos ya existentes de geovisor/ (index.html/
-# app.js/style.css/tiles/outputs) — cero cambios ahí, ver geovisor/serve.py
-# para el endpoint POST hermano de guardado de polígono, reimplementado abajo
-# porque StaticFiles es de solo lectura. ──
+# app.js/style.css/tiles/outputs) — cero cambios ahí. El guardado del polígono
+# va como endpoint POST aparte porque StaticFiles es de solo lectura. ──
 @app.get("/view/{mission}")
 def view_mission(mission: str):
     safe, mission_dir = _mission_dir(mission)
@@ -750,12 +799,27 @@ def view_mission(mission: str):
 
 @app.post("/geovisor/api/save-area-afectada")
 async def save_area_afectada(request: Request):
+    """Persiste el polígono de área afectada editado a mano en el geovisor."""
     body = await request.json()
     if body.get("type") != "FeatureCollection":
         raise HTTPException(400, "se esperaba un GeoJSON FeatureCollection")
     path = GEOVISOR_DIR / "outputs" / "area_afectada.geojson"
-    path.write_text(json.dumps(body), encoding="utf-8")
-    os.chmod(path, 0o666)
+    # geovisor/outputs es un SYMLINK a /app/outputs, que puede no existir
+    # todavía si el servidor arrancó antes de procesar nada. Se crea el destino
+    # real: Path.mkdir(exist_ok=True) sobre un symlink colgante falla con
+    # FileExistsError, porque comprueba is_dir() —que sigue el enlace y da
+    # False— y después choca contra el enlace en sí.
+    try:
+        os.makedirs(os.path.realpath(path.parent), exist_ok=True)
+        path.write_text(json.dumps(body), encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(500, f"no se pudo guardar el polígono: {exc}")
+    # El proceso corre como root; sin esto el archivo queda root:root y bloquea
+    # ediciones o lecturas posteriores desde el host.
+    try:
+        os.chmod(path, 0o666)
+    except OSError:
+        pass
     return {"ok": True}
 
 
