@@ -16,7 +16,32 @@ gdal.UseExceptions()
 _BASE = os.path.dirname(os.path.abspath(__file__))
 SDK_LIB_DIR = os.path.join(_BASE, "..", "dji_thermal_sdk/tsdk-core/lib/linux/release_x64")
 DJI_IRP     = os.path.join(_BASE, "..", "dji_thermal_sdk/utility/bin/linux/release_x64/dji_irp")
-IMG_W, IMG_H = 640, 512  # DJI H20T thermal sensor
+
+
+def _jpeg_size(path):
+    """(ancho, alto) del R-JPEG leyendo solo la cabecera."""
+    ds = gdal.Open(path)
+    try:
+        return ds.RasterXSize, ds.RasterYSize
+    finally:
+        ds = None
+
+
+def thermal_size(src_jpg, n_floats):
+    """Resolución del arreglo radiométrico de un R-JPEG.
+
+    En los R-JPEG de DJI el stream JPEG está a la misma resolución que el
+    sensor térmico, así que las dimensiones de la imagen son las del arreglo.
+    Se comprueba contra la cantidad real de floats que devolvió dji_irp antes
+    de usarlas: si no cuadran, el reshape produciría un raster corrido o
+    fallaría con un error incomprensible.
+
+    Devuelve (w, h) o None si no se puede determinar con certeza.
+    """
+    w, h = _jpeg_size(src_jpg)
+    if w * h == n_floats:
+        return w, h
+    return None
 
 
 def convert_one(src_jpg: str, dst_tif: str) -> bool:
@@ -49,17 +74,23 @@ def convert_one(src_jpg: str, dst_tif: str) -> bool:
             print(f"  ❌ dji_irp no produjo salida")
             return False
 
-        # 2. Leer raw y envolver en GeoTIFF
+        # 2. Leer raw y envolver en GeoTIFF. La resolución se infiere de la
+        # foto: el sensor térmico varía según el modelo (640x512 en H20T/M3T/
+        # M30T, 1280x1024 en los más nuevos) y fijarla obligaría a tocar código
+        # para cada cámara nueva.
         raw = np.fromfile(raw_path, dtype=np.float32)
-        expected = IMG_W * IMG_H
-        if len(raw) != expected:
-            print(f"  ❌ Tamaño inesperado: {len(raw)} floats (esperado {expected})")
+        size = thermal_size(src_jpg, len(raw))
+        if size is None:
+            jw, jh = _jpeg_size(src_jpg)
+            print(f"  ❌ {os.path.basename(src_jpg)}: dji_irp devolvió {len(raw):,} "
+                  f"valores pero la imagen es {jw}x{jh} ({jw*jh:,} px) — no coinciden, "
+                  f"no se puede saber cómo ordenar el arreglo")
             return False
-
-        arr = raw.reshape(IMG_H, IMG_W)
+        w, h = size
+        arr = raw.reshape(h, w)
 
         drv = gdal.GetDriverByName("GTiff")
-        ds = drv.Create(dst_tif, IMG_W, IMG_H, 1, gdal.GDT_Float32,
+        ds = drv.Create(dst_tif, w, h, 1, gdal.GDT_Float32,
                         ["COMPRESS=LZW", "TILED=YES"])
         ds.GetRasterBand(1).WriteArray(arr)
         ds.GetRasterBand(1).SetNoDataValue(np.nan)
@@ -114,7 +145,9 @@ def main():
         print(f"❌ No se encontraron imágenes *_T.JPG en {src_dir}")
         sys.exit(1)
 
-    print(f"Convirtiendo {len(jpgs)} R-JPEG → GeoTIFF Float32...")
+    jw, jh = _jpeg_size(jpgs[0])
+    print(f"Convirtiendo {len(jpgs)} R-JPEG → GeoTIFF Float32 "
+          f"(sensor térmico {jw}x{jh}, inferido de las fotos)...")
     t0 = time.time()
     ok = 0
     skip = 0
