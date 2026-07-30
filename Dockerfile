@@ -31,10 +31,10 @@ RUN python3 scripts/check_deps.py
 RUN chmod +x dji_thermal_sdk/utility/bin/linux/release_x64/* \
     && chmod +x docker/entrypoint.sh docker/setup-data.sh docker/setup-data-multispectral.sh \
     && ln -s ../outputs geovisor/outputs
-# geovisor/serve.py sirve solo desde geovisor/ (Python http.server no permite
-# salir de su raíz) pero outputs/ (donde vive area_afectada.geojson, que el
-# geovisor pide por fetch) es un volumen hermano montado en /app/outputs, no
-# adentro de geovisor/ — el symlink lo resuelve sin duplicar el volumen ni
+# El geovisor se sirve bajo /geovisor/ y pide sus datos con rutas relativas
+# (outputs/area_afectada.geojson, tiles/bounds.json), pero outputs/ es un
+# volumen hermano montado en /app/outputs, no adentro de geovisor/ — el
+# symlink lo resuelve sin duplicar el volumen ni
 # tocar las rutas relativas que ya usa el Makefile (todas relativas a /app).
 
 # nvidia-container-cli exige cuda>=12.9; con drivers algo más viejos (p.ej.

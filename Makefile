@@ -246,8 +246,8 @@ export-products:
 	@python3 scripts/progress.py done "Entrega exportada"
 
 serve:
-	@echo "Visor en http://localhost:$(SERVER_PORT)"
-	python3 geovisor/serve.py $(SERVER_PORT)
+	@echo "Visor en http://localhost:$(SERVER_PORT)/geovisor/index.html"
+	python3 -m webapp.main $(SERVER_PORT)
 
 # ── Información ────────────────────────────────────────────────────
 info:
