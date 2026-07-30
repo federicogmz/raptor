@@ -81,7 +81,12 @@ def clean_mask(valid):
 def clean_rgb():
     ds = gdal.Open(RGB_PATH)
     gt, proj = ds.GetGeoTransform(), ds.GetProjection()
+    W, H = ds.RasterXSize, ds.RasterYSize
     full = ds.ReadAsArray()
+    # CERRAR antes de re-crear el MISMO archivo: Create() lo trunca, y dejar el
+    # dataset de lectura abierto sobre un fichero que ya no existe es pedirle a
+    # la caché de bloques de GDAL que sirva datos de un inode borrado.
+    ds = None
     valid = full[3] == 255
     before = int(valid.sum())
     cleaned = clean_mask(valid)
@@ -90,22 +95,29 @@ def clean_rgb():
           f"({_pct_change(before, after)})")
 
     drv = gdal.GetDriverByName("GTiff")
-    out_ds = drv.Create(RGB_PATH, ds.RasterXSize, ds.RasterYSize, 4, gdal.GDT_Byte,
+    out_ds = drv.Create(RGB_PATH, W, H, 4, gdal.GDT_Byte,
                          ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
     out_ds.SetGeoTransform(gt)
     out_ds.SetProjection(proj)
+    # Antes de cualquier WriteArray: libtiff congela los tags baseline
+    # (ExtraSamples) al escribir la primera tile — mismo motivo documentado en
+    # trim_low_overlap_edges.trim_rgb(). Acá venía después y funcionaba por la
+    # heurística RGBA implícita de GDAL para un GeoTIFF Byte de 4 bandas; no
+    # conviene depender de esa casualidad.
+    out_ds.GetRasterBand(4).SetColorInterpretation(gdal.GCI_AlphaBand)
     for b in range(3):
         out_ds.GetRasterBand(b + 1).WriteArray(full[b])
     out_ds.GetRasterBand(4).WriteArray((cleaned * 255).astype(np.uint8))
-    out_ds.GetRasterBand(4).SetColorInterpretation(gdal.GCI_AlphaBand)
     out_ds = None
-    return cleaned, gt, ds.RasterXSize, ds.RasterYSize
+    return cleaned, gt, W, H
 
 
 def clean_thermal():
     ds = gdal.Open(TH_PATH)
     gt, proj = ds.GetGeoTransform(), ds.GetProjection()
+    W, H = ds.RasterXSize, ds.RasterYSize
     a = ds.GetRasterBand(1).ReadAsArray()
+    ds = None                      # ver clean_rgb(): Create() trunca este mismo archivo
     valid = np.isfinite(a)
     before = int(valid.sum())
     cleaned = clean_mask(valid)
@@ -115,14 +127,14 @@ def clean_thermal():
 
     out = np.where(cleaned, a, np.nan).astype(np.float32)
     drv = gdal.GetDriverByName("GTiff")
-    out_ds = drv.Create(TH_PATH, ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Float32,
+    out_ds = drv.Create(TH_PATH, W, H, 1, gdal.GDT_Float32,
                          ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
     out_ds.SetGeoTransform(gt)
     out_ds.SetProjection(proj)
     out_ds.GetRasterBand(1).WriteArray(out)
     out_ds.GetRasterBand(1).SetNoDataValue(float("nan"))
     out_ds = None
-    return cleaned, gt, ds.RasterXSize, ds.RasterYSize
+    return cleaned, gt, W, H
 
 
 def build_confidence(rgb_valid, rgb_gt, rgb_w, rgb_h, th_valid, th_gt, th_w, th_h):

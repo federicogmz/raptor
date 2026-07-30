@@ -641,10 +641,29 @@ def run_log(mission: str, tail: int = 200):
     falla al volver a la misión (o tras recargar), sin dejar al usuario
     adivinando qué pasó."""
     safe = sanitize_mission_name(mission)
-    if _state is None or _state.mission_name != safe:
-        raise HTTPException(404, "esa misión no corrió en esta sesión")
-    return {"lines": _state.log_lines[-tail:], "done": _state.done,
-            "returncode": _state.returncode}
+    if _state is not None and _state.mission_name == safe:
+        return {"lines": _state.log_lines[-tail:], "done": _state.done,
+                "returncode": _state.returncode, "source": "memoria"}
+
+    # Respaldo en DISCO: el estado en memoria solo cubre la última corrida de
+    # ESTE proceso, así que tras reiniciar el servidor —o al mirar cualquier
+    # misión que no sea la última— se perdía el motivo de la falla aunque el
+    # log siguiera ahí. outputs/logs/ lo tiene: es el mismo destino al que
+    # escribe run_odm() y run_quiet del Makefile.
+    _safe, mission_dir = _mission_dir(safe)
+    logs = mission_dir / "outputs" / "logs"
+    if not logs.is_dir():
+        raise HTTPException(404, "esa misión no tiene logs guardados")
+    archivos = sorted(logs.glob("*.log"), key=lambda p: p.stat().st_mtime)
+    if not archivos:
+        raise HTTPException(404, "esa misión no tiene logs guardados")
+    ultimo = archivos[-1]
+    try:
+        lineas = ultimo.read_text(errors="replace").splitlines()
+    except OSError as exc:
+        raise HTTPException(500, f"no se pudo leer {ultimo.name}: {exc}")
+    return {"lines": lineas[-tail:], "done": True, "returncode": None,
+            "source": f"outputs/logs/{ultimo.name}"}
 
 
 SEVERITY_LABELS = {1: "leve", 2: "leve", 3: "moderado", 4: "severo"}
