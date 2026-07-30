@@ -29,4 +29,6 @@ python-multipart==0.0.32
 
 # Tests (`make test`). Livianos y sin dependencias nativas, así que se
 # incluyen en la imagen de producción en vez de mantener una variante aparte.
+# httpx lo necesita starlette.testclient para probar la webapp sin levantarla.
 pytest==8.4.2
+httpx==0.28.1

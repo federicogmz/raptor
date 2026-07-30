@@ -444,10 +444,15 @@ docker run --rm -p 8080:8080 -v $PWD/geovisor/tiles:/app/geovisor/tiles \
   25m. A ~500m AGL esto es una limitación del hardware.
 - **Tests**: `make test` (dentro del contenedor) corre `scripts/check_deps.py`
   y la suite de `tests/`. No hacen falta datos de vuelo: los cuatro `trim_*` se
-  ejercitan sobre una misión sintética (`tests/synthetic.py`). El test de
-  caracterización compara el recorte contra `tests/golden/trim_masks.json` —
-  si un cambio mueve un solo píxel, falla. Si el cambio es intencional, borrá
-  ese archivo y regeneralo corriendo la suite dos veces.
+  ejercitan sobre una misión sintética (`tests/synthetic.py`), y la webapp se
+  prueba con `TestClient` sin levantar el servidor. Cubre los umbrales
+  adaptativos y el recorte, la exportación (formatos, CRS y
+  georreferenciación), el resumen JSON de CI, la validación previa del
+  formulario y la validación de argumentos del lanzador.
+  El test de caracterización compara el recorte contra
+  `tests/golden/trim_masks.json` — si un cambio mueve un solo píxel, falla. Si
+  el cambio es intencional, borrá ese archivo y regeneralo corriendo la suite
+  dos veces.
 - **Dependencias**: las que RAPTOR instala están fijadas en `requirements.txt`.
   GDAL, pyproj y scipy se heredan de `opendronemap/odm:gpu` (un tag móvil) y no
   se pinean con pip para no pelear con su SuperBuild; en su lugar
