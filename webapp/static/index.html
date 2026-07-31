@@ -539,12 +539,17 @@ async function openSetup(name){
   if(name){
     $('setup-title').textContent = 'Misión: ' + name;
     $('mname').value = name;
-    await loadStatus(name);
   }else{
     $('setup-title').textContent = 'Nueva misión';
     $('mname').value = 'mision_' + new Date().toISOString().slice(0,10);
     sensors = {rt:true, ms:false};
   }
+  // También para una misión NUEVA: /status no depende de que la misión exista
+  // (no crea nada) y es de donde sale si la exportación está disponible, que
+  // es una propiedad de cómo se arrancó el contenedor y no de la misión. Sin
+  // esta llamada, al crear una misión nueva el formulario nunca preguntaba y
+  // la entrega aparecía deshabilitada aunque se hubiera montado la carpeta.
+  await loadStatus($('mname').value.trim());
   refreshUI();
 }
 
@@ -561,12 +566,11 @@ async function loadStatus(name){
   try{
     const s = await (await fetch(`/api/missions/${encodeURIComponent(name)}/status`)).json();
     stored = s.uploads; odmPrev = s.odm;
-    // Destino por defecto: la subcarpeta export/ de la propia misión, que el
-    // servidor resuelve (queda dentro de runs/, así que si el usuario montó esa
-    // carpeta la entrega aparece sola en el host). Solo mientras no la editen.
     // La exportación solo existe si se arrancó con una carpeta del host
     // montada (./raptor webapp --export DIR): sin eso los productos no tienen
-    // a dónde salir y ofrecerla sería una promesa vacía.
+    // a dónde salir y ofrecerla sería una promesa vacía. El destino por
+    // defecto que devuelve el servidor es una ruta del HOST, dentro de esa
+    // carpeta — se respeta mientras el usuario no la escriba a mano.
     expEnabled = !!s.export_enabled;
     expHostRoot = s.export_host_root || '';
     if(!expDirTouched && s.default_export_dir) $('exp-dir').value = s.default_export_dir;
@@ -575,7 +579,12 @@ async function loadStatus(name){
     if(s.uploads.multispectral.total) sensors.ms = true;
     if(s.uploads.rgb_thermal.total && !s.uploads.rgb_thermal.thermal)
       document.querySelector('input[name=prod][value=rgb]').checked = true;
-  }catch(e){ stored={rgb_thermal:null,multispectral:null}; odmPrev={}; }
+  }catch(e){
+    // Sin respuesta del servidor no se puede afirmar que la exportación esté
+    // disponible: se asume que no, en vez de dejar un valor viejo.
+    stored={rgb_thermal:null,multispectral:null}; odmPrev={};
+    expEnabled = false; expHostRoot = '';
+  }
 }
 
 function toggleSensor(k){ sensors[k] = !sensors[k]; refreshUI(); }
