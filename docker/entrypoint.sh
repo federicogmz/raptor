@@ -330,19 +330,36 @@ fi
 
 STAGE_START=2; [[ "$SKIP_ODM" -eq 0 ]] && STAGE_START=4
 echo "--- [${STAGE_START}/5] Recorte + tiles ---"
-# Se cuenta exactamente una etapa por cada pipeline_progress_start de abajo:
-# 2 fijas (tiles + export) + recorte base + las condicionales. (Antes esto
-# arrancaba en 5 y contaba de más cuando no había multiespectral: la barra
-# llegaba a "4/5" y terminaba, sin la etapa faltante.)
-TOTAL_STAGES=3
-[[ "$MODE" == "rgb+thermal" ]] && TOTAL_STAGES=$((TOTAL_STAGES + 1))
-[[ "$RUN_MULTISPECTRAL" -eq 1 ]] && TOTAL_STAGES=$((TOTAL_STAGES + 1))
-[[ "$RUN_MULTISPECTRAL" -eq 1 && "$MODE" == "rgb+thermal" ]] && TOTAL_STAGES=$((TOTAL_STAGES + 1))
-[[ -n "${EXPORT_DIR:-}" ]] && TOTAL_STAGES=$((TOTAL_STAGES + 1))
-STAGE=1
+
+# ── Etapas de post-procesamiento ────────────────────────────────────
+# Qué etapas corren en ESTA misión se decide una sola vez acá, y esa misma
+# decisión se usa dos veces: para el total de la barra de progreso y para
+# ejecutar (o no) cada bloque de abajo. Antes el total era una suma aparte que
+# repetía las condiciones a mano, y bastaba con agregar una etapa y olvidarse
+# de sumarla para que la barra terminara en "4/5".
+DO_THERMAL=0; [[ "$MODE" == "rgb+thermal" ]] && DO_THERMAL=1
+DO_MS=0;      [[ "$RUN_MULTISPECTRAL" -eq 1 ]] && DO_MS=1
+# Área afectada + severidad necesita AMBAS señales: el brillo multiespectral y
+# la anomalía térmica son las dos que separan quemado de suelo desnudo o vías.
+DO_AREA=0;    [[ "$DO_MS" -eq 1 && "$DO_THERMAL" -eq 1 ]] && DO_AREA=1
+DO_ENTREGA=0; [[ -n "${EXPORT_DIR:-}" ]] && DO_ENTREGA=1
+
+# Un elemento por etapa, en el mismo orden en que corren. Los `1` son las que
+# siempre están (recorte base, tiles, export cloud-optimized); sin número
+# mágico que actualizar por separado.
+STAGE_FLAGS=(1 "$DO_THERMAL" "$DO_MS" "$DO_AREA" 1 1 "$DO_ENTREGA")
+TOTAL_STAGES=0
+for _f in "${STAGE_FLAGS[@]}"; do TOTAL_STAGES=$((TOTAL_STAGES + _f)); done
+
+# Avanza el contador solo: ningún bloque tiene que acordarse de incrementarlo.
+STAGE=0
+stage_begin() {
+  STAGE=$((STAGE + 1))
+  pipeline_progress_start "$1" "$STAGE" "$TOTAL_STAGES"
+}
 
 if [[ "$RUN_RGB" -eq 1 ]]; then
-  pipeline_progress_start "Limpieza DSM + recorte RGB" $STAGE $TOTAL_STAGES
+  stage_begin "Limpieza DSM + recorte RGB"
   make clean-dsm
   make trim-edges-dsm
   make trim-edges-rgb
@@ -352,62 +369,60 @@ else
   # corre con --dsm). Son los MISMOS scripts, solo apuntados por env a
   # processing/multispectral_odm — la limpieza y el recorte por solape de
   # cámaras no dependen de qué sensor produjo la reconstrucción.
-  pipeline_progress_start "Limpieza + recorte del DSM (multiespectral)" $STAGE $TOTAL_STAGES
+  stage_begin "Limpieza + recorte del DSM (multiespectral)"
   DSM_SRC=processing/multispectral_odm/odm_dem/dsm.tif make clean-dsm
   ODM_RGB_DIR=processing/multispectral_odm make trim-edges-dsm
   pipeline_progress_done "DSM limpio y recortado"
 fi
-STAGE=$((STAGE + 1))
 
-if [[ "$MODE" == "rgb+thermal" ]]; then
-  pipeline_progress_start "Recorte térmico + máscara de confianza" $STAGE $TOTAL_STAGES
+if [[ "$DO_THERMAL" -eq 1 ]]; then
+  stage_begin "Recorte térmico + máscara de confianza"
   make trim-edges-thermal
   make confidence-mask
   pipeline_progress_done "Bordes térmicos recortados, máscara lista"
-  STAGE=$((STAGE + 1))
 fi
 
-if [[ "$RUN_MULTISPECTRAL" -eq 1 ]]; then
-  pipeline_progress_start "Recorte multiespectral + índices de vegetación" $STAGE $TOTAL_STAGES
+if [[ "$DO_MS" -eq 1 ]]; then
+  stage_begin "Recorte multiespectral + índices de vegetación"
   make trim-edges-multispectral
   make compute-indices
   pipeline_progress_done "NDVI/GNDVI/NDRE generados"
-  STAGE=$((STAGE + 1))
   # A partir de acá el geovisor ya puede mostrar bandas multiespectrales e
   # índices de vegetación — publicar sin esperar a severidad/hotspot.
   publish_partial
 
-  # Área afectada + severidad: necesita multiespectral Y térmico (el
-  # brillo multiespectral + la anomalía térmica son las dos señales que
-  # separan quemado de suelo desnudo/vías — ver detect_area_afectada.py).
-  if [[ "$MODE" == "rgb+thermal" ]]; then
-    pipeline_progress_start "Área afectada + clasificación de severidad" $STAGE $TOTAL_STAGES
+  if [[ "$DO_AREA" -eq 1 ]]; then
+    stage_begin "Área afectada + clasificación de severidad"
     make detect-area-afectada
     make compute-severity
     make situation-summary
     pipeline_progress_done "Área afectada y severidad listas"
-    STAGE=$((STAGE + 1))
     publish_partial
   fi
 fi
 
-pipeline_progress_start "Generación de tiles XYZ" $STAGE $TOTAL_STAGES
+stage_begin "Generación de tiles XYZ"
 make tiles
 pipeline_progress_done "Tiles listos para el geovisor"
-STAGE=$((STAGE + 1))
 
-pipeline_progress_start "Exportación cloud-optimized (COG + COPC)" $STAGE $TOTAL_STAGES
+stage_begin "Exportación cloud-optimized (COG + COPC)"
 make export-cog
 make export-copc
 pipeline_progress_done "Rasters COG y nubes COPC listos"
-STAGE=$((STAGE + 1))
 
 # Entrega opcional a la carpeta que eligió el usuario (formato + CRS propios).
-# Solo cuenta como etapa si realmente se pidió — ver TOTAL_STAGES arriba.
-if [[ -n "${EXPORT_DIR:-}" ]]; then
-  pipeline_progress_start "Exportación a carpeta de entrega" $STAGE $TOTAL_STAGES
+if [[ "$DO_ENTREGA" -eq 1 ]]; then
+  stage_begin "Exportación a carpeta de entrega"
   make export-products
   pipeline_progress_done "Entrega exportada a ${EXPORT_DIR}"
+fi
+
+# Red de seguridad: si alguien agrega un stage_begin y se olvida de su flag en
+# STAGE_FLAGS (o al revés), la barra queda desfasada. Se avisa en vez de
+# fallar: es cosmético y la misión ya está procesada.
+if [[ "$STAGE" -ne "$TOTAL_STAGES" ]]; then
+  echo "  ⚠ progreso desfasado: corrieron ${STAGE} etapas pero STAGE_FLAGS declara ${TOTAL_STAGES}."
+  echo "    Revisá STAGE_FLAGS en docker/entrypoint.sh."
 fi
 
 # Todo lo que escribe este contenedor queda dueño de root (corre como root
