@@ -139,6 +139,19 @@ new FitBoundsControl().addTo(map);
 // addTo(), que no se puede reordenar después de agregado.
 const INDEX_NAMES=Object.keys(INDEX_RANGES);
 const MS_BAND_IDS=Object.keys(MS_BAND_RANGES);
+// Copia actualizable de MS_BAND_IDS: pollBoundsForChanges() la reasigna
+// cuando el multiespectral de una misión EN CURSO aparece más tarde (ver
+// registerMsComposite()/registerHotspot()). Declarada acá, junto a
+// MS_BAND_IDS, y NO más abajo en el archivo — el registro inicial de capas
+// (registerHotspot() etc.) llama a `def.legend()` de forma SÍNCRONA al armar
+// el panel de Capas por primera vez (renderCapasPanel(), unas líneas antes de
+// donde esto vivía), y con `let` en la zona muerta temporal esa lectura
+// temprana tira "Cannot access before initialization" — excepción sin
+// capturar que corta la ejecución del script ahí mismo y deja el resto de la
+// inicialización (incluido renderSummaryCards()) sin correr nunca: el panel
+// de "Situación actual" se queda pegado en "Cargando datos de la misión…"
+// para SIEMPRE. Bug real, encontrado corriendo la página real en jsdom.
+let liveMsBandIds=[...MS_BAND_IDS];
 let layerOrder=['hillshade','rgb',...(MS_BAND_IDS.length?['ms_composite']:[]),'thermal',...INDEX_NAMES,'ndvi_class','gndvi_class','ndre_class','msavi2_class','severidad','hotspot_termico','area_afectada']; // bottom → top
 layerOrder.forEach((id,i)=>map.createPane('pane-'+id).style.zIndex=210+i*10);
 
@@ -386,13 +399,16 @@ function registerSeveridad(){
 function registerHotspot(){
   if(LAYER_REGISTRY.hotspot_termico||!CAPAS_DISPONIBLES.has('hotspot_termico'))return false;
   LAYER_REGISTRY.hotspot_termico={label:'♨️ Hotspot térmico',group:'impacto',layer:hotspotLayer,defaultOn:false,defaultOpacity:.85,
-    // "recortado" se evalúa DENTRO de la leyenda (no al registrar): esta
-    // función puede llamarse ANTES de que se declare `let liveMsBandIds` más
-    // abajo en el archivo (el registro inicial corre en la misma pasada de
-    // carga), así que leerla acá adentro —recién cuando el usuario abre la
-    // leyenda, bien después de que el script terminó de evaluarse— evita
-    // referenciarla antes de tiempo y de paso muestra el estado ACTUAL, no el
-    // de cuando se registró (el multiespectral puede seguir procesándose).
+    // "recortado" se evalúa DENTRO de la leyenda, no al registrar: así
+    // siempre refleja el estado ACTUAL de liveMsBandIds y no el de cuando se
+    // registró (el multiespectral puede seguir procesándose y aparecer
+    // después). liveMsBandIds tiene que estar declarada ANTES de este punto
+    // del archivo — renderCapasPanel() llama a este legend() de forma
+    // SÍNCRONA al armar el panel por primera vez, así que una `let` declarada
+    // más abajo revienta con "Cannot access before initialization" ahí mismo
+    // (bug real que dejaba el panel de "Situación actual" pegado en
+    // "Cargando datos de la misión…" para siempre — ver dónde se declara
+    // liveMsBandIds, junto a MS_BAND_IDS, con la nota completa).
     legend:()=>{const recortado=liveMsBandIds.length>0;
       return `<p>Temperatura ABSOLUTA (no anomalía relativa — un umbral relativo da falsos positivos en suelo/cultivo calentado por el sol). El corte de "foco activo" (88°C/190°F) es el umbral operacional citado en literatura de detección de hotspots con drones para "fuego activo bajo superficie". Uso operacional: riesgo de reactivación / mop-up, distinto de la severidad de daño.</p>
       <p>${recortado?'Recortado al polígono de área afectada detectado.':'Esta misión no tiene multiespectral: se muestra sobre <b>toda</b> la cobertura térmica, sin recortar a ningún polígono.'}</p>`+
@@ -1062,7 +1078,8 @@ window.addEventListener('beforeunload',e=>{
 // continuos, el compuesto multiespectral y el polígono de área afectada —
 // si la misión se abrió con bounds.json todavía "preliminary" (solo ruta de
 // vuelo), ninguno de los tres tenía datos para calcular su rango de color.
-let liveMsBandIds=[...MS_BAND_IDS];
+// (liveMsBandIds se declara arriba, junto a MS_BAND_IDS — ver el comentario
+// ahí sobre por qué no puede vivir acá.)
 
 function ensurePane(id){
   if(!map.getPane('pane-'+id)){
