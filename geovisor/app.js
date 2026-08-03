@@ -73,7 +73,8 @@ if(urlMission){
 let CENTER=[6.3619,-75.5465],ZOOM=17;
 let THERMAL_MIN=15,THERMAL_MAX=55;   // fallback (vuelo original, rango amplio)
 let INDEX_RANGES={};   // {} si la misión no tiene datos multiespectrales (M3M)
-let MS_BAND_RANGES={}; // {} si la misión no tiene datos multiespectrales (M3M)
+let MS_BAND_RANGES={};  // {} si la misión no tiene datos multiespectrales (M3M)
+let RESOLUCION_CM=null; // cm/px MEDIDOS por producto (bounds.json)
 // `preliminary` lo escribe export_flight_path.py cuando la corrida TODAVÍA
 // está en curso y lo único que hay es la ruta de vuelo: el visor se abre
 // igual (sirve desde el minuto uno) pero sabe que faltan productos y avisa
@@ -96,6 +97,7 @@ try{
     if(b.thermal_range){THERMAL_MIN=b.thermal_range[0];THERMAL_MAX=b.thermal_range[1];}
     if(b.index_ranges)INDEX_RANGES=b.index_ranges;
     if(b.ms_band_ranges)MS_BAND_RANGES=b.ms_band_ranges;
+    if(b.resolucion_cm)RESOLUCION_CM=b.resolucion_cm;
     PRELIMINARY=!!b.preliminary;
   }
 }catch(e){}
@@ -291,12 +293,24 @@ map.on('mousemove',e=>{
 });
 map.on('mouseout',()=>{ coordsControl._text.textContent='—'; });
 
+// Resolución MEDIDA de cada producto (bounds.json, la escribe generate_tiles.py
+// desde el geotransform real). Las leyendas la mostraban escrita a mano y no
+// correspondía a ninguna misión concreta: el GSD lo fijan la altura de vuelo y
+// el sensor, así que cambia con cada vuelo.
+function gsdTxt(clave){
+  const v=RESOLUCION_CM&&RESOLUCION_CM[clave];
+  return v?`${v} cm/px`:'—';
+}
+
 // ── Registro de capas para el panel "Capas" (gestor unificado) ──
 const LAYER_REGISTRY={
-  hillshade:{label:'⛰️ Hillshade',group:'terreno',layer:hillshadeLayer,defaultOn:false,defaultOpacity:.4,
-    legend:()=>`<p>Sombreado de relieve derivado del DSM (resolución 20 cm/px, nube de puntos densa de ODM). Solo referencia visual de terreno, sin unidades.</p>`},
+  hillshade:{label:'⛰️ Relieve (DSM)',group:'terreno',layer:hillshadeLayer,defaultOn:false,defaultOpacity:.4,
+    legend:()=>`<div class="stat-row"><span class="lbl">Resolución</span><span class="val">${gsdTxt('dsm')}</span></div>
+      <p>Sombreado de relieve calculado sobre el <b>DSM</b> (modelo digital de
+      <i>superficie</i>): incluye vegetación y construcciones, no es un modelo de
+      terreno desnudo (DTM). Solo referencia visual, sin unidades.</p>`},
   rgb:{label:'📷 RGB',group:'opticas',layer:rgbLayer,defaultOn:true,defaultOpacity:1,
-    legend:()=>`<div class="stat-row"><span class="lbl">GSD</span><span class="val cool">2 cm/px</span></div><div class="stat-row"><span class="lbl">Sensor</span><span class="val">DJI Zenmuse H20T (wide)</span></div>
+    legend:()=>`<div class="stat-row"><span class="lbl">GSD</span><span class="val cool">${gsdTxt('rgb')}</span></div><div class="stat-row"><span class="lbl">Sensor</span><span class="val">DJI Zenmuse H20T (wide)</span></div>
       <div class="band-picker" style="margin-top:8px">
         <label>Canales<select class="rgb-channel-preset">
           <option value="normal"${rgbChannelOrder.join(',')==='r,g,b'?' selected':''}>Normal (R-G-B)</option>
@@ -327,7 +341,7 @@ if(MS_BAND_IDS.length){
       </div>`;}};
 }
 LAYER_REGISTRY.thermal={label:'🌡️ Térmico',group:'termicas',layer:thermalLayer,defaultOn:true,defaultOpacity:.7,
-    legend:()=>{const pal=PALETTES[currentPalette],ramp=pal.colors.join(',');return `<div class="stat-row"><span class="lbl">GSD</span><span class="val warm">~10 cm/px</span></div>
+    legend:()=>{const pal=PALETTES[currentPalette],ramp=pal.colors.join(',');return `<div class="stat-row"><span class="lbl">GSD</span><span class="val warm">${gsdTxt('thermal')}</span></div>
       <div class="stat-row"><span class="lbl">Rango</span><span class="val warm">${THERMAL_MIN.toFixed(1)}–${THERMAL_MAX.toFixed(1)} °C</span></div>
       <div style="margin-top:6px"><div class="legend-bar" style="background:linear-gradient(to right,${ramp})"></div>
       <div class="legend-lbl"><span>${THERMAL_MIN.toFixed(1)}°C</span><span>${((THERMAL_MIN+THERMAL_MAX)/2).toFixed(1)}°C</span><span>${THERMAL_MAX.toFixed(1)}°C</span></div></div>`;}};
