@@ -168,3 +168,94 @@ class TestReusarOdmNoSaltaUnSensorNuevo:
         assert 'odm_prev["rgb"]' in bloque
         assert 'odm_prev["thermal"]' in bloque
         assert "errors += _validate_reuse_odm(mission_dir, mode, has_multispectral, reuse_odm)" in src
+
+
+class TestHotspotDefaultOnSinSeveridad:
+    """Reportado: en una misión sin multiespectral, hotspot_termico es la
+    ÚNICA capa de impacto disponible pero quedaba con defaultOn:false —
+    entraba invisible, el usuario tenía que saber que existía un panel de
+    Capas/pestaña Impacto y tildarla a mano para ver algo. defaultOn ahora
+    depende de si severidad existe: si NO existe (típicamente sin
+    multiespectral), hotspot es la señal principal y entra encendida; si SÍ
+    existe, severidad manda y hotspot se queda apagada por defecto (mismo
+    comportamiento de siempre, para no encimar dos capas de impacto)."""
+
+    def test_defaultOn_depende_de_si_hay_severidad(self):
+        cuerpo = _cuerpo_de(_js(), "registerHotspot")
+        assert "defaultOn:!CAPAS_DISPONIBLES.has('severidad')" in cuerpo
+
+    def test_el_registro_en_vivo_tambien_agrega_la_capa_si_defaultOn(self):
+        """El registro inicial pasa por un loop que agrega al mapa toda capa
+        con defaultOn (ver Object.entries(LAYER_REGISTRY)...forEach de más
+        arriba en el archivo) — pero un registro que llega DESPUÉS, durante
+        pollBoundsForChanges() (misión todavía procesando), no pasa por ese
+        loop. Sin este agregado explícito, una misión que empieza siendo
+        solo-térmica y consigue su hotspot_termico recién en una pasada
+        posterior se quedaría con defaultOn:true pero invisible en el mapa
+        hasta que el usuario la tildara a mano — el mismo bug, solo que en
+        el camino 'en vivo' en vez del de carga inicial."""
+        cuerpo = _cuerpo_de(_js(), "pollBoundsForChanges")
+        assert "hotspotLayer.addTo(map)" in cuerpo
+
+
+class TestComparadorNoRevientaSinCapasOpcionales:
+    """Reportado: al abrir "Comparar" en una misión sin multiespectral, los
+    dos mapas del comparador terminaban desincronizados — se podían arrastrar
+    de forma independiente y no coincidían espacialmente.
+
+    Causa real: COMPARABLE_IDS es la lista ESTÁTICA de todo tipo de capa
+    ráster posible (RASTER_LAYER_FACTORY tiene entradas fijas para severidad,
+    hotspot y los 4 índices, sin importar qué tenga la misión). Antes
+    buildCompareSelect() iteraba esa lista sin filtrar y leía
+    `LAYER_REGISTRY[id].label` — para una misión sin esos datos,
+    LAYER_REGISTRY[id] es undefined y `.label` revienta con un TypeError sin
+    capturar. Esa excepción cortaba toggleCompare() a la mitad: nunca se
+    llegaba a fijar el ancho de #compare-left-map ni a conectar los
+    listeners 'move' que sincronizan los dos mapas — quedaban del todo
+    independientes, exactamente el síntoma reportado."""
+
+    def test_buildCompareSelect_filtra_por_layer_registry(self):
+        cuerpo = _cuerpo_de(_js(), "buildCompareSelect")
+        assert "COMPARABLE_IDS.filter(id=>LAYER_REGISTRY[id])" in cuerpo, (
+            "sin este filtro, un id de COMPARABLE_IDS sin entrada en "
+            "LAYER_REGISTRY (p.ej. 'severidad' sin multiespectral) revienta "
+            "en LAYER_REGISTRY[id].label y corta toggleCompare() a la mitad")
+
+    def test_initSliderDrag_no_se_llama_en_cada_activacion(self):
+        """Antes initSliderDrag() corría en cada apertura de 'Comparar', no
+        solo la primera vez — cada llamada cuelga listeners nuevos en
+        document (mousemove/mouseup/touchmove/touchend) que nunca se
+        sueltan. Tiene que quedar DENTRO del bloque `if(!compareLeftMap)`
+        (inicialización única), no suelta en el cuerpo de toggleCompare()."""
+        cuerpo = _cuerpo_de(_js(), "toggleCompare")
+        i_guard = cuerpo.index("if(!compareLeftMap)")
+        i_init = cuerpo.index("initSliderDrag();")
+        # El cierre del bloque `if(!compareLeftMap){...}` es la línea
+        # `initSliderDrag();` misma si quedó adentro — se verifica indirecto:
+        # tiene que aparecer ANTES del `fullW=` que sí corre en cada
+        # activación (eso confirma que quedó en la rama de una sola vez).
+        i_fullw = cuerpo.index("const fullW=")
+        assert i_guard < i_init < i_fullw, (
+            "initSliderDrag() tiene que llamarse dentro de la inicialización "
+            "de una sola vez (if(!compareLeftMap){...}), antes de fullW=, no "
+            "en cada activación de toggleCompare()")
+
+
+class TestPestanaVegetacionSinMultiespectral:
+    """Reportado: la pestaña "Vegetación" (modo simple) aparecía aunque la
+    misión no tuviera multiespectral — al abrirla siempre mostraba "No hay
+    información de este tipo en esta misión", un callejón sin salida
+    redundante con la tarjeta "Agregar vuelo multiespectral" que ya se
+    ofrece en la pestaña Impacto."""
+
+    def test_renderSimpleTabs_oculta_vegetacion_sin_indices(self):
+        cuerpo = _cuerpo_de(_js(), "renderSimpleTabs")
+        assert "liveMsBandIds.length===0" in cuerpo
+        assert "vegTab.hidden=hide" in cuerpo
+
+    def test_no_deja_la_pestana_activa_oculta(self):
+        """Si el usuario estaba parado en Vegetación y el multiespectral
+        desaparece de la señal (o nunca estuvo), no debe quedar una pestaña
+        activa pero invisible — tiene que saltar a Impacto."""
+        cuerpo = _cuerpo_de(_js(), "renderSimpleTabs")
+        assert "selectSimpleTab('impacto')" in cuerpo

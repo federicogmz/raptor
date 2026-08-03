@@ -94,6 +94,13 @@ class TestSoloTermico:
         assert s["hotspots_activos"] == 1
         assert s["hotspots"][0]["temp_c"] == 95.0
         assert s["hotspots"][0]["severidad"] is None
+        # Reportado: sin focos activos, el resumen (y la imagen exportada)
+        # no mostraban NINGÚN valor de temperatura — solo el conteo de focos.
+        # temp_max/temp_promedio salen de TODO el ortomosaico térmico, no
+        # solo de los focos, así que siempre están disponibles.
+        assert s["temp_max"] == 95.0
+        assert s["temp_promedio"] == pytest.approx(21.2, abs=0.05)
+        assert s["cobertura_pct"] == 100.0
 
     def test_sin_focos_activos_confianza_por_cobertura_termica(self, mision):
         n = 20
@@ -106,6 +113,12 @@ class TestSoloTermico:
             s = json.load(f)
         assert s["hotspots_activos"] == 0
         assert s["confianza"] == "alta"  # cobertura 100% del ortomosaico
+        assert s["cobertura_pct"] == 100.0
+        # Reportado: sin focos activos no había NINGÚN dato de temperatura
+        # que mostrar en el resumen — pero sí hay temperatura real medida,
+        # simplemente ningún píxel superó el umbral de foco activo.
+        assert s["temp_max"] == 25.0
+        assert s["temp_promedio"] == 25.0
 
     def test_sin_ni_severidad_ni_hotspot_omite_el_archivo(self, mision, capsys):
         """Ninguno de los dos insumos (ni multiespectral, ni siquiera
@@ -147,3 +160,7 @@ class TestModoCompletoSigueIgual:
         assert s["area_ha"] == 5.0
         assert s["severidad"]["dominante"] in ("leve", "moderado", "severo")
         assert s["captura"] == "2026-08-01T11:00:00"
+        # Sin _deteccion_data.npz (no se generó en este test) cobertura_pct
+        # cae al respaldo de 100.0 — el mismo criterio que confianza="alta"
+        # por defecto, no un valor inventado aparte.
+        assert s["cobertura_pct"] == 100.0

@@ -72,3 +72,41 @@ class TestFechaDeCaptura:
         js = _js()
         assert "capture-date-label" in js
         assert "s?.captura" in js or "s.captura" in js
+
+
+class TestConfianzaExplicaElPorque:
+    """Reportado: la tarjeta "Confianza del dato" mostraba "Baja" sin ningún
+    número detrás — no había forma de saber POR QUÉ sin ir a leer código.
+    s.cobertura_pct (compute_situation_summary.py) ahora se muestra en el
+    subtítulo para que el calificativo venga acompañado del dato real."""
+
+    def test_renderSummaryCards_muestra_cobertura_pct(self):
+        cuerpo = _cuerpo_de(_js(), "renderSummaryCards")
+        assert "s.cobertura_pct" in cuerpo
+
+
+class TestExportNoAnunciaLoQueFalta:
+    """Reportado: la imagen de "Generar resumen de situación" (y su vista
+    previa en el modal) decían "Sin MS" / "esta misión no tiene
+    multiespectral: agregalo..." — una pieza pensada para COMPARTIR fuera
+    del geovisor (por WhatsApp, en un reporte) no debería anunciar lo que
+    falta ni invitar a una acción que solo existe DENTRO de la app; en su
+    lugar debe mostrar temperatura real del ortomosaico térmico, que existe
+    tenga o no la misión focos activos."""
+
+    def test_buildRecommendationText_no_invita_a_agregar_ms(self):
+        cuerpo = _cuerpo_de(_js(), "buildRecommendationText")
+        assert "agregalo" not in cuerpo.lower()
+        assert "no tiene multiespectral" not in cuerpo.lower()
+        assert "s.temp_max" in cuerpo and "s.temp_promedio" in cuerpo
+
+    def test_buildReportCanvas_no_dice_sin_ms(self):
+        cuerpo = _cuerpo_de(_js(), "buildReportCanvas")
+        assert "['Sin MS'" not in cuerpo, \
+            "la tarjeta que anunciaba 'Sin MS' en la imagen exportada sigue ahí"
+        assert "s.temp_max" in cuerpo and "s.temp_promedio" in cuerpo
+
+    def test_openReport_no_dice_sin_multiespectral(self):
+        cuerpo = _cuerpo_de(_js(), "openReport")
+        assert "no hay área afectada ni severidad para mostrar" not in cuerpo
+        assert "s.temp_max" in cuerpo and "s.temp_promedio" in cuerpo

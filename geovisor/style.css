@@ -594,5 +594,13 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
     border-top:1px solid var(--line);border-radius:16px 16px 0 0;
     box-shadow:0 -8px 30px rgba(0,0,0,.15);transform:translateY(0);transition:transform .2s}
   main.body.panel-collapsed .panel{transform:translateY(calc(100% - 46px))}
-  .panel-toggle{display:none!important}
+  /* Antes esto ocultaba .panel-toggle del todo en pantallas angostas: al
+     colapsar el panel (translateY deja visible solo una franja de 46px del
+     PIE del panel, no la cabecera con el botón ✕) no quedaba NADA
+     clickeable para volver a abrirlo — callejón sin salida real, reportado
+     por un usuario. .panel-toggle vive en .map-area (position:absolute,
+     top:16px;right:16px), no dentro de .panel, así que sigue siendo visible
+     y clickeable sobre el mapa sin chocar con la franja colapsada del pie:
+     no hace falta ocultarlo acá, solo dejar que la regla de
+     .panel-collapsed .panel-toggle{display:flex} (arriba) siga aplicando. */
 }

@@ -170,12 +170,16 @@ def _resumen_completo():
 
     # Confianza: fracción del perímetro con dato válido (no nodata) en la
     # fuente multiespectral+térmica usada para severidad — no una cifra de
-    # relleno.
+    # relleno. cobertura_pct se guarda aparte (no solo la etiqueta
+    # alta/media/baja) para que la UI pueda explicar el POR QUÉ en vez de
+    # mostrar un calificativo sin numero detrás.
     confianza = "alta"
+    cobertura_pct = 100.0
     if os.path.isfile(CACHE_PATH):
         valid = np.load(CACHE_PATH)["valid"]
         if valid.shape == fire_mask.shape and n_fire:
             valid_frac = 100 * (valid & fire_mask).sum() / n_fire
+            cobertura_pct = round(valid_frac, 0)
             confianza = "alta" if valid_frac >= 90 else ("media" if valid_frac >= 70 else "baja")
 
     return {
@@ -186,6 +190,7 @@ def _resumen_completo():
         "hotspots": hotspots[:20],
         "vegetacion_comprometida_pct": veg_pct,
         "confianza": confianza,
+        "cobertura_pct": cobertura_pct,
         "solo_termico": False,
     }
 
@@ -207,12 +212,23 @@ def _resumen_solo_termico():
 
     n_valid = int(valid.sum())
     confianza = "alta"
+    cobertura_pct = 100.0
     if n_valid:
         # Sin perímetro detectado (no hay multiespectral), la confianza se
         # mide sobre TODA la cobertura térmica en vez de sobre un perímetro:
         # qué fracción del ortomosaico térmico es dato real, no relleno.
+        # Se guarda el número (no solo alta/media/baja) para que la UI pueda
+        # explicar el motivo en vez de dejar la etiqueta sin contexto.
         valid_frac = 100 * n_valid / valid.size
+        cobertura_pct = round(valid_frac, 0)
         confianza = "alta" if valid_frac >= 90 else ("media" if valid_frac >= 70 else "baja")
+
+    # Estadísticas de temperatura de TODO el ortomosaico térmico — lo único
+    # que el térmico solo puede aportar más allá de los focos puntuales
+    # (que pueden ser cero, como en una misión sin actividad activa pero con
+    # datos de temperatura igual de reales y reportables).
+    temp_max = round(float(temp_abs[valid].max()), 1) if n_valid else None
+    temp_promedio = round(float(temp_abs[valid].mean()), 1) if n_valid else None
 
     return {
         "area_ha": None,
@@ -221,6 +237,9 @@ def _resumen_solo_termico():
         "hotspots": hotspots[:20],
         "vegetacion_comprometida_pct": None,
         "confianza": confianza,
+        "cobertura_pct": cobertura_pct,
+        "temp_max": temp_max,
+        "temp_promedio": temp_promedio,
         "solo_termico": True,
     }
 
