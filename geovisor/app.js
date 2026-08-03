@@ -398,7 +398,13 @@ function registerSeveridad(){
 }
 function registerHotspot(){
   if(LAYER_REGISTRY.hotspot_termico||!CAPAS_DISPONIBLES.has('hotspot_termico'))return false;
-  LAYER_REGISTRY.hotspot_termico={label:'♨️ Hotspot térmico',group:'impacto',layer:hotspotLayer,defaultOn:false,defaultOpacity:.85,
+  // defaultOn: encendida de entrada SOLO si es la única señal de impacto de
+  // esta misión (sin severidad, típicamente sin multiespectral) — ahí es el
+  // dato principal, no algo que haya que ir a descubrir en el panel de
+  // Capas. Si severidad SÍ existe, se prioriza esa (severidad queda como
+  // defaultOn:false también) para no saturar el mapa con dos capas de
+  // impacto encimadas por defecto.
+  LAYER_REGISTRY.hotspot_termico={label:'♨️ Hotspot térmico',group:'impacto',layer:hotspotLayer,defaultOn:!CAPAS_DISPONIBLES.has('severidad'),defaultOpacity:.85,
     // "recortado" se evalúa DENTRO de la leyenda, no al registrar: así
     // siempre refleja el estado ACTUAL de liveMsBandIds y no el de cuando se
     // registró (el multiespectral puede seguir procesándose y aparecer
@@ -786,7 +792,19 @@ function setCompareLayer(side,id){
 function buildCompareSelect(side){
   const sel=document.createElement('select');
   sel.className='compare-select';
-  COMPARABLE_IDS.forEach(id=>{
+  // COMPARABLE_IDS es la lista ESTÁTICA de todo tipo de capa ráster posible
+  // (RASTER_LAYER_FACTORY existe para los 4 índices y sus clasificados,
+  // severidad y hotspot sin importar la misión) — pero LAYER_REGISTRY[id]
+  // solo existe para lo que ESTA misión realmente tiene tiles (ver
+  // CAPAS_DISPONIBLES). Antes esto iteraba COMPARABLE_IDS sin filtrar y
+  // `.label` sobre un LAYER_REGISTRY[id] undefined (p.ej. 'severidad' en una
+  // misión sin multiespectral) tiraba un TypeError sin capturar que cortaba
+  // toggleCompare() a la mitad: el ancho de #compare-left-map nunca se
+  // fijaba y los listeners de sincronización de mover un mapa nunca se
+  // conectaban — los dos mapas del comparador quedaban del todo
+  // independientes uno del otro, exactamente el bug reportado (se
+  // desalinean y se arrastran por separado).
+  COMPARABLE_IDS.filter(id=>LAYER_REGISTRY[id]).forEach(id=>{
     const opt=document.createElement('option');
     opt.value=id;opt.textContent=LAYER_REGISTRY[id].label;
     sel.appendChild(opt);
@@ -813,6 +831,11 @@ function toggleCompare(){
       let syncing=false;
       compareLeftMap.on('move',()=>{if(!syncing){syncing=true;compareRightMap.setView(compareLeftMap.getCenter(),compareLeftMap.getZoom(),{animate:false});syncing=false;}});
       compareRightMap.on('move',()=>{if(!syncing){syncing=true;compareLeftMap.setView(compareRightMap.getCenter(),compareRightMap.getZoom(),{animate:false});syncing=false;}});
+      // Una sola vez (no en cada activación): initSliderDrag() cuelga
+      // listeners en document (mousemove/mouseup/touchmove/touchend) que
+      // nunca se sueltan — llamarla de nuevo cada vez que se abre "Comparar"
+      // los apilaba, uno más por cada apertura de la sesión.
+      initSliderDrag();
     }
     // #compare-left-map (el contenedor real de Leaflet) siempre queda al
     // ANCHO COMPLETO del visor — solo #compare-left (el div exterior, con
@@ -823,7 +846,6 @@ function toggleCompare(){
     const fullW=document.getElementById('compare-container').clientWidth;
     document.getElementById('compare-left-map').style.width=fullW+'px';
     setTimeout(()=>{compareLeftMap.invalidateSize();compareRightMap.invalidateSize();updateSlider();},100);
-    initSliderDrag();
   }
 }
 function updateSlider(){
@@ -1218,7 +1240,12 @@ async function pollBoundsForChanges(){
     if(b.capas_disponibles){
       CAPAS_DISPONIBLES=new Set(b.capas_disponibles);
       if(registerSeveridad())added=true;
-      if(registerHotspot())added=true;
+      // A diferencia del registro inicial (línea ~448, seguido del loop que
+      // agrega al mapa toda capa con defaultOn), un registro que llega
+      // DESPUÉS —misión todavía procesando— nunca pasa por ese loop: sin
+      // esto, hotspot_termico podía terminar con defaultOn:true y aun así
+      // no aparecer solo hasta que el usuario lo tildara a mano.
+      if(registerHotspot()){added=true;if(LAYER_REGISTRY.hotspot_termico.defaultOn)hotspotLayer.addTo(map);}
       Object.keys(INDEX_CLASS_DEFS).forEach(n=>{if(registerIndexClass(n))added=true;});
     }
     if(await tryLoadFlightPath())added=true;
@@ -1629,10 +1656,15 @@ function buildRecommendationText(s){
   if(s.solo_termico){
     // Sin multiespectral no hay severidad/área que reportar (ver
     // detect_area_afectada.py: su señal primaria es NDVI) — el resumen se
-    // recorta a lo único que el térmico solo puede decir.
-    const pico=s.hotspots.length?`, pico ${s.hotspots[0].temp_c}°C`:'';
-    return `${focos}${pico}. Confianza del dato: ${s.confianza}. `+
-      'Esta misión no tiene multiespectral: agregalo para habilitar área afectada y severidad.';
+    // recorta a lo único que el térmico solo puede decir. Esta pieza es
+    // para COMPARTIR fuera del geovisor (ver comentario de sección más
+    // abajo): no menciona lo que falta ni invita a agregar un vuelo —esa
+    // acción vive en la app, no tiene sentido en una imagen que ya salió de
+    // ahí— y en cambio reporta temperatura real de TODO el ortomosaico
+    // térmico, no solo el pico de un foco activo (que puede no haber
+    // ninguno y aun así haber datos de temperatura que reportar).
+    const temp=s.temp_max!=null?`. Temp. superficial: máx ${s.temp_max}°C, promedio ${s.temp_promedio}°C`:'';
+    return `${focos}${temp}. Confianza del dato: ${s.confianza}.`;
   }
   return `${focos}, severidad dominante ${s.severidad.dominante}. `+
     `Confianza del dato: ${s.confianza}.`+
@@ -1729,10 +1761,17 @@ async function buildReportCanvas(){
   // ── Fila de métricas: 3 tarjetas reales, no columnas separadas por líneas ──
   const statsY=headY+HEADER_H;
   ctx.fillStyle=surface;ctx.fillRect(0,statsY,mapW,STATS_H);
+  // Sin multiespectral no hay tarjeta de "Área y severidad" que mostrar —
+  // antes decía "Sin MS" (lo que FALTA); una pieza para compartir fuera del
+  // geovisor no debería anunciar ausencias, así que en su lugar van
+  // estadísticas de temperatura reales de todo el ortomosaico térmico
+  // (compute_situation_summary.py::_resumen_solo_termico), que siempre
+  // existen tenga o no focos activos.
   const stats=!s?[['—','','Sin datos de impacto',inkMuted,surface2]]
     :s.solo_termico?[
       [`${s.hotspots_activos}`,'','Focos activos',s.hotspots_activos>0?critical:ink,s.hotspots_activos>0?criticalSoft:surface2],
-      ['Sin MS','','Área y severidad',inkMuted,surface2],
+      [s.temp_max!=null?`${s.temp_max}`:'—','°C','Temp. máxima',ink,surface2],
+      [s.temp_promedio!=null?`${s.temp_promedio}`:'—','°C','Temp. promedio',ink,surface2],
     ]:[
     [`${s.area_ha}`,'ha','Área afectada',ink,surface2],
     [`${s.hotspots_activos}`,'','Focos activos',s.hotspots_activos>0?critical:ink,s.hotspots_activos>0?criticalSoft:surface2],
@@ -2079,7 +2118,7 @@ async function renderSummaryCards(){
       <div class="l">Focos térmicos activos</div>
       <div class="v tabnum">${s.hotspots_activos}</div>
       <div class="sub">${s.hotspots_activos>0?'Riesgo de reactivación':'Ninguno detectado'}${
-        s.solo_termico&&s.hotspots.length?' · '+s.hotspots[0].temp_c+'°C pico':''}</div>
+        s.solo_termico&&s.temp_max!=null?` · máx ${s.temp_max}°C · prom ${s.temp_promedio}°C`:''}</div>
     </div>
     ${impactoCards}
     <div class="stat-card">
@@ -2092,7 +2131,7 @@ async function renderSummaryCards(){
       <div class="v" style="font-size:var(--fs-md);display:flex;align-items:center;gap:8px;text-transform:capitalize">
         ${s.confianza} <span class="confidence-ticks" data-level="${s.confianza}" aria-hidden="true"><i></i><i></i><i></i></span>
       </div>
-      <div class="sub">${s.solo_termico?'Cobertura de dato en todo el ortomosaico térmico':'Cobertura de dato dentro del área'}</div>
+      <div class="sub">${s.cobertura_pct!=null?`${s.cobertura_pct}% de cobertura`:'Cobertura'} de dato ${s.solo_termico?'en todo el ortomosaico térmico':'dentro del área'}</div>
     </div>`;
 }
 
@@ -2177,6 +2216,19 @@ function renderSimpleTabPanel(tabKey){
 }
 function renderSimpleTabs(){
   Object.keys(SIMPLE_TABS).forEach(renderSimpleTabPanel);
+  // La pestaña Vegetación solo tiene sentido si hay multiespectral: sin él
+  // nunca va a tener nada que mostrar más allá de "No hay información de
+  // este tipo en esta misión" — un callejón sin salida redundante con la
+  // tarjeta "Agregar vuelo multiespectral" que YA se ofrece en Impacto. Se
+  // usa liveMsBandIds (no MS_BAND_IDS) porque en una misión que sigue
+  // procesándose el multiespectral puede aparecer después del primer render
+  // (ver pollBoundsForChanges(), que llama a renderSimpleTabs() de nuevo).
+  const vegTab=document.getElementById('tab-vegetacion');
+  if(vegTab){
+    const hide=liveMsBandIds.length===0;
+    vegTab.hidden=hide;
+    if(hide&&simpleActiveTab==='vegetacion')selectSimpleTab('impacto');
+  }
 }
 function selectSimpleTab(key){
   simpleActiveTab=key;
@@ -2191,9 +2243,13 @@ function selectSimpleTab(key){
   const tab=document.getElementById('tab-'+key);
   if(!tab)return;
   tab.onclick=()=>selectSimpleTab(key);
+  // Salta pestañas ocultas (ver renderSimpleTabs(): Vegetación se oculta sin
+  // multiespectral) — sin este filtro Flecha-derecha/izquierda podía dejar
+  // el foco en una pestaña invisible.
+  const step=dir=>{let n=i;do{n=(n+dir+arr.length)%arr.length;}while(document.getElementById('tab-'+arr[n]).hidden&&n!==i);document.getElementById('tab-'+arr[n]).click();};
   tab.addEventListener('keydown',e=>{
-    if(e.key==='ArrowRight')document.getElementById('tab-'+arr[(i+1)%arr.length]).click();
-    if(e.key==='ArrowLeft')document.getElementById('tab-'+arr[(i-1+arr.length)%arr.length]).click();
+    if(e.key==='ArrowRight')step(1);
+    if(e.key==='ArrowLeft')step(-1);
   });
 });
 
@@ -2382,8 +2438,13 @@ async function openReport(){
     document.getElementById('report-stats').innerHTML=!s
       ? `<div class="card" style="grid-column:1/-1"><div class="l">Sin datos de impacto — esta misión no tiene ni multiespectral+térmico ni térmico solo</div></div>`
       : s.solo_termico
+      // Mismo criterio que buildReportCanvas(): esta vista previa es
+      // exactamente lo que se descarga (ver comentario más abajo), así que
+      // tampoco debe anunciar lo que falta — muestra temperatura real del
+      // ortomosaico térmico en su lugar.
       ? `<div class="card"><div class="v tabnum">${s.hotspots_activos}</div><div class="l">Focos activos</div></div>
-         <div class="card" style="grid-column:span 2"><div class="l">Sin multiespectral: no hay área afectada ni severidad para mostrar</div></div>`
+         <div class="card"><div class="v tabnum">${s.temp_max??'—'}°C</div><div class="l">Temp. máxima</div></div>
+         <div class="card"><div class="v tabnum">${s.temp_promedio??'—'}°C</div><div class="l">Temp. promedio</div></div>`
       : `<div class="card"><div class="v tabnum">${s.area_ha} ha</div><div class="l">Área afectada</div></div>
       <div class="card"><div class="v tabnum">${s.hotspots_activos}</div><div class="l">Focos activos</div></div>
       <div class="card"><div class="v" style="text-transform:capitalize">${s.severidad.dominante}</div><div class="l">Severidad</div></div>`;
