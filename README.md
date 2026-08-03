@@ -76,6 +76,48 @@ terminar (eso sería un cuelgue en CI); agregá `--serve` si lo querés.
 > batch hay que pasar `run` como argumento explícito — `./raptor run` ya lo
 > hace; ver "Uso manual con `docker run`" más abajo si invocás Docker a mano.
 
+## Calidad y hardware
+
+`--quality N` (0-100, default 75) controla el **detalle del modelo de
+superficie** — la nube de puntos densa y la malla de la que sale el
+ortomosaico y el DSM — y el **techo de resolución** que se le pide a ODM.
+Antes de arrancar, `./raptor run` (y el formulario de la webapp) muestran a
+qué resolución van a salir los productos y cuánto se espera que tarde, según
+tu hardware:
+
+```bash
+./raptor run --input ./vuelos/la_clara --quality 90
+```
+```
+🖥️  Hardware detectado: 20 núcleos, 27 GB RAM libres — sin GPU (corre en CPU)
+🎚️  Calidad máxima (90%): nube de puntos y malla en nivel 'ultra'…
+📐 Hasta 1 cm/px en el ortomosaico y el DSM — el techo real lo pone el GSD…
+⏱️  Tiempo estimado con tu hardware: 70 min – 3.1 h para 1652 fotos. Aproximado…
+```
+
+Dos cosas que conviene tener claras:
+
+- **La resolución de salida no la decide la calidad, la decide el vuelo.**
+  El GSD (metros por píxel en el suelo) lo fija la altura de vuelo y el
+  sensor; ODM lo mide de la reconstrucción y **nunca puede ir más fino** que
+  eso, sin importar qué tan alta sea la calidad pedida — pedir 1 cm a un
+  vuelo cuyo GSD real es 9 cm no agrega detalle, solo produce píxeles más
+  chicos. Lo que la calidad SÍ decide es si se puede pedir un techo más
+  **grueso** a propósito (para terminar antes), y si el modelo 3D resuelve o
+  no objetos como copas de árboles y bordes de tejados.
+- **Calidad baja + fotos grandes puede aplanar la vegetación.** Con muy poco
+  detalle en la malla, una copa de árbol no llega a resolverse: la superficie
+  sale lisa y el árbol se desplaza al proyectarse (ortomosaicos que "no
+  parecen true-ortho", con sombras corridas). Subir la calidad es la forma
+  correcta de arreglarlo — no un ajuste de nitidez ni de resolución.
+
+El nº de hilos de ODM se calcula solo a partir de los núcleos y la RAM
+disponible (`scripts/hardware.py`) y se reparte por sensor: en una máquina más
+grande, ODM paraleliza más de una; en una más chica, se acota antes de que el
+kernel mate el proceso por falta de memoria (mismo mecanismo que ya protegía
+al multiespectral, generalizado a RGB y térmico). `--max-concurrency N` lo
+fuerza a mano si hace falta.
+
 ---
 
 ## Uso manual con `docker run` (para scripts / control fino)
@@ -206,7 +248,8 @@ Variables de entorno útiles (`-e VAR=valor`):
 | `MS_SOURCE_DIR` | `/input_ms` | Carpeta fuente del vuelo multiespectral (el módulo corre SOLO si existe) |
 | `PORT` | `8080` | Puerto del geovisor |
 | `SERVE` | `1` | `0` para no levantar el geovisor al terminar |
-| `MAX_CONCURRENCY` | automático | Hilos de ODM. Por defecto se calcula según la RAM disponible; bajalo si el proceso muere sin mensaje (ver «Memoria» en Notas) |
+| `QUALITY` | `75` | 0-100. Detalle del modelo de superficie (copas de árboles, bordes) y techo de resolución del ortomosaico/DSM — nunca más fino que el GSD real del vuelo. Ver «Calidad» abajo |
+| `MAX_CONCURRENCY` | automático | Hilos de ODM. Por defecto se calcula según la RAM disponible y se reparte por sensor/etapa; bajalo si el proceso muere sin mensaje (ver «Memoria» en Notas) |
 | `EXPORT_DIR` | — | Carpeta de entrega. Sin esto no se exporta nada |
 | `EXPORT_PRODUCTS` | `all` | Qué exportar, separado por comas (ver abajo) |
 | `EXPORT_RASTER_FORMAT` | `cog` | `cog` \| `gtiff` |

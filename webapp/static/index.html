@@ -168,6 +168,11 @@ select.in{cursor:pointer}
 .opt .ot{font-size:.89em;font-weight:550}
 .opt .od{font-size:.78em;color:var(--tx2);margin-top:2px}
 
+/* ── Calidad (slider + %) ─────────────────────────────────────────── */
+.quality-row{display:flex;align-items:center;gap:14px}
+.quality-row input[type=range]{flex:1;accent-color:var(--ac);height:6px;cursor:pointer}
+.quality-pct{font-weight:600;font-variant-numeric:tabular-nums;min-width:3.2em;text-align:right}
+
 /* ── Avisos ────────────────────────────────────────────────────────── */
 .note{border-radius:9px;padding:13px 15px;font-size:.84em;display:flex;gap:11px;align-items:flex-start;
   margin-top:14px;line-height:1.55}
@@ -305,6 +310,17 @@ select.in{cursor:pointer}
             <div class="od">Reconstruye todo otra vez. Usalo si cambiaste o agregaste fotos del vuelo</div></div>
         </label>
       </div>
+    </div>
+
+    <!-- Calidad: detalle del modelo 3D + techo de resolución vs. tiempo -->
+    <div class="section-label">Calidad</div>
+    <div class="quality-row">
+      <input type="range" id="quality-slider" min="0" max="100" step="5" value="75"
+             oninput="onQualityInput()" onchange="refreshQualityEstimate()">
+      <span class="quality-pct" id="quality-pct">75%</span>
+    </div>
+    <div class="note info" style="margin-top:10px" id="quality-note">
+      <span class="ni">🎚️</span><div id="quality-note-t">Calculando…</div>
     </div>
 
     <!-- Entrega: dónde, qué, en qué formato y en qué CRS -->
@@ -650,6 +666,39 @@ function refreshUI(){
   if(exporting()) checkExport(); else $('exp-note').classList.add('hidden');
 
   $('btn-start').disabled = !sensors.rt && !sensors.ms;
+  // El total de fotos que ve el mensaje de calidad depende del modo y de qué
+  // sensores están activos, así que se recalcula con cualquier cambio del
+  // formulario, no solo cuando se mueve el slider.
+  refreshQualityEstimate();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Calidad: detalle del modelo 3D + techo de resolución vs. tiempo.
+// El número lo decide el usuario; el TEXTO (a qué resolución sale, cuánto
+// tarda) lo calcula el servidor con scripts/hardware.py — la misma tabla que
+// usa docker/entrypoint.sh, para que este mensaje no pueda desincronizarse
+// de lo que corre después.
+// ═══════════════════════════════════════════════════════════════════
+function onQualityInput(){
+  $('quality-pct').textContent = $('quality-slider').value + '%';
+}
+
+let qualityTimer = null;
+function refreshQualityEstimate(){
+  clearTimeout(qualityTimer);
+  qualityTimer = setTimeout(async ()=>{
+    const name = $('mname').value.trim();
+    const note = $('quality-note'), noteT = $('quality-note-t');
+    if(!name){ noteT.textContent = 'Elegí un nombre de misión para estimar tiempo y resolución.'; return; }
+    try{
+      const q = $('quality-slider').value;
+      const params = new URLSearchParams({quality:q, mode:selectedMode(), has_multispectral:sensors.ms});
+      const m = await (await fetch(`/api/missions/${encodeURIComponent(name)}/quality-estimate?${params}`)).json();
+      noteT.innerHTML = `${m.modelo_texto}<br><br>${m.resolucion_texto}<br><br>${m.tiempo_texto}`;
+    }catch(e){
+      noteT.textContent = 'No se pudo estimar (¿la misión ya tiene nombre?).';
+    }
+  }, 350);
 }
 
 ['in-rt','in-ms'].forEach(id=>$(id).addEventListener('change', refreshUI));
@@ -860,6 +909,7 @@ async function uploadAndStart(){
     fd.append('mode', mode);
     fd.append('has_multispectral', hasMS ? 'true':'false');
     fd.append('reuse_odm', reuse === '1' ? 'true':'false');
+    fd.append('quality', $('quality-slider').value);
     if(exporting()){
       fd.append('export_dir', $('exp-dir').value.trim());
       fd.append('export_products', selectedExportProducts().join(','));

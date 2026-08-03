@@ -42,7 +42,17 @@ ZOOM_MIN    = 14
 # que ya se había calculado. El tope duro evita generar pirámides absurdas si
 # alguna vez llega un ráster de resolución milimétrica.
 ZOOM_MAX_HARD = 23
-NPROCS      = 4
+# Núcleos detectados (scripts/hardware.py, misma fuente que la concurrencia de
+# ODM en el entrypoint) — antes era un 4 fijo que no aprovechaba máquinas más
+# grandes ni se cuidaba en las más chicas. gdal2tiles.py reparte por zoom, no
+# por RAM por hilo como ODM, así que acá alcanza con los núcleos sin acotar
+# por memoria. NPROCS sigue pudiéndose forzar a mano si hace falta.
+if os.environ.get("NPROCS"):
+    NPROCS = int(os.environ["NPROCS"])
+else:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from hardware import cpu_count
+    NPROCS = cpu_count()
 # Nombre de banda (GetDescription(), lo pone ODM vía XMP Camera:BandName) ->
 # id corto de capa/tile. El compositor client-side (app.js) arma composites
 # RGB en el navegador combinando estas capas de a 3 — no se generan
