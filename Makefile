@@ -18,7 +18,7 @@
         trim-edges trim-edges-rgb trim-edges-dsm trim-edges-thermal trim-edges-multispectral \
         compute-indices confidence-mask detect-area-afectada compute-severity \
         compute-thermal-hotspot \
-        situation-summary flight-path tiles export-cog export-copc export-products serve info test \
+        situation-summary flight-quality flight-path tiles export-cog export-copc export-products serve info test \
         clean clean-all
 
 # ── Modo ───────────────────────────────────────────────────────────
@@ -213,6 +213,15 @@ situation-summary:
 	@python3 scripts/progress.py stage-header "Resumen de situación" 1 1
 	$(call run_quiet,python3 scripts/compute_situation_summary.py,situation-summary)
 	@python3 scripts/progress.py done "Resumen de situación listo"
+
+# Calidad del LEVANTAMIENTO (solape de cámaras, velocidad de vuelo, % de
+# imágenes reconstruidas) — independiente de si la misión tiene
+# multiespectral o no, así que corre para CUALQUIER combinación de
+# sensores, a diferencia de situation-summary.
+flight-quality:
+	@python3 scripts/progress.py stage-header "Calidad del levantamiento" 1 1
+	$(call run_quiet,python3 scripts/compute_flight_quality.py,flight-quality)
+	@python3 scripts/progress.py done "Calidad del levantamiento calculada"
 
 # ── 6. Tiles + visor ─────────────────────────────────────────────────
 # Corre TEMPRANO (antes de ODM): da el recorrido del vuelo al geovisor para

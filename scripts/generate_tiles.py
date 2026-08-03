@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generar tiles XYZ para geovisor Leaflet: RGB, térmico y hillshade del DSM."""
-import os, sys, json, math, subprocess, shutil, tempfile, numpy as np
+import os, sys, json, math, subprocess, shutil, tempfile, glob, numpy as np
 from osgeo import gdal, osr
 
 gdal.UseExceptions()
@@ -275,6 +275,24 @@ def generate(src_8bit, out_dir, resampling="average"):
         f"--processes={NPROCS}", "-z", f"{ZOOM_MIN}-{zmax}",
         src_8bit, out_dir,
     ], check=True)
+    # gdal2tiles.py con --processes reparte el trabajo en subprocesos: un OOM
+    # kill de UNO de ellos no siempre hace que el proceso padre salga con
+    # código de error (`check=True` no lo detecta) — deja carpetas de zoom a
+    # medias en out_dir, indistinguibles de una corrida completa para
+    # cualquiera que sirva esos tiles después. Reportado como "hay un nivel
+    # de zoom en el que la capa no renderiza" — un hueco real de tiles, no un
+    # bug del geovisor. Se verifica acá que TODOS los niveles pedidos
+    # existan y tengan al menos un PNG antes de darlo por bueno; tile_layer()
+    # no llama a mark_done() si esto revienta, así que la próxima pasada de
+    # `make tiles` reintenta desde cero en vez de quedar con el hueco para
+    # siempre.
+    faltantes = [z for z in range(ZOOM_MIN, zmax + 1)
+                 if not glob.glob(os.path.join(out_dir, str(z), "*", "*.png"))]
+    if faltantes:
+        raise RuntimeError(
+            f"{out_dir}: gdal2tiles.py terminó pero faltan tiles en zoom "
+            f"{faltantes} (rango pedido {ZOOM_MIN}-{zmax}) — probable OOM kill "
+            f"de un subproceso de --processes={NPROCS}")
     n = sum(1 for _ in os.walk(out_dir) for f in _[2] if f.endswith(".png"))
     print(f"  {n} tiles PNG")
 

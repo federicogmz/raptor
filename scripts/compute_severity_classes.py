@@ -99,7 +99,7 @@ def write_class_tif(path, arr, gt, proj):
 
 def main():
     if not os.path.isfile(CACHE_PATH) or not os.path.isfile(POLY_PATH):
-        print(f"❌ ERROR: corré scripts/detect_area_afectada.py primero")
+        print(f"❌ ERROR: corre scripts/detect_area_afectada.py primero")
         sys.exit(1)
 
     c = np.load(CACHE_PATH)

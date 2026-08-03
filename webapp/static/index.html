@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pipeline UAV de respuesta rápida</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9A%81%3C/text%3E%3C/svg%3E">
 <style>
 /* Public Sans auto-hospedada (fonts/*.woff2, NO Google Fonts CDN): esta app
    se usa en campo, donde puede no haber internet — los archivos viven en la
@@ -204,7 +205,7 @@ select.in{cursor:pointer}
 <body>
 <header>
   <button id="btn-back" class="hidden" onclick="goBack()" title="Volver">←</button>
-  <span class="logo">🛰️</span>
+  <span class="logo">🚁</span>
   <div class="title-block">
     <h1>Pipeline UAV de respuesta rápida</h1>
     <div class="sub">Ortomosaicos RGB · térmicos · multiespectrales — DJI H20T / M3T / M3M</div>
@@ -233,12 +234,12 @@ select.in{cursor:pointer}
 <section id="v-setup" class="hidden">
   <div class="card">
     <h2 id="setup-title">Nueva misión</h2>
-    <div class="card-sub">Elegí qué vuelos vas a procesar. Podés cargar uno solo o los dos.</div>
+    <div class="card-sub">Elige qué vuelos vas a procesar. Puedes cargar uno solo o los dos.</div>
 
     <div class="section-label">Nombre de la misión</div>
     <input type="text" id="mname" placeholder="p. ej. Barbosa_2026-07-24" autocomplete="off">
 
-    <div class="section-label">¿Qué vuelos tenés?</div>
+    <div class="section-label">¿Qué vuelos tienes?</div>
     <div class="sensors">
       <div class="sensor" id="s-rt" onclick="toggleSensor('rt')">
         <div class="st"><span class="tick">✔</span><span class="nm">DJI M3T / H20T</span></div>
@@ -256,7 +257,7 @@ select.in{cursor:pointer}
       <div class="dz" id="dz-rt" onclick="document.getElementById('in-rt').click()">
         <input type="file" id="in-rt" webkitdirectory multiple>
         <span class="ic">📁</span>
-        <div class="t">Elegí la carpeta completa del vuelo</div>
+        <div class="t">Elige la carpeta completa del vuelo</div>
         <div class="h">Busca <code>*_V.JPG</code> · <code>*_W.JPG</code> · <code>*_T.JPG</code> en subcarpetas</div>
         <div class="chips" id="ch-rt"></div>
       </div>
@@ -283,7 +284,7 @@ select.in{cursor:pointer}
       <div class="dz" id="dz-ms" onclick="document.getElementById('in-ms').click()">
         <input type="file" id="in-ms" webkitdirectory multiple>
         <span class="ic">📁</span>
-        <div class="t">Elegí la carpeta completa del vuelo</div>
+        <div class="t">Elige la carpeta completa del vuelo</div>
         <div class="h">Busca <code>*_MS_G/R/RE/NIR.TIF</code> y <code>*_D.JPG</code></div>
         <div class="chips" id="ch-ms"></div>
       </div>
@@ -493,7 +494,7 @@ async function loadMissions(){
     const d = await (await fetch('/api/missions')).json();
     if(!d.missions.length){
       box.innerHTML = `<div class="empty"><span class="ic">🛩️</span>
-        Todavía no procesaste ninguna misión.<br>Empezá con «+ Nueva misión».</div>`;
+        Todavía no procesaste ninguna misión.<br>Empieza con «+ Nueva misión».</div>`;
       return;
     }
     box.innerHTML = d.missions.map(m=>{
@@ -654,7 +655,7 @@ function refreshUI(){
   yEl.disabled = !expEnabled;
   if(!expEnabled){
     document.querySelector('input[name=doexport][value="0"]').checked = true;
-    $('o-exp-y-d').innerHTML = 'Arrancá con <code>./raptor webapp --export /ruta/de/entregas</code> ' +
+    $('o-exp-y-d').innerHTML = 'Arranca con <code>./raptor webapp --export /ruta/de/entregas</code> ' +
       'para poder escribir en tu disco.';
   }else{
     $('o-exp-y-d').textContent = `Copia los productos a ${expHostRoot} en el formato y el sistema de referencia que necesites`;
@@ -689,7 +690,7 @@ function refreshQualityEstimate(){
   qualityTimer = setTimeout(async ()=>{
     const name = $('mname').value.trim();
     const note = $('quality-note'), noteT = $('quality-note-t');
-    if(!name){ noteT.textContent = 'Elegí un nombre de misión para estimar tiempo y resolución.'; return; }
+    if(!name){ noteT.textContent = 'Elige un nombre de misión para estimar tiempo y resolución.'; return; }
     try{
       const q = $('quality-slider').value;
       const params = new URLSearchParams({quality:q, mode:selectedMode(), has_multispectral:sensors.ms});
@@ -870,7 +871,7 @@ async function uploadAndStart(){
   const mission = $('mname').value.trim();
   const mode = selectedMode();
   const hasMS = sensors.ms;
-  if(!mission) return setupError('Poné un nombre para la misión.');
+  if(!mission) return setupError('Pon un nombre para la misión.');
 
   const fRT = sensors.rt ? $('in-rt').files : [];
   const fMS = sensors.ms ? $('in-ms').files : [];
@@ -878,23 +879,23 @@ async function uploadAndStart(){
   // Chequeos locales (instantáneos, antes de subir un solo byte)
   if(sensors.rt && !cRT.rgb)
     return setupError('El vuelo M3T/H20T no tiene fotos RGB (<code>*_V.JPG</code> / <code>*_W.JPG</code>). '
-      + 'Elegí la carpeta correcta, o desmarcá ese sensor si solo vas a procesar el multiespectral.');
+      + 'Elige la carpeta correcta, o desmarca ese sensor si solo vas a procesar el multiespectral.');
   if(mode === 'rgb+thermal' && !cRT.thermal)
     return setupError('Elegiste RGB + térmico pero no hay fotos térmicas (<code>*_T.JPG</code>). '
-      + 'Agregá la carpeta con las térmicas, o cambiá el producto a «Solo ortomosaico RGB».');
+      + 'Agrega la carpeta con las térmicas, o cambia el producto a «Solo ortomosaico RGB».');
   if(sensors.ms && !cMS.ms)
     return setupError('El vuelo M3M no tiene bandas multiespectrales (<code>*_MS_*.TIF</code>). '
-      + 'Elegí la carpeta correcta, o desmarcá ese sensor.');
+      + 'Elige la carpeta correcta, o desmarca ese sensor.');
   if(exporting()){
     if(!$('exp-dir').value.trim())
       return setupError('Elegiste exportar pero no indicaste la carpeta de destino. '
-        + 'Poné una ruta, o cambiá la entrega a «No exportar».');
+        + 'Pon una ruta, o cambia la entrega a «No exportar».');
     if(!selectedExportProducts().length)
       return setupError('Elegiste exportar pero no marcaste ningún producto. '
-        + 'Marcá al menos uno, o cambiá la entrega a «No exportar».');
+        + 'Marca al menos uno, o cambia la entrega a «No exportar».');
     if($('exp-epsg').value === 'custom' && !$('exp-epsg-custom').value.trim())
       return setupError('Elegiste «Otro código EPSG» pero no escribiste ninguno. '
-        + 'Poné el código (p. ej. <code>32618</code>) o elegí una de las opciones de la lista.');
+        + 'Pon el código (p. ej. <code>32618</code>) o elige una de las opciones de la lista.');
   }
 
   const btn = $('btn-start'); btn.disabled = true;

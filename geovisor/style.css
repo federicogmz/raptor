@@ -375,6 +375,8 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
 .info-item-foot .date{font-size:var(--fs-xs);color:var(--ink-faint)}
 .info-item-foot a{font-size:var(--fs-xs);font-weight:600;color:var(--accent);cursor:pointer;text-decoration:none}
 .info-item-foot a:hover{text-decoration:underline}
+.info-item-full-desc{font-size:var(--fs-xs);color:var(--ink-muted);line-height:1.55;
+  padding-top:9px;margin-top:9px;border-top:1px solid var(--line)}
 .details-toggle{color:var(--ink-muted);transition:transform .15s;padding:4px}
 .details-toggle.open{transform:rotate(180deg)}
 

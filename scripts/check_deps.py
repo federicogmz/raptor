@@ -45,7 +45,7 @@ def main():
             fallos.append(
                 f"numpy {np.__version__}: el _gdal_array.so de ODM está compilado "
                 f"contra la ABI de numpy 1.x y rompe con 2.x apenas se usa gdal "
-                f"desde Python. Fijá numpy<2 en requirements.txt.")
+                f"desde Python. Fija numpy<2 en requirements.txt.")
         else:
             # La prueba que de verdad importa: que el binding funcione.
             from osgeo import gdal
@@ -74,7 +74,7 @@ def main():
         for f in fallos:
             print(f"   • {f}")
         print("\n   La base opendronemap/odm:gpu es un tag móvil. Si el cambio es")
-        print("   aceptable, actualizá los rangos en scripts/check_deps.py y corré")
+        print("   aceptable, actualiza los rangos en scripts/check_deps.py y corre")
         print("   `make test` para confirmar que el recorte no cambió.")
         return 1
     print("✅ dependencias heredadas de la imagen base: OK")
