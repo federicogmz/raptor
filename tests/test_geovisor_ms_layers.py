@@ -136,7 +136,7 @@ class TestBotonAgregarMultiespectral:
 
     def test_se_ofrece_cuando_el_grupo_de_indices_esta_vacio(self):
         cuerpo = _cuerpo_de(_js(), "layersPanelHTML")
-        assert "addMsCtaHTML" in cuerpo
+        assert "addMsEmptyGroupHTML" in cuerpo
         assert "'indices'" in cuerpo or '"indices"' in cuerpo
 
     def test_la_webapp_reconoce_el_parametro_addms(self):
@@ -147,6 +147,41 @@ class TestBotonAgregarMultiespectral:
         js = re.search(r"<script>(.*?)</script>", html, re.S).group(1)
         assert "addms" in js
         assert "sensors.ms = true" in js
+
+
+class TestCajaAgregarMsNoSeDuplica:
+    """Reportado: la caja "Agregar vuelo multiespectral" aparecía DOS veces
+    a la vez — la contextual (dentro de la tarjeta de "Área afectada,
+    severidad y vegetación" en modo simple, o del grupo vacío en el panel de
+    Capas) y la nueva fija al pie del sidebar (ver renderFooterAddMsCta()).
+    addMsCtaHTML() (el botón real, con el link) ahora es EXCLUSIVO del pie;
+    los otros dos lugares usan addMsEmptyGroupHTML(), que explica el motivo
+    pero no repite el botón."""
+
+    def test_layersPanelHTML_no_repite_el_boton(self):
+        cuerpo = _cuerpo_de(_js(), "layersPanelHTML")
+        assert "addMsCtaHTML(" not in cuerpo, (
+            "el panel de Capas no debe generar su propio botón — "
+            "addMsEmptyGroupHTML() ya cubre la explicación sin duplicar el "
+            "que vive al pie del sidebar")
+
+    def test_renderSummaryCards_no_repite_el_boton(self):
+        cuerpo = _cuerpo_de(_js(), "renderSummaryCards")
+        assert "addMsCtaHTML(" not in cuerpo, (
+            "la tarjeta de 'Área afectada, severidad y vegetación' no debe "
+            "traer su propio botón — el del pie del sidebar ya cubre la acción")
+        assert "Agregar vuelo multiespectral" not in cuerpo
+
+    def test_addMsCtaHTML_solo_lo_llama_el_pie_del_sidebar(self):
+        js = _js()
+        llamadas = [m.start() for m in re.finditer(r"addMsCtaHTML\(", js)]
+        # Una es la propia definición de la función (function addMsCtaHTML(...),
+        # la otra tiene que ser la única llamada real — renderFooterAddMsCta().
+        assert len(llamadas) == 2, (
+            f"se esperaban 2 apariciones de 'addMsCtaHTML(' (la definición + "
+            f"UNA sola llamada, desde renderFooterAddMsCta), hay {len(llamadas)}")
+        cuerpo = _cuerpo_de(js, "renderFooterAddMsCta")
+        assert "addMsCtaHTML(" in cuerpo
 
 
 class TestReusarOdmNoSaltaUnSensorNuevo:

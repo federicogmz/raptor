@@ -934,10 +934,21 @@ function layerCardHTML(id){
 }
 // Grupo vacío porque a esta misión le falta el vuelo multiespectral (no
 // porque no haya nada que mostrar): en vez de que la sección desaparezca sin
-// explicación, se ofrece la vía directa para agregarlo — NDVI es la señal
-// primaria de la que salen el polígono de área afectada, la severidad y estos
-// índices (ver detect_area_afectada.py); el hotspot térmico NO depende de
-// esto y ya se muestra sin multiespectral (scripts/compute_thermal_hotspot.py).
+// explicación, se dice por qué — NDVI es la señal primaria de la que salen
+// el polígono de área afectada, la severidad y estos índices (ver
+// detect_area_afectada.py); el hotspot térmico NO depende de esto y ya se
+// muestra sin multiespectral (scripts/compute_thermal_hotspot.py). El botón
+// para agregar el vuelo vive UNA sola vez, fijo al pie del sidebar (ver
+// renderFooterAddMsCta()) — antes también aparecía acá adentro, duplicado
+// con el del pie cada vez que ambos estaban visibles a la vez.
+function addMsEmptyGroupHTML(titulo, detalle){
+  return `<div class="layer-group" data-group="addms-cta">
+    <div class="layer-group-title">${titulo}</div>
+    <div class="addms-cta"><p>${detalle}</p></div>
+  </div>`;
+}
+// El botón SÍ vive acá — es el único lugar que lo genera (ver comentario de
+// addMsEmptyGroupHTML de arriba). Lo usa renderFooterAddMsCta().
 function addMsCtaHTML(titulo, detalle){
   if(!urlMission)return'';
   const href=`/?mission=${encodeURIComponent(urlMission)}&addms=1`;
@@ -953,11 +964,11 @@ function layersPanelHTML(){
     const ids=layerOrder.filter(id=>LAYER_REGISTRY[id]&&LAYER_REGISTRY[id].group===group);
     if(ids.length===0){
       if(group==='indices'&&!MS_BAND_IDS.length)
-        html+=addMsCtaHTML('🌿 Índices de vegetación',
+        html+=addMsEmptyGroupHTML('🌿 Índices de vegetación',
           'Esta misión no tiene vuelo multiespectral (M3M) todavía — sin él no hay NDVI/GNDVI/NDRE/MSAVI2 que mostrar.');
       else if(group==='impacto'&&!MS_BAND_IDS.length&&!CAPAS_DISPONIBLES.has('hotspot_termico'))
-        html+=addMsCtaHTML('🔥 Área afectada y severidad',
-          'Sin multiespectral no hay NDVI, y el polígono de área afectada y la severidad se calculan a partir de esa señal — agregalo para habilitar la medición automática de área y las métricas de impacto.');
+        html+=addMsEmptyGroupHTML('🔥 Área afectada y severidad',
+          'Sin multiespectral no hay NDVI, y el polígono de área afectada y la severidad se calculan a partir de esa señal.');
       return;
     }
     html+=`<div class="layer-group" data-group="${group}">
@@ -2189,14 +2200,15 @@ async function renderSummaryCards(){
   }
   // Cards que necesitan multiespectral (NDVI es la señal primaria del área
   // afectada — ver detect_area_afectada.py): vacías con s.solo_termico=true.
-  // No se ocultan sin explicación (mismo criterio que addMsCtaHTML() en el
-  // panel de Capas): se muestra el estado y el botón para agregar el vuelo.
+  // No se ocultan sin explicación, pero SIN botón propio — antes lo tenía,
+  // y con la caja fija al pie del sidebar (renderFooterAddMsCta()) quedaban
+  // las dos a la vez, ofreciendo la misma acción dos veces en la misma
+  // pantalla.
   const impactoCards=s.solo_termico?`
     <div class="stat-card" style="grid-column:1/-1">
       <div class="l">Área afectada, severidad y vegetación</div>
       <div class="sub">Esta misión no tiene vuelo multiespectral (M3M) — esas tres cifras salen de NDVI, que
         el térmico solo no puede calcular.</div>
-      ${urlMission?`<a class="btn primary sm" style="margin-top:8px" href="/?mission=${encodeURIComponent(urlMission)}&addms=1">➕ Agregar vuelo multiespectral</a>`:''}
     </div>` : (()=>{
       const dom={leve:'Leve',moderado:'Moderada',severo:'Severa'}[s.severidad.dominante]||'—';
       return `
