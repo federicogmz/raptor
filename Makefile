@@ -17,6 +17,7 @@
         sdk-convert denoise-thermal clean-dsm \
         trim-edges trim-edges-rgb trim-edges-dsm trim-edges-thermal trim-edges-multispectral \
         compute-indices confidence-mask detect-area-afectada compute-severity \
+        compute-thermal-hotspot \
         situation-summary flight-path tiles export-cog export-copc export-products serve info test \
         clean clean-all
 
@@ -198,6 +199,15 @@ compute-severity:
 	@python3 scripts/progress.py stage-header "Clasificación de severidad" 1 1
 	$(call run_quiet,python3 scripts/compute_severity_classes.py,compute-severity)
 	@python3 scripts/progress.py done "Severidad clasificada"
+
+# Hotspot térmico SIN multiespectral (ver scripts/compute_thermal_hotspot.py):
+# el hotspot es puramente térmico, no depende de NDVI ni del polígono de área
+# afectada — en una misión CON multiespectral lo genera compute-severity
+# (recortado al área detectada), este target no se llama ahí.
+compute-thermal-hotspot:
+	@python3 scripts/progress.py stage-header "Hotspot térmico" 1 1
+	$(call run_quiet,python3 scripts/compute_thermal_hotspot.py,compute-thermal-hotspot)
+	@python3 scripts/progress.py done "Hotspot térmico clasificado"
 
 situation-summary:
 	@python3 scripts/progress.py stage-header "Resumen de situación" 1 1
