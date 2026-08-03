@@ -476,6 +476,13 @@ if [[ "$DO_THERMAL" -eq 1 ]]; then
     # abajo (DO_AREA) ya genera un hotspot recortado al área detectada, más
     # específico — no se pisa acá.
     make compute-thermal-hotspot
+    # situation.json en modo SOLO térmico: sin multiespectral no hay área
+    # afectada ni severidad que resumir (ver compute_situation_summary.py),
+    # pero la fecha de vuelo (de flight_path.geojson, ya escrita antes de
+    # ODM) y los focos activos del hotspot recién generado sí se pueden
+    # reportar — antes esta misión nunca tenía situation.json, así que ni
+    # siquiera la fecha de captura llegaba a mostrarse en el geovisor.
+    make situation-summary
   fi
   pipeline_progress_done "Bordes térmicos recortados, máscara lista"
 fi
