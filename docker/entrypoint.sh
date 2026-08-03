@@ -75,7 +75,39 @@ SKIP_ODM="${SKIP_ODM:-0}"
 PORT="${PORT:-8080}"
 SERVE="${SERVE:-1}"
 VERBOSE="${VERBOSE:-0}"
+QUALITY="${QUALITY:-75}"
 export MODE VERBOSE
+
+# ── Calidad (0-100) ─────────────────────────────────────────────────
+# Controla el DETALLE DEL MODELO DE SUPERFICIE, que es lo que decide si el
+# ortomosaico es realmente ortorrectificado y lo que domina el tiempo de
+# proceso. NO controla la resolución de salida: esa la fija el GSD real del
+# vuelo (altura × sensor), ODM la mide de la reconstrucción y recorta cualquier
+# pedido más fino. Pedir 2 cm a un vuelo cuyo GSD es 9 cm no da más detalle,
+# solo píxeles más chicos.
+#
+# El parámetro que importa es --pc-quality: fija la resolución de los mapas de
+# profundidad, de donde salen la nube densa, la malla 2.5D y el DSM. Con `low`
+# sobre fotos de 4056 px, ODM baja los depthmaps a 320 px —1/12 de la foto— y a
+# esa escala una copa de árbol no se resuelve: la superficie sale lisa, los
+# árboles no quedan en el modelo y al proyectarlos se desplazan (el efecto de
+# "no es true ortho", con el árbol inclinado y su sombra corrida).
+#
+# Cada escalón de --pc-quality multiplica el tiempo por ~4 (documentado por ODM).
+if ! [[ "$QUALITY" =~ ^[0-9]+$ ]] || [[ "$QUALITY" -gt 100 ]]; then
+  echo "❌ ERROR: QUALITY debe ser un entero 0-100 (recibido: $QUALITY)"; exit 1
+fi
+if   [[ "$QUALITY" -ge 90 ]]; then PC_QUALITY=ultra;  FEAT_QUALITY=ultra
+elif [[ "$QUALITY" -ge 70 ]]; then PC_QUALITY=high;   FEAT_QUALITY=high
+elif [[ "$QUALITY" -ge 40 ]]; then PC_QUALITY=medium; FEAT_QUALITY=high
+elif [[ "$QUALITY" -ge 20 ]]; then PC_QUALITY=low;    FEAT_QUALITY=medium
+else                               PC_QUALITY=lowest; FEAT_QUALITY=medium
+fi
+
+# Resolución pedida deliberadamente más fina que cualquier GSD alcanzable: ODM
+# la recorta al GSD real medido, así que esto significa "dame todo el detalle
+# que el vuelo permita" en vez de un número fijo que puede quedar corto.
+ODM_RES_CM=1
 
 # Resumen JSON también cuando la corrida FALLA: para CI, "en qué etapa murió y
 # qué alcanzó a producir" vale tanto como el código de salida. Solo se arma en
@@ -280,10 +312,11 @@ run_odm() {
 if [[ "$SKIP_ODM" -eq 0 ]]; then
   if [[ "$RUN_RGB" -eq 1 ]]; then
     echo "--- [2/5] ODM RGB (SfM + DSM + ortofoto) ---"
+    echo "    calidad ${QUALITY}% → pc-quality=${PC_QUALITY}, feature-quality=${FEAT_QUALITY}"
     run_odm rgb rgb_odm \
-      --feature-quality high --orthophoto-resolution 2 \
-      --dsm --dem-resolution 8 --crop 0 --dem-gapfill-steps 3 \
-      --min-num-features 12000 --matcher-neighbors 0 --pc-quality low \
+      --feature-quality "$FEAT_QUALITY" --orthophoto-resolution "$ODM_RES_CM" \
+      --dsm --dem-resolution "$ODM_RES_CM" --crop 0 --dem-gapfill-steps 3 \
+      --min-num-features 12000 --matcher-neighbors 0 --pc-quality "$PC_QUALITY" \
       --skip-report --rerun-from dataset
     # Vista previa del mosaico RGB apenas ODM lo renderiza (~25 min), sin
     # esperar a que termine el resto de la corrida (~1 h).
@@ -298,10 +331,13 @@ if [[ "$SKIP_ODM" -eq 0 ]]; then
     # Model=ZH20T, XMP Camera:BandName=LWIR). Sin --skip-orthophoto: acá
     # es donde ODM renderiza la malla 3D con la textura calibrada — el
     # ortomosaico térmico REAL sale de esta etapa, no de un script propio.
+    # El sensor térmico es de 640x512, así que su GSD es ~10x más grueso que el
+    # del RGB: pedir 1 cm no lo mejora (ODM recorta al GSD real igual) pero sí
+    # evita fijar un número que quede corto en un vuelo más bajo.
     run_odm thermal thermal_native_odm \
-      --feature-quality high --radiometric-calibration camera \
-      --orthophoto-resolution 10 --crop 0 \
-      --min-num-features 8000 --matcher-neighbors 0 --pc-quality medium \
+      --feature-quality "$FEAT_QUALITY" --radiometric-calibration camera \
+      --orthophoto-resolution "$ODM_RES_CM" --crop 0 \
+      --min-num-features 8000 --matcher-neighbors 0 --pc-quality "$PC_QUALITY" \
       --skip-report --rerun-from dataset
   fi
 
@@ -319,9 +355,9 @@ if [[ "$SKIP_ODM" -eq 0 ]]; then
     MS_CONCURRENCY=$(safe_concurrency 5)
     echo "    concurrencia: ${MS_CONCURRENCY} hilos ($(nproc) núcleos, acotado por RAM disponible)"
     run_odm multispectral multispectral_odm \
-      --feature-quality high --radiometric-calibration camera+sun \
-      --dsm --dem-resolution 8 --crop 0 --dem-gapfill-steps 3 \
-      --min-num-features 12000 --matcher-neighbors 0 --pc-quality low \
+      --feature-quality "$FEAT_QUALITY" --radiometric-calibration camera+sun \
+      --dsm --dem-resolution "$ODM_RES_CM" --crop 0 --dem-gapfill-steps 3 \
+      --min-num-features 12000 --matcher-neighbors 0 --pc-quality "$PC_QUALITY" \
       --max-concurrency "$MS_CONCURRENCY" \
       --skip-report --rerun-from dataset
     publish_partial

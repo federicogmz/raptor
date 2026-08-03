@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generar tiles XYZ para geovisor Leaflet: RGB, térmico y hillshade del DSM."""
-import os, sys, json, subprocess, shutil, tempfile, numpy as np
+import os, sys, json, math, subprocess, shutil, tempfile, numpy as np
 from osgeo import gdal, osr
 
 gdal.UseExceptions()
@@ -35,7 +35,13 @@ THERMAL_IN  = "outputs/thermal_orthomosaic.tif"
 INDICES_DIR = "outputs/indices"
 INDEX_NAMES = ["ndvi", "gndvi", "ndre", "msavi2"]
 TILES_DIR   = "geovisor/tiles"
-ZOOMS       = "14-20"
+ZOOM_MIN    = 14
+# El zoom MÁXIMO se deriva de la resolución real de cada ráster (ver
+# zoom_range): fijarlo desaprovecha el dato. Con un tope fijo de 20, que a 6°N
+# son ~15 cm/px, un ortomosaico de 8 cm/px se veía a la mitad de la resolución
+# que ya se había calculado. El tope duro evita generar pirámides absurdas si
+# alguna vez llega un ráster de resolución milimétrica.
+ZOOM_MAX_HARD = 23
 NPROCS      = 4
 # Nombre de banda (GetDescription(), lo pone ODM vía XMP Camera:BandName) ->
 # id corto de capa/tile. El compositor client-side (app.js) arma composites
@@ -213,12 +219,50 @@ def band_to_8bit(src, dst, band_idx, clip_range):
     print(f"  8-bit: {dst} ({os.path.getsize(dst)/(1024*1024):.0f} MB)")
 
 
+def zoom_range(src):
+    """Rango de zoom XYZ que cubre la resolución REAL del ráster.
+
+    El nivel z de la pirámide web tiene 156543.03 * cos(lat) / 2^z metros por
+    píxel. Se elige el primer z cuya resolución es igual o más fina que la del
+    ráster: teselar más allá solo interpola, y quedarse corto tira detalle ya
+    calculado.
+    """
+    ds = gdal.Open(src)
+    gt = ds.GetGeoTransform()
+    px_m = abs(gt[1])
+    # Centro del ráster en lat/lon, para el cos(lat) de la fórmula
+    srs = ds.GetSpatialRef()
+    lat = 0.0
+    if srs is not None:
+        wgs = osr.SpatialReference()
+        wgs.ImportFromEPSG(4326)
+        wgs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        try:
+            tr = osr.CoordinateTransformation(srs, wgs)
+            cx = gt[0] + gt[1] * ds.RasterXSize / 2
+            cy = gt[3] + gt[5] * ds.RasterYSize / 2
+            lat = tr.TransformPoint(cx, cy)[1]
+        except RuntimeError:
+            lat = 0.0
+    ds = None
+    z = ZOOM_MIN
+    while z < ZOOM_MAX_HARD:
+        res = 156543.03392 * math.cos(math.radians(lat)) / (2 ** z)
+        if res <= px_m:
+            break
+        z += 1
+    return z
+
+
 def generate(src_8bit, out_dir, resampling="average"):
     shutil.rmtree(out_dir, ignore_errors=True)
     os.makedirs(out_dir, exist_ok=True)
+    zmax = zoom_range(src_8bit)
+    print(f"  zoom {ZOOM_MIN}-{zmax} (resolución del ráster: "
+          f"{abs(gdal.Open(src_8bit).GetGeoTransform()[1])*100:.1f} cm/px)")
     subprocess.run([
         "gdal2tiles.py", "--xyz", "--no-kml", "--resampling", resampling,
-        f"--processes={NPROCS}", "-z", ZOOMS,
+        f"--processes={NPROCS}", "-z", f"{ZOOM_MIN}-{zmax}",
         src_8bit, out_dir,
     ], check=True)
     n = sum(1 for _ in os.walk(out_dir) for f in _[2] if f.endswith(".png"))
@@ -401,9 +445,21 @@ if os.path.exists(src_for_center):
     tgt = osr.SpatialReference(); tgt.ImportFromEPSG(4326)
     tgt.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
     lon, lat, _ = osr.CoordinateTransformation(srs, tgt).TransformPoint(cx, cy)
+    # Resolución REAL de cada producto, para que el geovisor la muestre medida
+    # en vez de escrita a mano. La fija el GSD del vuelo (altura y sensor), no
+    # una constante: las leyendas tenían números fijos que no correspondían a
+    # ninguna misión concreta.
+    resoluciones = {}
+    for clave, ruta in (("rgb", RGB_IN), ("thermal", THERMAL_IN),
+                        ("dsm", DSM_IN), ("multispectral", MS_IN)):
+        if os.path.exists(ruta):
+            d = gdal.Open(ruta)
+            resoluciones[clave] = round(abs(d.GetGeoTransform()[1]) * 100, 1)
+            d = None
     with open(os.path.join(TILES_DIR, "bounds.json"), "w") as f:
         json.dump({"center": [lat, lon], "zoom": 17,
                     "thermal_range": [THERMAL_CLIP[0], THERMAL_CLIP[1]],
+                    "resolucion_cm": resoluciones,
                     "index_ranges": {k: [v[0], v[1]] for k, v in index_ranges.items()},
                     "ms_band_ranges": {k: [v[0], v[1]] for k, v in ms_band_ranges.items()}}, f)
     print(f"  centro: [{lat:.5f}, {lon:.5f}] -> {TILES_DIR}/bounds.json")
