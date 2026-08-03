@@ -467,6 +467,16 @@ if [[ "$DO_THERMAL" -eq 1 ]]; then
   stage_begin "Recorte térmico + máscara de confianza"
   make trim-edges-thermal
   make confidence-mask
+  if [[ "$DO_MS" -eq 0 ]]; then
+    # El hotspot es puramente térmico (temperatura absoluta) y no depende de
+    # NDVI ni del polígono de área afectada — pero antes SOLO se generaba
+    # como subproducto de compute-severity, que exige multiespectral (su señal
+    # primaria es NDVI). Una misión RGB+térmico sin M3M se quedaba sin esta
+    # capa sin ninguna necesidad real. Con multiespectral, el bloque de más
+    # abajo (DO_AREA) ya genera un hotspot recortado al área detectada, más
+    # específico — no se pisa acá.
+    make compute-thermal-hotspot
+  fi
   pipeline_progress_done "Bordes térmicos recortados, máscara lista"
 fi
 
