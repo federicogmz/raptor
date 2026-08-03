@@ -296,7 +296,7 @@ def _refuse_if_other_mission_running(safe):
         raise HTTPException(
             409, f"«{running}» está procesándose ahora mismo. Abrir otra misión "
                  f"redirigiría los directorios de trabajo del pipeline en curso "
-                 f"y mezclaría los productos de las dos. Esperá a que termine.")
+                 f"y mezclaría los productos de las dos. Espera a que termine.")
 
 
 def _sample_raster(path: Path, lat: float, lon: float, band_idx: int = 1):
@@ -419,7 +419,7 @@ def _validate_reuse_odm(mission_dir, mode, has_multispectral, reuse_odm):
         return []
     return [f"Pediste reusar reconstrucciones ODM, pero {' y '.join(faltantes)} "
             f"nunca se reconstruyó en esta misión — no hay nada que reusar ahí. "
-            "Elegí «Empezar de cero» (reconstruye lo nuevo; lo que ya existe, "
+            "Elige «Empezar de cero» (reconstruye lo nuevo; lo que ya existe, "
             "ODM lo retoma solo y no lo rehace de cero)."]
 
 
@@ -524,18 +524,18 @@ def _validate(mode, has_ms, uploads):
                 "Elegiste procesar el vuelo RGB/térmico pero no hay fotos RGB "
                 "(*_V.JPG / *_W.JPG) entre los archivos subidos"
                 + (f" ({rt['total']} archivos)" if rt["total"] else "")
-                + ". Subí la carpeta del vuelo M3T/H20T, o desactivá ese sensor "
+                + ". Sube la carpeta del vuelo M3T/H20T, o desactiva ese sensor "
                   "si solo vas a procesar el multiespectral.")
         if mode == "rgb+thermal" and rt["thermal"] == 0:
             errors.append(
                 "Elegiste RGB + térmico pero no hay fotos térmicas (*_T.JPG) "
-                f"entre los {rt['total']} archivos subidos. Agregá las fotos "
-                "térmicas del vuelo, o cambiá el producto a «Solo RGB».")
+                f"entre los {rt['total']} archivos subidos. Agrega las fotos "
+                "térmicas del vuelo, o cambia el producto a «Solo RGB».")
     if has_ms and ms["ms"] == 0:
         errors.append(
             "Activaste el multiespectral pero no hay bandas (*_MS_*.TIF) entre "
-            f"los {ms['total']} archivos subidos en ese sensor. Subí la carpeta "
-            "del vuelo M3M, o desactivá ese sensor.")
+            f"los {ms['total']} archivos subidos en ese sensor. Sube la carpeta "
+            "del vuelo M3M, o desactiva ese sensor.")
     elif has_ms:
         por_banda = ms.get("ms_bands", {})
         faltantes = [b for b in MS_BANDS if not por_banda.get(b)]
@@ -543,7 +543,7 @@ def _validate(mode, has_ms, uploads):
             errors.append(
                 f"Al vuelo multiespectral le faltan bandas enteras: {', '.join(faltantes)}. "
                 f"ODM necesita las 4 (G, R, RE, NIR) para agrupar cada captura. "
-                "Revisá que hayas subido la carpeta completa del M3M.")
+                "Revisa que hayas subido la carpeta completa del M3M.")
         elif ms.get("incompletas"):
             incompletas = ms["incompletas"]
             muestra = "; ".join(f"{p} (solo {', '.join(b)})" for p, b in incompletas[:3])
@@ -552,7 +552,7 @@ def _validate(mode, has_ms, uploads):
                 + (f"; y {len(incompletas) - 3} más" if len(incompletas) > 3 else "")
                 + ". Cada captura del M3M son 4 archivos y ODM las empareja por nombre: "
                   "si a una le falta una banda, la reconstrucción aborta después de "
-                  "una hora de procesamiento. Subí las bandas que faltan o quitá "
+                  "una hora de procesamiento. Sube las bandas que faltan o quita "
                   "esas capturas.")
     if mode == "none" and not has_ms:
         errors.append("No seleccionaste ningún sensor para procesar.")
@@ -581,7 +581,7 @@ def _validate_export(mission_dir, export_dir, products, raster_fmt, vector_fmt, 
     export_dir = host_a_contenedor(host_dir)
     if export_dir is None:
         return ([f"«{host_dir}» está fuera de la carpeta montada ({EXPORT_HOST_DIR}). "
-                 f"Elegí una ruta adentro de esa carpeta, o reiniciá con "
+                 f"Elige una ruta adentro de esa carpeta, o reinicia con "
                  f"«./raptor webapp --export» apuntando a otro lado."], {})
 
     desconocidos = [p for p in products if p not in EXPORT_PRODUCTS]
@@ -602,7 +602,7 @@ def _validate_export(mission_dir, export_dir, products, raster_fmt, vector_fmt, 
             osr.SpatialReference().ImportFromEPSG(int(epsg))
         except (ValueError, TypeError, RuntimeError):
             errors.append(f"EPSG «{epsg}» no existe o no lo reconoce PROJ. "
-                          "Usá un código numérico válido, p. ej. 9377.")
+                          "Usa un código numérico válido, p. ej. 9377.")
 
     try:
         os.makedirs(export_dir, exist_ok=True)

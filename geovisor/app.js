@@ -438,6 +438,21 @@ const indexClassLayers={};
 Object.keys(INDEX_CLASS_DEFS).forEach(name=>{
   indexClassLayers[name]=new ClassGrid({layerName:name,lut:INDEX_CLASS_LUTS[name],maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:.85,pane:'pane-'+name});
 });
+// Swatches [color,etiqueta] por capa, para la leyenda de la imagen exportada
+// (ver drawMapLegendOnCanvas() en la sección del reporte). Los 4 índices
+// clasificados ya traen los suyos en INDEX_CLASS_DEFS[id].classes —
+// severidad/hotspot_termico arman su leyenda como HTML inline (classLegend()
+// en su registerX()), así que acá se repiten solo esos dos, no se duplica
+// nada que ya viva en un array reusable.
+const LEGEND_SWATCHES={
+  severidad:[['#228B22','Isla no quemada (<1σ)'],['#FFEB3B','Leve (1-2σ)'],['#FF9800','Moderado (2-3σ)'],['#D32F2F','Severo (≥3σ)']],
+  hotspot_termico:[['#2196F3','Normal (<40°C)'],['#FFEB3B','Elevado (40-60°C)'],['#FF9800','Caliente (60-88°C)'],['#C62828','Foco activo (≥88°C)']],
+};
+function legendSwatchesFor(id){
+  if(LEGEND_SWATCHES[id])return LEGEND_SWATCHES[id];
+  if(INDEX_CLASS_DEFS[id])return INDEX_CLASS_DEFS[id].classes.map(([c,l])=>[c,l.replace(/&lt;/g,'<').replace(/&gt;/g,'>')]);
+  return null;
+}
 function registerIndexClass(name){
   if(LAYER_REGISTRY[name]||!CAPAS_DISPONIBLES.has(name))return false;
   const def=INDEX_CLASS_DEFS[name];
@@ -1259,9 +1274,15 @@ async function pollBoundsForChanges(){
     // Modo simple: situation.json aparece recién en la etapa de severidad
     // (bastante después que bounds.json cambie por primera vez) — se
     // reintenta cada vez que bounds.json cambia, no solo una vez al final.
+    // flight_quality.json sigue el mismo patrón (aparece bastante antes,
+    // en la etapa de recorte térmico, pero se recarga igual acá para
+    // agarrar el caso de una misión que arranca sin RGB+térmico todavía
+    // trimeados).
     const prevSituation=SITUATION;
+    const prevFQ=JSON.stringify(FLIGHT_QUALITY);
     await loadSituation();
-    if(JSON.stringify(prevSituation)!==JSON.stringify(SITUATION)){
+    await loadFlightQuality();
+    if(JSON.stringify(prevSituation)!==JSON.stringify(SITUATION)||prevFQ!==JSON.stringify(FLIGHT_QUALITY)){
       await renderSituationHeader();
       await renderSummaryCards();
       renderSimpleTabs();
@@ -1508,8 +1529,12 @@ async function captureMapSnapshot(){
     const ctx=canvas.getContext('2d');
     ctx.scale(dpr,dpr);
 
-    const isLight=document.documentElement.getAttribute('data-theme')==='light';
-    ctx.fillStyle=isLight?'#eef1f5':'#0d1117';
+    // Fondo SIEMPRE blanco, sin importar el tema activo de la UI (antes
+    // seguía el tema oscuro por defecto — #0d1117, casi negro — y esa franja
+    // se veía donde el mosaico no cubre el rectángulo completo del mapa:
+    // "sale fondo negro" en la imagen exportada). Un reporte para compartir
+    // o imprimir se comporta como una hoja, no como la interfaz.
+    ctx.fillStyle='#ffffff';
     ctx.fillRect(0,0,rect.width,rect.height+PAD_BOTTOM);
 
     // Capas ráster: cualquier <img>/<canvas> dentro del pane de una capa
@@ -1578,7 +1603,7 @@ async function captureMapSnapshot(){
     })();
     const barPx=100*(niceMeters/metersPer100px);
     const scaleLabel=niceMeters>=1000?(niceMeters/1000)+' km':Math.round(niceMeters)+' m';
-    const textCol=isLight?'#16202c':'#e6edf3';
+    const textCol='#16202c'; // fondo siempre blanco acá abajo: texto siempre oscuro, sin depender del tema
     const sy=rect.height+18; // línea base de la barra de escala
     ctx.strokeStyle=textCol;ctx.fillStyle=textCol;ctx.lineWidth=2;
     ctx.beginPath();ctx.moveTo(20,sy);ctx.lineTo(20+barPx,sy);
@@ -1587,12 +1612,15 @@ async function captureMapSnapshot(){
     ctx.font='12px "Public Sans",sans-serif';ctx.textAlign='left';
     ctx.fillText(scaleLabel,20+barPx+8,sy+4);
 
-    // Norte: la app no rota el mapa, así que siempre es "arriba".
-    const nx=rect.width-34,ny=rect.height+8;
-    ctx.beginPath();ctx.moveTo(nx,ny+22);ctx.lineTo(nx+9,ny);ctx.lineTo(nx+18,ny+22);ctx.closePath();
-    ctx.fillStyle=textCol;ctx.fill();
-    ctx.font='bold 12px "Public Sans",sans-serif';ctx.textAlign='center';
-    ctx.fillStyle=isLight?'#eef1f5':'#0d1117';ctx.fillText('N',nx+9,ny+18);
+    // Norte: mismo glifo "▲N" del control en pantalla (.coords-control
+    // .compass, ver CoordsControl más arriba en este archivo) — antes era un
+    // triángulo relleno dibujado a mano, con otra forma y otro color, que no
+    // se parecía al indicador real del geovisor. La app no rota el mapa, así
+    // que "arriba" siempre es norte.
+    const accentCol=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#2563eb';
+    ctx.font='700 15px "Public Sans",sans-serif';ctx.textAlign='right';
+    ctx.fillStyle=accentCol;
+    ctx.fillText('▲N',rect.width-16,rect.height+22);
 
     // Sin pie de misión/fecha ni nota de mapa base acá a propósito: quien
     // llama a esta función decide si hace falta encabezado (buildReportCanvas()
@@ -1601,7 +1629,7 @@ async function captureMapSnapshot(){
     const missionName=document.getElementById('incident-name')?.textContent||'';
 
     if(!anyRaster&&!map.hasLayer(areaAfectadaLayer)&&!map.hasLayer(flightLayer)){
-      throw new Error('No hay ninguna capa visible para exportar. Activá al menos una capa en el panel.');
+      throw new Error('No hay ninguna capa visible para exportar. Activa al menos una capa en el panel.');
     }
     return {canvas,width,height,missionName};
   }
@@ -1664,10 +1692,12 @@ function buildRecommendationText(s){
     // térmico, no solo el pico de un foco activo (que puede no haber
     // ninguno y aun así haber datos de temperatura que reportar).
     const temp=s.temp_max!=null?`. Temp. superficial: máx ${s.temp_max}°C, promedio ${s.temp_promedio}°C`:'';
-    return `${focos}${temp}. Confianza del dato: ${s.confianza}.`;
+    // La calidad del vuelo va aparte, en su propia píldora (ver
+    // buildReportCanvas()) — mezclarla acá duplicaba la misma cifra dos
+    // veces en la misma imagen.
+    return `${focos}${temp}.`;
   }
-  return `${focos}, severidad dominante ${s.severidad.dominante}. `+
-    `Confianza del dato: ${s.confianza}.`+
+  return `${focos}, severidad dominante ${s.severidad.dominante}.`+
     (s.severidad.severo_pct>0?' Se recomienda priorizar verificación en terreno en las zonas de severidad alta.':'');
 }
 function roundRectPath(ctx,x,y,w,h,r){
@@ -1683,6 +1713,7 @@ function roundRectPath(ctx,x,y,w,h,r){
 async function buildReportCanvas(){
   const {canvas:mapCanvas,width:mapW,height:mapH,missionName}=await captureMapSnapshot();
   const s=SITUATION||await loadSituation();
+  const fq=FLIGHT_QUALITY||await loadFlightQuality();
   const mission=missionName||displayName(await missionReady)||'Situación del incendio';
 
   const cs=getComputedStyle(document.documentElement);
@@ -1713,8 +1744,11 @@ async function buildReportCanvas(){
     warning:'◐ Seguimiento recomendado',good:'✓ Sin anomalías críticas',none:'Sin datos de impacto'}[urgentLevel];
   const urgentColor={critical,warning,good,none:inkMuted}[urgentLevel];
   const urgentSoft={critical:criticalSoft,warning:warningSoft,good:goodSoft,none:surface2}[urgentLevel];
-  const confColor={alta:good,media:warning,baja:critical}[s?.confianza]||inkMuted;
-  const confSoft={alta:goodSoft,media:warningSoft,baja:criticalSoft}[s?.confianza]||surface2;
+  // Calidad del LEVANTAMIENTO (compute_flight_quality.py), no confianza del
+  // dato de impacto — ver renderSummaryCards()/flightQualityCardHTML() para
+  // la explicación completa de por qué se reemplazó ese concepto.
+  const calColor={buena:good,regular:warning,baja:critical}[fq?.calidad]||inkMuted;
+  const calSoft={buena:goodSoft,regular:warningSoft,baja:criticalSoft}[fq?.calidad]||surface2;
 
   const dpr=Math.min(window.devicePixelRatio||1,2);
   const PAD=24, RADIUS=16, TOPBAR_H=6;
@@ -1745,16 +1779,16 @@ async function buildReportCanvas(){
   ctx.fillText(mission,PAD,headY+38);
   ctx.fillStyle=inkMuted;ctx.font=F(500,13.5);
   ctx.fillText(s?fmtFecha(s.captura):'Sin datos de impacto todavía',PAD,headY+60);
-  if(s){
-    // Confianza como píldora de color, no texto suelto — mismo lenguaje
-    // visual que los "chips" del panel en vivo.
+  if(fq){
+    // Calidad del levantamiento como píldora de color, no texto suelto —
+    // mismo lenguaje visual que los "chips" del panel en vivo.
     ctx.font=F(700,12.5);
-    const pillLbl=`Confianza ${s.confianza}`;
+    const pillLbl=`Calidad del vuelo: ${fq.calidad}`;
     const pillW=ctx.measureText(pillLbl).width+28;
     const pillX=mapW-PAD-pillW,pillY=headY+22;
     roundRectPath(ctx,pillX,pillY,pillW,26,13);
-    ctx.fillStyle=confSoft;ctx.fill();
-    ctx.fillStyle=confColor;ctx.textAlign='center';
+    ctx.fillStyle=calSoft;ctx.fill();
+    ctx.fillStyle=calColor;ctx.textAlign='center';
     ctx.fillText(pillLbl,pillX+pillW/2,pillY+17);
   }
 
@@ -1809,17 +1843,67 @@ async function buildReportCanvas(){
   ctx.strokeStyle=line;ctx.lineWidth=1;
   ctx.beginPath();ctx.moveTo(0,mapY);ctx.lineTo(mapW,mapY);ctx.stroke();
 
+  // ── Leyenda de la capa temática visible — reportado: la imagen exportada
+  // mostraba el mapa coloreado (severidad/hotspot/índice) sin decir qué
+  // significa cada color, algo que SÍ se ve en pantalla (panel de Capas o
+  // leyenda flotante del modo simple). Se toma la primera capa VISIBLE de
+  // layerOrder que tenga swatches (ya viene en orden de prioridad de
+  // decisión — ver el comentario de GROUP_ORDER/layerOrder más arriba). Se
+  // dibuja arriba a la derecha del mapa para no chocar con la escala
+  // (abajo-izquierda) ni el norte (abajo-derecha), ya horneados en mapCanvas.
+  const legendId=layerOrder.find(id=>LAYER_REGISTRY[id]&&map.hasLayer(LAYER_REGISTRY[id].layer)&&legendSwatchesFor(id));
+  if(legendId){
+    const swatches=legendSwatchesFor(legendId);
+    const legendTitle=LAYER_REGISTRY[legendId].label;
+    ctx.font=F(700,12.5);
+    const rowH=17,titleH=22,boxPad=10;
+    const textW=Math.max(ctx.measureText(legendTitle).width,
+      ...swatches.map(([,l])=>{ctx.font=F(500,11.5);return ctx.measureText(l).width;}));
+    const boxW=Math.min(mapW-2*PAD,textW+boxPad*2+16), boxH=titleH+swatches.length*rowH+boxPad;
+    const bx=mapW-PAD-boxW, by=mapY+12;
+    ctx.save();
+    ctx.globalAlpha=.94;
+    roundRectPath(ctx,bx,by,boxW,boxH,10);
+    ctx.fillStyle=surface;ctx.fill();
+    ctx.strokeStyle=line;ctx.lineWidth=1;ctx.stroke();
+    ctx.globalAlpha=1;
+    ctx.textAlign='left';
+    ctx.fillStyle=ink;ctx.font=F(700,12.5);
+    ctx.fillText(legendTitle,bx+boxPad,by+16);
+    swatches.forEach(([color,label],i)=>{
+      const ry=by+titleH+i*rowH+9;
+      ctx.beginPath();ctx.arc(bx+boxPad+5,ry,5,0,7);ctx.fillStyle=color;ctx.fill();
+      ctx.fillStyle=inkMuted;ctx.font=F(500,11.5);
+      ctx.fillText(label,bx+boxPad+16,ry+4);
+    });
+    ctx.restore();
+  }
+
   // ── Pie: recomendación, coloreada según urgencia real — es lo último
   // que se lee pero lo primero que se PERCIBE (el color) al abrir la
-  // imagen compartida. ──
+  // imagen compartida. Centrado VERTICALMENTE en la franja (antes quedaba
+  // pegado arriba, con aire de sobra abajo cuando la recomendación era
+  // corta). ──
   const footY=mapY+mapH;
   ctx.fillStyle=urgentSoft;ctx.fillRect(0,footY,mapW,FOOTER_H);
   ctx.fillStyle=urgentColor;ctx.fillRect(0,footY,4,FOOTER_H);
+  const recomendacion=buildRecommendationText(s);
+  ctx.font=F(400,13);
+  const wrapped=(()=>{ // mide antes de dibujar, para poder centrar
+    const words=recomendacion.split(' ');let line='',lines=[];
+    for(const w of words){const test=line?line+' '+w:w;
+      if(ctx.measureText(test).width>mapW-PAD*2&&line){lines.push(line);line=w;}else line=test;}
+    if(line)lines.push(line);
+    return lines.slice(0,3);
+  })();
+  const lineH=18,labelH=20,blockH=labelH+wrapped.length*lineH;
+  let ty=footY+(FOOTER_H-blockH)/2+14;
   ctx.font=F(600,13.5);ctx.textAlign='left';
   ctx.fillStyle=urgentColor;
-  ctx.fillText(urgentLabel,PAD,footY+26);
+  ctx.fillText(urgentLabel,PAD,ty);
+  ty+=labelH;
   ctx.fillStyle=ink;ctx.font=F(400,13);
-  wrapCanvasText(ctx,buildRecommendationText(s),PAD,footY+48,mapW-PAD*2,18,3);
+  wrapped.forEach((l,i)=>ctx.fillText(l,PAD,ty+i*lineH));
 
   return {canvas:out,missionName:mission};
 }
@@ -2023,6 +2107,27 @@ async function loadSituation(){
   }catch(e){SITUATION=null;return null;}
 }
 
+// Calidad del LEVANTAMIENTO (cómo se voló: solape, velocidad, % de
+// imágenes reconstruidas) — ver compute_flight_quality.py. Reemplaza la
+// vieja "Confianza del dato" (qué fracción del ortomosaico térmico tenía
+// dato real): esa cifra no le decía a nadie si el vuelo estuvo bien volado,
+// que es la pregunta real detrás de "¿confío en esto?" — un reporte de
+// Terra/Agisoft/Pix4D habla de solape e imágenes reconstruidas, no de
+// cobertura de dato.
+let FLIGHT_QUALITY=null;
+async function loadFlightQuality(){
+  try{
+    const r=await fetch('outputs/flight_quality.json?t='+Date.now(),{cache:'no-store'});
+    if(!r.ok){FLIGHT_QUALITY=null;return null;}
+    FLIGHT_QUALITY=await r.json();
+    return FLIGHT_QUALITY;
+  }catch(e){FLIGHT_QUALITY=null;return null;}
+}
+// data-level de .confidence-ticks (CSS) viene de la época de "confianza"
+// alta/media/baja — se reusa el mismo semáforo visual para "calidad"
+// buena/regular/baja en vez de duplicar las reglas de color.
+const CALIDAD_TICK_LEVEL={buena:'alta',regular:'media',baja:'baja'};
+
 function fmtFecha(iso){
   if(!iso)return '—';
   try{
@@ -2042,18 +2147,19 @@ function fmtFechaCorta(iso){
 
 async function renderSituationHeader(){
   const s=SITUATION||await loadSituation();
+  const fq=FLIGHT_QUALITY||await loadFlightQuality();
   const zoneEl=document.getElementById('incident-zone');
   const ticksEl=document.getElementById('confidence-ticks');
   const freshEl=document.getElementById('freshness-text');
   const dateEl=document.getElementById('capture-date-label');
-  const nivel=s?.confianza||'alta';
-  if(ticksEl)ticksEl.setAttribute('data-level',nivel);
+  const calidad=fq?.calidad||'buena';
+  if(ticksEl)ticksEl.setAttribute('data-level',CALIDAD_TICK_LEVEL[calidad]||'alta');
   if(dateEl)dateEl.textContent=s?.captura?fmtFechaCorta(s.captura):'—';
   if(freshEl){
     const captura=s?.captura?new Date(s.captura.replace(' ','T')):null;
     const minsAgo=captura&&!isNaN(captura)?Math.max(0,Math.round((Date.now()-captura)/60000)):null;
     const cuando=minsAgo===null?'':minsAgo<60?`hace ${minsAgo} min`:`hace ${Math.round(minsAgo/60)} h`;
-    freshEl.textContent=s?`Actualizado ${cuando||'recién'} · Confianza ${nivel}`
+    freshEl.textContent=s?`Actualizado ${cuando||'recién'} · Calidad del vuelo: ${calidad}`
                           :'Sin datos de severidad todavía';
   }
   if(zoneEl)zoneEl.textContent=s?`${s.area_ha??'—'} ha detectadas`:'';
@@ -2073,6 +2179,7 @@ async function renderSummaryCards(){
   const grid=document.getElementById('summary-grid');
   if(!grid)return;
   const s=SITUATION||await loadSituation();
+  const fq=FLIGHT_QUALITY||await loadFlightQuality();
   if(!s){
     grid.innerHTML=`<div class="stat-card" style="grid-column:1/-1">
       <div class="l">Sin datos de impacto todavía</div>
@@ -2124,15 +2231,37 @@ async function renderSummaryCards(){
     <div class="stat-card">
       <div class="l">Última captura</div>
       <div class="v" style="font-size:var(--fs-md)">${fmtFechaCorta(s.captura)}</div>
-      <div class="sub">Dron UAV</div>
+      <div class="sub">${fq?.equipo||'Dron UAV'}</div>
     </div>
-    <div class="stat-card">
-      <div class="l">Confianza del dato</div>
-      <div class="v" style="font-size:var(--fs-md);display:flex;align-items:center;gap:8px;text-transform:capitalize">
-        ${s.confianza} <span class="confidence-ticks" data-level="${s.confianza}" aria-hidden="true"><i></i><i></i><i></i></span>
-      </div>
-      <div class="sub">${s.cobertura_pct!=null?`${s.cobertura_pct}% de cobertura`:'Cobertura'} de dato ${s.solo_termico?'en todo el ortomosaico térmico':'dentro del área'}</div>
+    ${flightQualityCardHTML(fq)}`;
+}
+// Calidad del LEVANTAMIENTO (compute_flight_quality.py): solape de cámaras,
+// velocidad de vuelo y % de imágenes reconstruidas — lo que de verdad
+// predice si el resultado es confiable, en el mismo lenguaje que un reporte
+// de Terra/Agisoft/Pix4D. Reemplaza la vieja "Confianza del dato" (fracción
+// del ortomosaico con dato real): esa cifra no decía nada sobre cómo se
+// voló, que es la pregunta que de verdad importa acá.
+function flightQualityCardHTML(fq){
+  if(!fq){
+    return `<div class="stat-card">
+      <div class="l">Calidad del levantamiento</div>
+      <div class="v" style="font-size:var(--fs-sm);color:var(--ink-muted)">Sin datos todavía</div>
     </div>`;
+  }
+  const pcts=Object.values(fq.reconstruccion||{}).map(v=>v.pct).filter(v=>v!=null);
+  const reconMin=pcts.length?Math.min(...pcts):null;
+  const partes=[
+    fq.solape_p50!=null?`solape ~${fq.solape_p50}×`:null,
+    fq.velocidad_media_ms!=null?`vuelo a ${fq.velocidad_media_ms} m/s`:null,
+    reconMin!=null?`${reconMin}% de fotos reconstruidas`:null,
+  ].filter(Boolean);
+  return `<div class="stat-card">
+    <div class="l">Calidad del levantamiento</div>
+    <div class="v" style="font-size:var(--fs-md);display:flex;align-items:center;gap:8px;text-transform:capitalize">
+      ${fq.calidad} <span class="confidence-ticks" data-level="${CALIDAD_TICK_LEVEL[fq.calidad]||'alta'}" aria-hidden="true"><i></i><i></i><i></i></span>
+    </div>
+    <div class="sub">${partes.join(' · ')||'—'}</div>
+  </div>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2175,7 +2304,8 @@ function simpleInfoItemHTML(id){
     <div class="info-item-details" data-id="${id}" style="display:none">
       ${simpleLegendChips(id)}
       <div class="info-item-foot"><span class="date">${SITUATION?.captura?fmtFechaCorta(SITUATION.captura):'Capturado en esta misión'}</span>
-        <a class="simple-verdetalles" data-id="${id}">Ver detalles →</a></div>
+        <a class="simple-verdetalles" data-id="${id}" aria-expanded="false">Ver detalles →</a></div>
+      <div class="info-item-full-desc" data-id="${id}" style="display:none">${SIMPLE_HINTS[id]||'No hay una descripción adicional para esta capa todavía.'}</div>
     </div>
   </div>`;
 }
@@ -2210,8 +2340,24 @@ function renderSimpleTabPanel(tabKey){
       btn.setAttribute('aria-expanded',String(open));
     };
   });
+  // "Ver detalles →" antes llamaba a soloLayer(id) — apagaba todo lo demás
+  // y prendía esta capa, cuando lo que el nombre promete es una descripción
+  // divulgativa, no una acción sobre el mapa. Efecto colateral del bug:
+  // soloLayer() refresca el panel de Capas (modo operativo) pero NUNCA
+  // renderMapLegend() — la leyenda flotante quedaba pegada en lo que fuera
+  // que mostraba antes, sin importar a qué capa se cambiara desde acá. Con
+  // el link despegado de soloLayer(), ese síntoma desaparece solo: cambiar
+  // de capa sigue pasando ÚNICAMENTE por el switch de arriba, que sí llama
+  // a renderMapLegend().
   el.querySelectorAll('.simple-verdetalles').forEach(a=>{
-    a.onclick=()=>soloLayer(a.dataset.id);
+    a.onclick=()=>{
+      const id=a.dataset.id;
+      const desc=el.querySelector(`.info-item-full-desc[data-id="${id}"]`);
+      const open=desc.style.display==='none';
+      desc.style.display=open?'block':'none';
+      a.textContent=open?'Ocultar detalles ↑':'Ver detalles →';
+      a.setAttribute('aria-expanded',String(open));
+    };
   });
 }
 function renderSimpleTabs(){
@@ -2229,6 +2375,23 @@ function renderSimpleTabs(){
     vegTab.hidden=hide;
     if(hide&&simpleActiveTab==='vegetacion')selectSimpleTab('impacto');
   }
+  renderFooterAddMsCta();
+}
+// La caja "Agregar vuelo multiespectral" ANTES solo aparecía si el usuario
+// entraba justo al grupo/pestaña que la mostraba (Impacto en modo simple,
+// o abrir "Índices"/"Impacto" vacíos en el panel de Capas) — fácil de no
+// ver nunca. Ahora vive TAMBIÉN fija al pie del sidebar, en los dos modos,
+// visible sin importar qué pestaña/grupo esté abierto. Se sigue ocultando
+// sola en cuanto liveMsBandIds deja de estar vacío (ya no hay nada que
+// ofrecer).
+function renderFooterAddMsCta(){
+  const html=liveMsBandIds.length===0
+    ? addMsCtaHTML('🌿 Agregar multiespectral','Habilita área afectada, severidad e índices de vegetación automáticos.')
+    : '';
+  const simple=document.getElementById('footer-addms-cta-simple');
+  const advanced=document.getElementById('footer-addms-cta-advanced');
+  if(simple)simple.innerHTML=html;
+  if(advanced)advanced.innerHTML=html;
 }
 function selectSimpleTab(key){
   simpleActiveTab=key;
@@ -2468,7 +2631,7 @@ async function openReport(){
     preview.innerHTML=`<img src="${url}" alt="Resumen de situación de la misión">`;
     preview.dataset.url=url;
   }catch(e){
-    preview.innerHTML='<span style="font-size:var(--fs-xs);color:var(--ink-muted)">No se pudo generar la imagen — activá al menos una capa en el mapa.</span>';
+    preview.innerHTML='<span style="font-size:var(--fs-xs);color:var(--ink-muted)">No se pudo generar la imagen — activa al menos una capa en el mapa.</span>';
     delete preview.dataset.url;
   }
 }
@@ -2569,6 +2732,7 @@ document.getElementById('global-opacity').addEventListener('input',function(){
 // ═══════════════════════════════════════════════════════════════════
 (async function initSimpleMode(){
   await loadSituation();
+  await loadFlightQuality();
   await renderSituationHeader();
   await renderSummaryCards();
   renderSimpleTabs();

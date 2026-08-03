@@ -141,3 +141,57 @@ class TestCapasDisponibles:
         ds = None
         correr()
         assert "rgb" in _bounds()["capas_disponibles"]
+
+
+class TestTilesCompletos:
+    """Reportado: "hay un nivel de zoom en que el hotspot térmico no
+    renderiza, parece que faltaran sus tiles". gdal2tiles.py reparte el
+    trabajo en subprocesos (--processes) — si uno muere por OOM, el proceso
+    padre puede igual salir con código 0 (check=True no lo detecta), dejando
+    una carpeta de zoom vacía o a medias que antes se aceptaba como si la
+    corrida hubiera terminado bien. Acá se verifica que generate() reviente
+    si falta algún nivel de zoom del rango pedido, en vez de dejar un hueco
+    permanente e invisible hasta que alguien lo nota en el mapa."""
+
+    def test_generate_revienta_si_falta_un_nivel_de_zoom(self, correr, tmp_path, monkeypatch):
+        G = correr()
+        src = _raster(str(tmp_path / "src.tif"), 0.21)  # zoom_range() -> 20, rango 14-20
+
+        # gdal2tiles.py falso: solo escribe el zoom más fino, simulando un
+        # subproceso muerto a mitad de camino que igual deja salir 0 al padre.
+        fake_bin = tmp_path / "fakebin"
+        fake_bin.mkdir()
+        fake = fake_bin / "gdal2tiles.py"
+        fake.write_text(
+            "#!/usr/bin/env python3\n"
+            "import sys, os\n"
+            "out_dir = sys.argv[-1]\n"
+            "os.makedirs(os.path.join(out_dir, '20', '0'), exist_ok=True)\n"
+            "open(os.path.join(out_dir, '20', '0', '0.png'), 'wb').close()\n"
+        )
+        fake.chmod(0o755)
+        monkeypatch.setenv("PATH", str(fake_bin) + os.pathsep + os.environ["PATH"])
+
+        with pytest.raises(RuntimeError, match="faltan tiles"):
+            G.generate(src, str(tmp_path / "out"))
+
+    def test_generate_no_revienta_con_todos_los_niveles(self, correr, tmp_path, monkeypatch):
+        G = correr()
+        src = _raster(str(tmp_path / "src2.tif"), 0.21)
+
+        fake_bin = tmp_path / "fakebin2"
+        fake_bin.mkdir()
+        fake = fake_bin / "gdal2tiles.py"
+        fake.write_text(
+            "#!/usr/bin/env python3\n"
+            "import sys, os\n"
+            "out_dir = sys.argv[-1]\n"
+            "for z in range(14, 21):\n"
+            "    d = os.path.join(out_dir, str(z), '0')\n"
+            "    os.makedirs(d, exist_ok=True)\n"
+            "    open(os.path.join(d, '0.png'), 'wb').close()\n"
+        )
+        fake.chmod(0o755)
+        monkeypatch.setenv("PATH", str(fake_bin) + os.pathsep + os.environ["PATH"])
+
+        G.generate(src, str(tmp_path / "out2"))  # no debe lanzar

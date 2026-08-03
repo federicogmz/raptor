@@ -74,15 +74,58 @@ class TestFechaDeCaptura:
         assert "s?.captura" in js or "s.captura" in js
 
 
-class TestConfianzaExplicaElPorque:
-    """Reportado: la tarjeta "Confianza del dato" mostraba "Baja" sin ningún
-    número detrás — no había forma de saber POR QUÉ sin ir a leer código.
-    s.cobertura_pct (compute_situation_summary.py) ahora se muestra en el
-    subtítulo para que el calificativo venga acompañado del dato real."""
+class TestCalidadDelLevantamientoReemplazaConfianza:
+    """Reportado en dos vueltas:
 
-    def test_renderSummaryCards_muestra_cobertura_pct(self):
+    1. La tarjeta "Confianza del dato" mostraba "Baja" sin ningún número
+       detrás — se le agregó s.cobertura_pct al subtítulo (commit anterior).
+    2. El concepto en sí no servía: saber qué fracción del ortomosaico
+       térmico tiene dato real no dice si el VUELO estuvo bien volado, que
+       es la pregunta real detrás de "¿confío en esto?". Se reemplazó por
+       "Calidad del levantamiento" (compute_flight_quality.py: solape de
+       cámaras, velocidad de vuelo, % de imágenes reconstruidas — el mismo
+       lenguaje que un reporte de Terra/Agisoft/Pix4D), en las tres
+       superficies que antes mostraban confianza: la tarjeta del panel en
+       vivo, la píldora de la imagen exportada y el encabezado de
+       "Situación actual"."""
+
+    def test_renderSummaryCards_ya_no_usa_s_confianza(self):
         cuerpo = _cuerpo_de(_js(), "renderSummaryCards")
-        assert "s.cobertura_pct" in cuerpo
+        assert "s.confianza" not in cuerpo
+        assert "s.cobertura_pct" not in cuerpo
+        assert "flightQualityCardHTML(fq)" in cuerpo
+
+    def test_flightQualityCardHTML_usa_las_senales_de_calidad_del_vuelo(self):
+        cuerpo = _cuerpo_de(_js(), "flightQualityCardHTML")
+        assert "fq.calidad" in cuerpo
+        assert "fq.solape_p50" in cuerpo
+        assert "fq.velocidad_media_ms" in cuerpo
+        assert "reconMin" in cuerpo  # % de imágenes reconstruidas, por sensor
+
+    def test_renderSituationHeader_ya_no_usa_s_confianza(self):
+        cuerpo = _cuerpo_de(_js(), "renderSituationHeader")
+        assert "s?.confianza" not in cuerpo and "s.confianza" not in cuerpo
+        assert "fq?.calidad" in cuerpo
+
+    def test_buildReportCanvas_pildora_usa_calidad_no_confianza(self):
+        cuerpo = _cuerpo_de(_js(), "buildReportCanvas")
+        assert "s.confianza" not in cuerpo
+        assert "fq.calidad" in cuerpo
+
+    def test_buildRecommendationText_ya_no_menciona_confianza(self):
+        """La calidad del vuelo tiene su propia píldora (ver
+        buildReportCanvas) — repetirla acá duplicaba la misma cifra dos
+        veces en la misma imagen."""
+        cuerpo = _cuerpo_de(_js(), "buildRecommendationText")
+        assert "onfianza" not in cuerpo
+
+    def test_ultima_captura_muestra_el_equipo_real(self):
+        """Reportado: la tarjeta "Última captura" decía "Dron UAV" genérico
+        sin importar qué equipo se usó de verdad — ahora usa
+        fq.equipo (compute_flight_quality.py, Make/Model EXIF real del
+        proyecto RGB, p.ej. "DJI Zenmuse H20T")."""
+        cuerpo = _cuerpo_de(_js(), "renderSummaryCards")
+        assert "fq?.equipo||'Dron UAV'" in cuerpo
 
 
 class TestExportNoAnunciaLoQueFalta:

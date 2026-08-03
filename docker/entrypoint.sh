@@ -467,6 +467,12 @@ if [[ "$DO_THERMAL" -eq 1 ]]; then
   stage_begin "Recorte térmico + máscara de confianza"
   make trim-edges-thermal
   make confidence-mask
+  # Calidad del LEVANTAMIENTO (solape de cámaras, velocidad de vuelo, % de
+  # imágenes reconstruidas) — no depende de multiespectral, así que corre
+  # acá siempre, no solo en el bloque solo-térmico de más abajo. Necesita
+  # outputs/rgb_orthomosaic.tif (ya recortado, bloque RUN_RGB de arriba) y
+  # outputs/thermal_orthomosaic.tif (recién recortado en esta misma línea).
+  make flight-quality
   if [[ "$DO_MS" -eq 0 ]]; then
     # El hotspot es puramente térmico (temperatura absoluta) y no depende de
     # NDVI ni del polígono de área afectada — pero antes SOLO se generaba
