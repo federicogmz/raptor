@@ -3,11 +3,15 @@ panel cuando la misión no tiene los datos de origen — y cuando el motivo es
 "falta el vuelo multiespectral", tiene que haber una vía directa para
 agregarlo.
 
-LÍMITE DE ESTOS TESTS: la imagen no trae runtime de JavaScript (mismo caso que
-tests/test_form_export.py), así que son ESTRUCTURALES sobre el fuente, no de
-comportamiento. La parte que SÍ se prueba de punta a punta es de dónde sale la
-señal que consumen (bounds.json's capas_disponibles — ver
-tests/test_generate_tiles.py, que ejercita el código real de GDAL).
+LÍMITE DE ESTOS TESTS: la imagen raptor:latest no trae runtime de JavaScript
+(mismo caso que tests/test_form_export.py), así que lo que corre acá dentro de
+`make test` es ESTRUCTURAL sobre el fuente, no de comportamiento. Una
+validación de comportamiento REAL es posible fuera de esta suite (jsdom +
+Node en el host, con fetch/EventSource polyfillados) — así se encontró y
+confirmó el bug de TestOrdenDeDeclaracion más abajo, que ningún test
+estructural habría detectado. Se deja como test manual, no automatizado:
+agregar Node+jsdom a la imagen de test es una decisión de infraestructura
+aparte, no tomada acá.
 """
 import os
 import re
@@ -35,6 +39,45 @@ def _cuerpo_de(js, nombre):
             prof -= 1
         i += 1
     return js[m.end():i - 1]
+
+
+class TestOrdenDeDeclaracion:
+    """Regresión real (no hipotética): encontrada corriendo el geovisor real
+    en jsdom con datos reales de una misión RGB+térmico sin multiespectral.
+
+    `renderCapasPanel()` arma el panel de Capas llamando a `def.legend()` de
+    forma SÍNCRONA para cada capa registrada — no perezoso, no en el click del
+    usuario. `registerHotspot()`'s legend cierra sobre `liveMsBandIds`
+    (`let`), y si esa declaración vive DESPUÉS del punto donde
+    `renderCapasPanel()` se invoca por primera vez, la lectura cae en la zona
+    muerta temporal: `ReferenceError: Cannot access 'liveMsBandIds' before
+    initialization`, sin capturar, que corta la ejecución del script ahí
+    mismo. Todo lo que venía después en el archivo —incluida la inicialización
+    del panel "Situación actual"— nunca llegaba a correr: la página quedaba
+    pegada en "Cargando datos de la misión…" para siempre, sin ningún error
+    visible salvo en la consola del navegador.
+
+    Verificado con una ejecución real (jsdom + fetch/EventSource polyfilled)
+    contra el servidor corriendo con datos reales: con la declaración después
+    del primer uso, revienta con exactamente ese ReferenceError; declarada
+    antes, el panel renderiza sin errores. Acá se fija la invariante de orden
+    en el fuente, para que un futuro refactor no la rompa de nuevo sin que
+    nada lo note."""
+
+    def test_liveMsBandIds_se_declara_antes_de_renderCapasPanel(self):
+        js = _js()
+        i_decl = js.index("let liveMsBandIds=")
+        i_uso = js.index("\nrenderCapasPanel();")
+        assert i_decl < i_uso, (
+            "let liveMsBandIds tiene que declararse ANTES de la primera llamada "
+            "a renderCapasPanel() — esa llamada invoca legend() de forma "
+            "síncrona para cada capa, y una 'let' declarada después cae en la "
+            "zona muerta temporal (bug real, ver el docstring de esta clase)")
+
+    def test_solo_hay_una_declaracion_de_liveMsBandIds(self):
+        js = _js()
+        n = len(re.findall(r"\blet liveMsBandIds\s*=", js))
+        assert n == 1, f"se esperaba una sola declaración, hay {n}"
 
 
 class TestRegistroCondicionado:
