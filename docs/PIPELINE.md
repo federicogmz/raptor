@@ -78,16 +78,23 @@ metadatos: el GPS/EXIF lo leen directamente los scripts que lo necesitan
 
 ### 3. OpenDroneMap (los tres proyectos son independientes y completos)
 
-- **ODM RGB**: SfM + MVS + DSM + ortofoto. `--feature-quality high
-  --orthophoto-resolution 2 --dsm --dem-resolution 8 --pc-quality low`.
-  ~20-30 min con GPU.
+`--pc-quality`, `--feature-quality`, `--orthophoto-resolution`/`--dem-resolution`
+y `--max-concurrency` de las tres invocaciones NO son valores fijos: salen de
+`QUALITY` (0-100, default 75) vía `scripts/hardware.py::quality_tier()` y
+`safe_concurrency()` — única fuente que también lee la webapp y `./raptor run`
+para mostrar el mismo mensaje de resolución/tiempo antes de arrancar. Ver
+«Calidad y hardware» en el README para el porqué (resumen: el detalle de la
+malla decide si se resuelven copas de árboles y bordes; la resolución de
+salida la limita el GSD real del vuelo, no la calidad pedida).
+
+- **ODM RGB**: SfM + MVS + DSM + ortofoto. ~20-30 min con GPU a calidad
+  default (75%).
 
 - **ODM Térmico nativo**: SfM + MVS + malla + textura + ortofoto — pipeline
   COMPLETO igual que RGB, no solo SfM. `--radiometric-calibration camera`
   dispara la calibración Kelvin×100→°C nativa de ODM (ver
   `opendm/thermal.py::dn_to_temperature`, rama `DJI ZH20T`) durante el
   render de textura, así que el ortofoto final ya sale en °C reales.
-  `--orthophoto-resolution 10 --pc-quality medium`. ~15-20 min.
   Se usa el render nativo y no un blending heurístico propio: contra una
   entrega de referencia de Agisoft sobre la misma misión, una proyección
   inversa con winner-take-all propio da 16.9% de cobertura con artefactos de
@@ -95,8 +102,7 @@ metadatos: el GPS/EXIF lo leen directamente los scripts que lo necesitan
   de ODM da 68.6% sin artefactos, a mayor resolución.
 
 - **ODM Multiespectral**: SfM + calibración a reflectancia (sensor de sol,
-  sin panel físico) + ortofoto multibanda. `--radiometric-calibration
-  camera+sun --dsm --pc-quality low`. Solo corre si se montó `/input_ms`.
+  sin panel físico) + ortofoto multibanda. Solo corre si se montó `/input_ms`.
 
 - **Limpieza DSM** (`dsm_clean.py`): detecta y elimina relleno sintético de
   ODM (mesetas planas con varianza local ~0) y outliers del DSM de RGB.
@@ -146,8 +152,11 @@ metadatos: el GPS/EXIF lo leen directamente los scripts que lo necesitan
 
 ### 6. Tiles y geovisor
 
-- **Tiles XYZ** (`generate_tiles.py`): genera tiles PNG en niveles 14-20
-  para RGB (8-bit color), térmico y multiespectral (escala de grises con
+- **Tiles XYZ** (`generate_tiles.py`): genera tiles PNG desde zoom 14 hasta el
+  que corresponda a la resolución REAL de cada ráster (`zoom_range()`, deriva
+  el zoom máximo del geotransform — antes era un tope fijo en 20, que a 6°N
+  son ~14.8 cm/px y tiraba la mitad del detalle de un ortomosaico de 8 cm/px).
+  RGB (8-bit color), térmico y multiespectral (escala de grises con
   rango de color calculado del percentil real de cada misión) e índices
   (paleta divergente RdYlGn).
 

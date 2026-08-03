@@ -45,11 +45,12 @@ class PipelineRun:
     y el log crudo (para mostrar si falla)."""
 
     def __init__(self, *, mode, source_dir, ms_source_dir=None,
-                 skip_odm=False, port=8080, progress_file, export=None):
+                 skip_odm=False, port=8080, progress_file, export=None, quality=75):
         self.mode = mode
         self.source_dir = str(source_dir)
         self.ms_source_dir = str(ms_source_dir) if ms_source_dir else None
         self.skip_odm = skip_odm
+        self.quality = int(quality)
         self.port = port
         self.progress_file = str(progress_file)
         # export: dict con las EXPORT_* que entiende docker/entrypoint.sh
@@ -65,6 +66,7 @@ class PipelineRun:
             "MODE": self.mode,
             "SOURCE_DIR": self.source_dir,
             "SKIP_ODM": "1" if self.skip_odm else "0",
+            "QUALITY": str(self.quality),
             "SERVE": "0",
             "PORT": str(self.port),
             "PROGRESS_FILE": self.progress_file,

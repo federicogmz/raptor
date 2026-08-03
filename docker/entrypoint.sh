@@ -53,6 +53,13 @@
 #   MAX_CONCURRENCY fuerza el nº de hilos de ODM (por defecto se calcula
 #                    según la RAM disponible, ver safe_concurrency()). Bajalo
 #                    si el proceso muere sin mensaje por falta de memoria.
+#   QUALITY         0-100 (default 75). Detalle del modelo de superficie (qué
+#                    tan bien se resuelven copas de árboles y bordes) y techo
+#                    de resolución del ortomosaico/DSM — nunca más fino que el
+#                    GSD real del vuelo. Tabla completa en scripts/hardware.py;
+#                    `python3 scripts/hardware.py estimate --quality N --photos
+#                    N` muestra a qué resolución y en cuánto tiempo se espera
+#                    que salga, sin arrancar nada.
 #
 # Exportación de la entrega (opcional — sin EXPORT_DIR no se exporta nada):
 #   EXPORT_DIR            carpeta destino de los productos finales
@@ -79,35 +86,28 @@ QUALITY="${QUALITY:-75}"
 export MODE VERBOSE
 
 # ── Calidad (0-100) ─────────────────────────────────────────────────
-# Controla el DETALLE DEL MODELO DE SUPERFICIE, que es lo que decide si el
-# ortomosaico es realmente ortorrectificado y lo que domina el tiempo de
-# proceso. NO controla la resolución de salida: esa la fija el GSD real del
-# vuelo (altura × sensor), ODM la mide de la reconstrucción y recorta cualquier
-# pedido más fino. Pedir 2 cm a un vuelo cuyo GSD es 9 cm no da más detalle,
-# solo píxeles más chicos.
+# Controla el DETALLE DEL MODELO DE SUPERFICIE (pc-quality/feature-quality) —
+# lo que decide si una copa de árbol se resuelve en la malla o la superficie
+# sale lisa y el árbol se desplaza al proyectarlo (la causa real de "no
+# parece true-ortho") — y también el TECHO de resolución que se le pide al
+# ortomosaico y al DSM. Ninguno de los dos puede superar el GSD real del
+# vuelo: ODM lo mide de la reconstrucción y recorta cualquier pedido más fino
+# (opendm/gsd.py::cap_resolution) — pedir 1cm a un vuelo cuyo GSD real es 9cm
+# no da más detalle, solo píxeles más chicos. SÍ puede pedirse un techo más
+# GRUESO que el GSD real a propósito: reduce el total de píxeles del ráster
+# final, y eso acelera de verdad el renderizado, el recorte de bordes, los
+# tiles y la exportación COG — todos proporcionales al tamaño del ráster.
 #
-# El parámetro que importa es --pc-quality: fija la resolución de los mapas de
-# profundidad, de donde salen la nube densa, la malla 2.5D y el DSM. Con `low`
-# sobre fotos de 4056 px, ODM baja los depthmaps a 320 px —1/12 de la foto— y a
-# esa escala una copa de árbol no se resuelve: la superficie sale lisa, los
-# árboles no quedan en el modelo y al proyectarlos se desplazan (el efecto de
-# "no es true ortho", con el árbol inclinado y su sombra corrida).
-#
-# Cada escalón de --pc-quality multiplica el tiempo por ~4 (documentado por ODM).
+# La tabla vive en un solo lugar: scripts/hardware.py (fuente única — la
+# webapp y el CLI leen la misma, así el mensaje que se le muestra al usuario
+# ANTES de arrancar corresponde exactamente a lo que corre después).
 if ! [[ "$QUALITY" =~ ^[0-9]+$ ]] || [[ "$QUALITY" -gt 100 ]]; then
   echo "❌ ERROR: QUALITY debe ser un entero 0-100 (recibido: $QUALITY)"; exit 1
 fi
-if   [[ "$QUALITY" -ge 90 ]]; then PC_QUALITY=ultra;  FEAT_QUALITY=ultra
-elif [[ "$QUALITY" -ge 70 ]]; then PC_QUALITY=high;   FEAT_QUALITY=high
-elif [[ "$QUALITY" -ge 40 ]]; then PC_QUALITY=medium; FEAT_QUALITY=high
-elif [[ "$QUALITY" -ge 20 ]]; then PC_QUALITY=low;    FEAT_QUALITY=medium
-else                               PC_QUALITY=lowest; FEAT_QUALITY=medium
-fi
-
-# Resolución pedida deliberadamente más fina que cualquier GSD alcanzable: ODM
-# la recorta al GSD real medido, así que esto significa "dame todo el detalle
-# que el vuelo permita" en vez de un número fijo que puede quedar corto.
-ODM_RES_CM=1
+_TIER_JSON=$(python3 scripts/hardware.py quality-tier "$QUALITY")
+PC_QUALITY=$(python3 -c "import json,sys;print(json.loads(sys.argv[1])['pc_quality'])" "$_TIER_JSON")
+FEAT_QUALITY=$(python3 -c "import json,sys;print(json.loads(sys.argv[1])['feature_quality'])" "$_TIER_JSON")
+ODM_RES_CM=$(python3 -c "import json,sys;print(json.loads(sys.argv[1])['res_cm'])" "$_TIER_JSON")
 
 # Resumen JSON también cuando la corrida FALLA: para CI, "en qué etapa murió y
 # qué alcanzó a producir" vale tanto como el código de salida. Solo se arma en
@@ -163,6 +163,33 @@ case "${1:-run}" in
   run)
     RAPTOR_EN_RUN=1
     ;;
+  quality-estimate)
+    # Mensaje de "a qué resolución y en cuánto tiempo" SIN arrancar el
+    # pipeline — cuenta las fotos montadas con los mismos patrones que
+    # docker/setup-data.sh, pero sin copiarlas a data/ (no hace falta para
+    # solo contar, y así no interfiere si después se corre `run` de verdad
+    # sobre el mismo montaje). Lo usa ./raptor run para mostrar el mensaje
+    # antes de lanzar la corrida real.
+    N_RGB=0; N_TH=0; N_MS=0
+    [[ -d "$SOURCE_DIR" ]] && N_RGB=$(find "$SOURCE_DIR" -type f \( -iname "*_V.JPG" -o -iname "*_W.JPG" \) 2>/dev/null | wc -l)
+    [[ -d "$SOURCE_DIR" ]] && N_TH=$(find "$SOURCE_DIR" -type f -iname "*_T.JPG" 2>/dev/null | wc -l)
+    [[ -d "$MS_SOURCE_DIR" ]] && N_MS=$(find "$MS_SOURCE_DIR" -type f -iname "*_MS_NIR.TIF" 2>/dev/null | wc -l)
+    python3 -c "
+import sys
+sys.path.insert(0, 'scripts')
+from hardware import estimate_message
+m = estimate_message($QUALITY, $N_RGB + $N_TH + $N_MS * 4)
+hw = m['hardware']
+print('🖥️  Hardware detectado: {} núcleos, {} — {}'.format(
+    hw['cores'],
+    f\"{hw['mem_available_mb']/1024:.0f} GB RAM libres\" if hw['mem_available_mb'] else 'RAM no detectada',
+    (hw['gpu_name'] or 'GPU disponible') if hw['gpu'] else 'sin GPU (corre en CPU)'))
+print('🎚️  ' + m['modelo_texto'])
+print('📐 ' + m['resolucion_texto'])
+print('⏱️  ' + m['tiempo_texto'])
+"
+    exit 0
+    ;;
   *)
     exec "$@"
     ;;
@@ -209,6 +236,29 @@ if [[ "$RUN_MULTISPECTRAL" -eq 1 ]]; then
   echo "   Multiespectral: ${MS_COUNT} capturas (4 bandas c/u)"
 fi
 
+# Hardware detectado + qué implica la calidad elegida, ANTES de arrancar ODM.
+# Mismo texto que puede pedirse sin lanzar nada:
+#   python3 scripts/hardware.py estimate --quality "$QUALITY" --photos N
+# Total de fotos = todas las que ODM va a procesar de verdad (RGB + térmico +
+# multiespectral cuentan cada una su propio SfM), no una mezcla rara.
+_TOTAL_FOTOS=$(( ${RGB_COUNT:-0} + ${TH_COUNT:-0} + ${MS_COUNT:-0} * 4 ))
+echo ""
+python3 -c "
+import json, sys
+sys.path.insert(0, 'scripts')
+from hardware import estimate_message
+m = estimate_message($QUALITY, $_TOTAL_FOTOS)
+hw = m['hardware']
+print('🖥️  Hardware detectado: {} núcleos, {} — {}'.format(
+    hw['cores'],
+    f\"{hw['mem_available_mb']/1024:.0f} GB RAM libres\" if hw['mem_available_mb'] else 'RAM no detectada',
+    (hw['gpu_name'] or 'GPU disponible') if hw['gpu'] else 'sin GPU (corre en CPU)'))
+print('🎚️  ' + m['modelo_texto'])
+print('📐 ' + m['resolucion_texto'])
+print('⏱️  ' + m['tiempo_texto'])
+"
+echo ""
+
 echo "--- [1/5] Preparación (GPS de EXIF) ---"
 pipeline_header
 [[ "$RUN_RGB" -eq 1 ]] && make prepare-rgb
@@ -247,35 +297,27 @@ publish_partial() {
 # vuelca entero si el proceso falla, para no perder nunca un traceback.
 mkdir -p outputs/logs
 
-# ── Concurrencia acotada por MEMORIA ────────────────────────────────
+# ── Concurrencia acotada por MEMORIA (detección automática de hardware) ──
 # ODM documenta su propio consumo: "Peak memory requirement is ~1GB per thread
 # and 2 megapixel image resolution" (--max-concurrency), y por defecto usa TODOS
 # los núcleos. Escala con el tamaño de imagen, así que para un sensor de N MP el
 # pico por hilo es ~N/2 GB.
 #
-# La etapa crítica es el band alignment del multiespectral
-# (opendm/multispectral.py::compute_alignment_matrices): carga DOS imágenes
-# completas por hilo, y las bandas del M3M son 2592x1944 = 5 MP, o sea ~2.5 GB
-# por hilo. En una máquina de 20 núcleos eso pide ~50 GB. Cuando el kernel mata
-# el proceso con SIGKILL no hay excepción que loguear: el log simplemente
-# termina en seco a mitad de la etapa, sin ninguna pista.
+# Esto protegía originalmente solo al band alignment del multiespectral
+# (opendm/multispectral.py::compute_alignment_matrices, que carga DOS imágenes
+# completas por hilo — con las bandas del M3M a 5 MP, ~2.5 GB por hilo, y en
+# una máquina de 20 núcleos eso pedía ~50 GB con el kernel matando el proceso
+# sin dejar ninguna traza). Pero CUALQUIER etapa de ODM usa todos los núcleos
+# si no se le dice lo contrario — el mismo riesgo existe en RGB (fotos de
+# ~12 MP) y en térmico, así que ahora se acota a las tres.
 #
-# Se acota al 80% de la RAM DISPONIBLE (no la total: el resto del pipeline y el
-# propio contenedor también ocupan). Nunca sube por encima de los núcleos reales
-# ni baja de 1. MAX_CONCURRENCY lo fuerza a mano si hace falta.
+# La cuenta vive en scripts/hardware.py (única fuente — bash no puede hacer
+# esta aritmética con megapíxeles fraccionarios como los del sensor térmico,
+# 0.33 MP, sin arrastrar errores de redondeo). Delegar además la deja
+# reusable desde la webapp (Python) para el mismo mensaje de estimación de
+# tiempo que ve el usuario antes de arrancar.
 safe_concurrency() {
-  local megapixels="${1:-2}"
-  if [[ -n "${MAX_CONCURRENCY:-}" ]]; then echo "$MAX_CONCURRENCY"; return; fi
-  local cores avail_mb mb_per_thread n
-  cores=$(nproc 2>/dev/null || echo 4)
-  avail_mb=$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null)
-  [[ -z "$avail_mb" || "$avail_mb" -le 0 ]] && { echo "$cores"; return; }
-  mb_per_thread=$(( megapixels * 1024 / 2 ))
-  [[ "$mb_per_thread" -lt 512 ]] && mb_per_thread=512
-  n=$(( avail_mb * 8 / 10 / mb_per_thread ))
-  [[ "$n" -lt 1 ]] && n=1
-  [[ "$n" -gt "$cores" ]] && n=$cores
-  echo "$n"
+  python3 scripts/hardware.py concurrency "${1:-2}"
 }
 
 run_odm() {
@@ -313,10 +355,15 @@ if [[ "$SKIP_ODM" -eq 0 ]]; then
   if [[ "$RUN_RGB" -eq 1 ]]; then
     echo "--- [2/5] ODM RGB (SfM + DSM + ortofoto) ---"
     echo "    calidad ${QUALITY}% → pc-quality=${PC_QUALITY}, feature-quality=${FEAT_QUALITY}"
+    # 12.3 MP (fotos de 4056x3040 del H20T/M3T wide): concurrencia acotada por
+    # RAM con el mismo criterio que ya protegía al multiespectral.
+    RGB_CONCURRENCY=$(safe_concurrency 12.3)
+    echo "    concurrencia: ${RGB_CONCURRENCY} hilos (de $(nproc) núcleos, acotado por RAM disponible)"
     run_odm rgb rgb_odm \
       --feature-quality "$FEAT_QUALITY" --orthophoto-resolution "$ODM_RES_CM" \
       --dsm --dem-resolution "$ODM_RES_CM" --crop 0 --dem-gapfill-steps 3 \
       --min-num-features 12000 --matcher-neighbors 0 --pc-quality "$PC_QUALITY" \
+      --max-concurrency "$RGB_CONCURRENCY" \
       --skip-report --rerun-from dataset
     # Vista previa del mosaico RGB apenas ODM lo renderiza (~25 min), sin
     # esperar a que termine el resto de la corrida (~1 h).
@@ -334,10 +381,15 @@ if [[ "$SKIP_ODM" -eq 0 ]]; then
     # El sensor térmico es de 640x512, así que su GSD es ~10x más grueso que el
     # del RGB: pedir 1 cm no lo mejora (ODM recorta al GSD real igual) pero sí
     # evita fijar un número que quede corto en un vuelo más bajo.
+    # 0.33 MP (sensor térmico 640x512): con imágenes tan chicas el límite real
+    # casi siempre son los núcleos, no la RAM — igual se pasa por la misma
+    # cuenta para no dejar una etapa sin acotar por costumbre.
+    TH_CONCURRENCY=$(safe_concurrency 0.33)
     run_odm thermal thermal_native_odm \
       --feature-quality "$FEAT_QUALITY" --radiometric-calibration camera \
       --orthophoto-resolution "$ODM_RES_CM" --crop 0 \
       --min-num-features 8000 --matcher-neighbors 0 --pc-quality "$PC_QUALITY" \
+      --max-concurrency "$TH_CONCURRENCY" \
       --skip-report --rerun-from dataset
   fi
 

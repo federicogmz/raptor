@@ -44,6 +44,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.runner import PipelineRun, activate_mission, parse_progress_events
 from core.scan import RUNS_ROOT, sanitize_mission_name, scan_existing_runs
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+from hardware import estimate_message  # noqa: E402 — mensaje de calidad del formulario
+
 APP_DIR = Path(os.environ.get("RAPTOR_APP_DIR", "/app"))
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 GEOVISOR_DIR = APP_DIR / "geovisor"
@@ -622,6 +625,32 @@ def check_export(mission: str, export_dir: str = Form(""), export_epsg: str = Fo
     return {"ok": not errors, "errors": errors, "resolved": resolved, "crs_name": nombre}
 
 
+@app.get("/api/missions/{mission}/quality-estimate")
+def quality_estimate(mission: str, quality: int = 75, mode: str = "rgb+thermal",
+                     has_multispectral: bool = False):
+    """A qué resolución van a salir los productos y cuánto se espera que
+    tarde, para el slider de calidad del formulario — mismo cálculo que ve
+    `./raptor run` antes de arrancar (scripts/hardware.py, fuente única) y que
+    corre después de verdad en docker/entrypoint.sh.
+
+    n_photos sale de lo que YA está subido para esta misión: no hace falta
+    arrancar nada para saber cuántas fotos va a procesar ODM."""
+    quality = max(0, min(100, quality))
+    _safe, mission_dir = _mission_dir(mission)
+    uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k))
+               for k in UPLOAD_KINDS}
+    n_photos = 0
+    if mode != "none":
+        n_photos += uploads["rgb_thermal"]["rgb"]
+        if mode == "rgb+thermal":
+            n_photos += uploads["rgb_thermal"]["thermal"]
+    if has_multispectral:
+        # classify_files ya cuenta TIFs individuales (una banda = un archivo),
+        # así que esto ya es "4 por captura" sin multiplicar de nuevo.
+        n_photos += uploads["multispectral"]["ms"]
+    return estimate_message(quality, n_photos)
+
+
 @app.post("/api/missions/{mission}/validate")
 def validate_mission(mission: str, mode: str = Form(...), has_multispectral: bool = Form(False)):
     _safe, mission_dir = _mission_dir(mission)
@@ -636,6 +665,7 @@ def validate_mission(mission: str, mode: str = Form(...), has_multispectral: boo
 async def start_mission(mission: str, mode: str = Form(...),
                         has_multispectral: bool = Form(False),
                         reuse_odm: bool = Form(False),
+                        quality: int = Form(75),
                         export_dir: str = Form(""),
                         export_products: str = Form(""),
                         export_raster_format: str = Form("cog"),
@@ -654,6 +684,8 @@ async def start_mission(mission: str, mode: str = Form(...),
         export_raster_format.strip().lower(), export_vector_format.strip().lower(),
         export_epsg)
     errors += export_errors
+    if not (0 <= quality <= 100):
+        errors.append(f"La calidad tiene que ser 0-100 (recibida: {quality}).")
     if errors:
         raise HTTPException(400, " ".join(errors))
 
@@ -668,7 +700,7 @@ async def start_mission(mission: str, mode: str = Form(...),
     run_obj = PipelineRun(
         mode=mode, source_dir=source_dir, ms_source_dir=ms_source_dir,
         skip_odm=reuse_odm, port=8080, progress_file=progress_file,
-        export=export_env,
+        export=export_env, quality=quality,
     )
     await run_obj.start()
     _state = RunState(safe, mission_dir, run_obj, mode, has_multispectral)
