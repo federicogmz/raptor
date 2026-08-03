@@ -1606,9 +1606,18 @@ function wrapCanvasText(ctx,text,x,y,maxWidth,lineHeight,maxLines){
   return lines.length*lineHeight;
 }
 function buildRecommendationText(s){
-  if(!s)return 'Esta misión no tiene datos de impacto (multiespectral+térmico) para resumir.';
-  return `${s.hotspots_activos} foco${s.hotspots_activos===1?'':'s'} térmico${s.hotspots_activos===1?'':'s'} `+
-    `activo${s.hotspots_activos===1?'':'s'}, severidad dominante ${s.severidad.dominante}. `+
+  if(!s)return 'Esta misión no tiene datos de impacto (multiespectral+térmico, o térmico solo) para resumir.';
+  const focos=`${s.hotspots_activos} foco${s.hotspots_activos===1?'':'s'} térmico${s.hotspots_activos===1?'':'s'} `+
+    `activo${s.hotspots_activos===1?'':'s'}`;
+  if(s.solo_termico){
+    // Sin multiespectral no hay severidad/área que reportar (ver
+    // detect_area_afectada.py: su señal primaria es NDVI) — el resumen se
+    // recorta a lo único que el térmico solo puede decir.
+    const pico=s.hotspots.length?`, pico ${s.hotspots[0].temp_c}°C`:'';
+    return `${focos}${pico}. Confianza del dato: ${s.confianza}. `+
+      'Esta misión no tiene multiespectral: agregalo para habilitar área afectada y severidad.';
+  }
+  return `${focos}, severidad dominante ${s.severidad.dominante}. `+
     `Confianza del dato: ${s.confianza}.`+
     (s.severidad.severo_pct>0?' Se recomienda priorizar verificación en terreno en las zonas de severidad alta.':'');
 }
@@ -1703,11 +1712,15 @@ async function buildReportCanvas(){
   // ── Fila de métricas: 3 tarjetas reales, no columnas separadas por líneas ──
   const statsY=headY+HEADER_H;
   ctx.fillStyle=surface;ctx.fillRect(0,statsY,mapW,STATS_H);
-  const stats=s?[
+  const stats=!s?[['—','','Sin datos de impacto',inkMuted,surface2]]
+    :s.solo_termico?[
+      [`${s.hotspots_activos}`,'','Focos activos',s.hotspots_activos>0?critical:ink,s.hotspots_activos>0?criticalSoft:surface2],
+      ['Sin MS','','Área y severidad',inkMuted,surface2],
+    ]:[
     [`${s.area_ha}`,'ha','Área afectada',ink,surface2],
     [`${s.hotspots_activos}`,'','Focos activos',s.hotspots_activos>0?critical:ink,s.hotspots_activos>0?criticalSoft:surface2],
     [sevLabel,'','Severidad dominante',sevColor,sevSoft],
-  ]:[['—','','Sin datos de impacto',inkMuted,surface2]];
+  ];
   const gap=12, cardW=(mapW-PAD*2-gap*(stats.length-1))/stats.length, cardH=STATS_H-24;
   stats.forEach(([val,unit,lbl,color,soft],i)=>{
     const cx0=PAD+i*(cardW+gap), cy0=statsY+12;
@@ -2007,21 +2020,27 @@ async function renderSummaryCards(){
   if(!s){
     grid.innerHTML=`<div class="stat-card" style="grid-column:1/-1">
       <div class="l">Sin datos de impacto todavía</div>
-      <div class="sub">Esta misión no tiene multiespectral+térmico, o la corrida no llegó a esa etapa.</div>
+      <div class="sub">Esta misión no tiene ni multiespectral+térmico ni térmico solo, o la corrida no llegó a esa etapa.</div>
     </div>`;
     return;
   }
-  const dom={leve:'Leve',moderado:'Moderada',severo:'Severa'}[s.severidad.dominante]||'—';
-  grid.innerHTML=`
+  // Cards que necesitan multiespectral (NDVI es la señal primaria del área
+  // afectada — ver detect_area_afectada.py): vacías con s.solo_termico=true.
+  // No se ocultan sin explicación (mismo criterio que addMsCtaHTML() en el
+  // panel de Capas): se muestra el estado y el botón para agregar el vuelo.
+  const impactoCards=s.solo_termico?`
+    <div class="stat-card" style="grid-column:1/-1">
+      <div class="l">Área afectada, severidad y vegetación</div>
+      <div class="sub">Esta misión no tiene vuelo multiespectral (M3M) — esas tres cifras salen de NDVI, que
+        el térmico solo no puede calcular.</div>
+      ${urlMission?`<a class="btn primary sm" style="margin-top:8px" href="/?mission=${encodeURIComponent(urlMission)}&addms=1">➕ Agregar vuelo multiespectral</a>`:''}
+    </div>` : (()=>{
+      const dom={leve:'Leve',moderado:'Moderada',severo:'Severa'}[s.severidad.dominante]||'—';
+      return `
     <div class="stat-card">
       <div class="l">Área afectada</div>
       <div class="v tabnum">${s.area_ha} <small>ha</small></div>
       ${severityMiniBar(s.severidad)}
-    </div>
-    <div class="stat-card hotspots">
-      <div class="l">Focos térmicos activos</div>
-      <div class="v tabnum">${s.hotspots_activos}</div>
-      <div class="sub">${s.hotspots_activos>0?'Riesgo de reactivación':'Ninguno detectado'}</div>
     </div>
     <div class="stat-card severidad">
       <div class="l">Severidad dominante</div>
@@ -2037,7 +2056,15 @@ async function renderSummaryCards(){
            ortofoto. El texto anterior ("del área analizada") no lo decía
            con claridad. -->
       <div class="sub">Del área afectada</div>
+    </div>`;})();
+  grid.innerHTML=`
+    <div class="stat-card hotspots">
+      <div class="l">Focos térmicos activos</div>
+      <div class="v tabnum">${s.hotspots_activos}</div>
+      <div class="sub">${s.hotspots_activos>0?'Riesgo de reactivación':'Ninguno detectado'}${
+        s.solo_termico&&s.hotspots.length?' · '+s.hotspots[0].temp_c+'°C pico':''}</div>
     </div>
+    ${impactoCards}
     <div class="stat-card">
       <div class="l">Última captura</div>
       <div class="v" style="font-size:var(--fs-md)">${fmtFechaCorta(s.captura)}</div>
@@ -2048,7 +2075,7 @@ async function renderSummaryCards(){
       <div class="v" style="font-size:var(--fs-md);display:flex;align-items:center;gap:8px;text-transform:capitalize">
         ${s.confianza} <span class="confidence-ticks" data-level="${s.confianza}" aria-hidden="true"><i></i><i></i><i></i></span>
       </div>
-      <div class="sub">Cobertura de dato dentro del área</div>
+      <div class="sub">${s.solo_termico?'Cobertura de dato en todo el ortomosaico térmico':'Cobertura de dato dentro del área'}</div>
     </div>`;
 }
 
@@ -2335,16 +2362,18 @@ async function openReport(){
     const mission=await missionReady;
     document.getElementById('report-sub').textContent=
       `${displayName(mission||'')} — ${s?fmtFecha(s.captura):'sin datos de impacto'}`;
-    document.getElementById('report-stats').innerHTML=s?`
-      <div class="card"><div class="v tabnum">${s.area_ha} ha</div><div class="l">Área afectada</div></div>
+    document.getElementById('report-stats').innerHTML=!s
+      ? `<div class="card" style="grid-column:1/-1"><div class="l">Sin datos de impacto — esta misión no tiene ni multiespectral+térmico ni térmico solo</div></div>`
+      : s.solo_termico
+      ? `<div class="card"><div class="v tabnum">${s.hotspots_activos}</div><div class="l">Focos activos</div></div>
+         <div class="card" style="grid-column:span 2"><div class="l">Sin multiespectral: no hay área afectada ni severidad para mostrar</div></div>`
+      : `<div class="card"><div class="v tabnum">${s.area_ha} ha</div><div class="l">Área afectada</div></div>
       <div class="card"><div class="v tabnum">${s.hotspots_activos}</div><div class="l">Focos activos</div></div>
-      <div class="card"><div class="v" style="text-transform:capitalize">${s.severidad.dominante}</div><div class="l">Severidad</div></div>`
-      : `<div class="card" style="grid-column:1/-1"><div class="l">Sin datos de impacto — esta misión no tiene multiespectral+térmico</div></div>`;
-    document.getElementById('report-text').textContent=s
-      ? `${s.hotspots_activos} foco${s.hotspots_activos===1?'':'s'} térmico${s.hotspots_activos===1?'':'s'} activo${s.hotspots_activos===1?'':'s'}, `+
-        `severidad dominante ${s.severidad.dominante}. Confianza del dato: ${s.confianza}.`+
-        (s.severidad.severo_pct>0?' Se recomienda priorizar verificación en terreno en las zonas de severidad alta.':'')
-      : '';
+      <div class="card"><div class="v" style="text-transform:capitalize">${s.severidad.dominante}</div><div class="l">Severidad</div></div>`;
+    // Mismo texto que graba la imagen exportada (buildReportCanvas ->
+    // buildRecommendationText) — antes esto lo duplicaba a mano acá y
+    // crasheaba en s.severidad.dominante para una misión solo-térmico.
+    document.getElementById('report-text').textContent=buildRecommendationText(s);
   }catch(e){
     document.getElementById('report-sub').textContent='No se pudieron cargar los datos de la misión.';
   }
