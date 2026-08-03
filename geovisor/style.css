@@ -473,6 +473,12 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
   letter-spacing:.07em;font-weight:700;margin:0 0 7px 2px;display:flex;align-items:center;gap:7px}
 .layer-group-title::after{content:'';flex:1;height:1px;background:var(--line)}
 .layer-list{display:flex;flex-direction:column;gap:7px}
+/* CTA "agregar multiespectral" cuando un grupo de capas está vacío por falta
+   de ese vuelo (no porque no haya nada que mostrar) — ver addMsCtaHTML() */
+.addms-cta{background:var(--surface-2);border:1px solid var(--line);border-radius:9px;
+  padding:12px}
+.addms-cta p{margin:0 0 10px;font-size:.85em;color:var(--ink-muted);line-height:1.5}
+.addms-cta a.btn{text-decoration:none;width:100%;justify-content:center}
 .layer-card{background:var(--surface-2);border:1px solid var(--line);border-radius:9px;
   padding:9px 11px;user-select:none;transition:border-color .15s}
 .layer-card.filtered-out{display:none}

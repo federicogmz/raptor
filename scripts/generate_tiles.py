@@ -358,11 +358,21 @@ def make_hillshade(src_dsm, dst_hs):
     print(f"  Hillshade: {dst_hs} ({os.path.getsize(dst_hs)/(1024*1024):.0f} MB)")
 
 
+# Capas cuyo LAYER_REGISTRY del geovisor las registra SIN condición propia
+# (a diferencia de los índices continuos, las bandas MS o el área afectada,
+# que ya se gatean solos por bounds.json/fetch): antes de esto, una misión
+# sin multiespectral igual ofrecía en el panel "Severidad", "Hotspot" y los 4
+# índices clasificados, con tiles que no existen — confuso, y en el caso de
+# rgb/thermal, un panel que promete un sensor que la misión ni siquiera voló.
+# Se registra acá cuáles existen DE VERDAD para que app.js registre solo esas.
+capas_disponibles = []
+
 # RGB
 print("=== RGB Tiles ===")
 if os.path.exists(RGB_IN):
     tile_layer(RGB_IN, os.path.join(TILES_DIR, "rgb"),
                lambda t: to_8bit(RGB_IN, t, bands=3))
+    capas_disponibles.append("rgb")
 else:
     print(f"  ⚠ {RGB_IN} no existe, omitiendo")
 
@@ -371,6 +381,7 @@ print("\n=== Thermal Tiles ===")
 if os.path.exists(THERMAL_IN):
     tile_layer(THERMAL_IN, os.path.join(TILES_DIR, "thermal"),
                lambda t: to_8bit(THERMAL_IN, t, bands=1, clip_range=THERMAL_CLIP))
+    capas_disponibles.append("thermal")
 else:
     print(f"  ⚠ {THERMAL_IN} no existe, omitiendo")
 
@@ -379,6 +390,7 @@ print("\n=== Hillshade Tiles (DSM) ===")
 if os.path.exists(DSM_IN):
     tile_layer(DSM_IN, os.path.join(TILES_DIR, "hillshade"),
                lambda t: make_hillshade(DSM_IN, t))
+    capas_disponibles.append("hillshade")
 else:
     print(f"  ⚠ {DSM_IN} no existe, omitiendo")
 
@@ -435,6 +447,7 @@ for name, path in [("severidad", "outputs/severidad_class.tif"),
         print(f"  ⚠ {path} no existe, omitiendo")
         continue
     tile_layer(path, os.path.join(TILES_DIR, name), resampling="near")
+    capas_disponibles.append(name)
 
 # Centro real (lat/lon WGS84) para que el geovisor abra sobre los datos de
 # ESTA misión en vez de un centro hardcodeado de una misión anterior — cada
@@ -470,6 +483,13 @@ if os.path.exists(src_for_center):
         json.dump({"center": [lat, lon], "zoom": 17,
                     "thermal_range": [THERMAL_CLIP[0], THERMAL_CLIP[1]],
                     "resolucion_cm": resoluciones,
+                    # Qué capas se tesela DE VERDAD en esta misión — de acá lee
+                    # el geovisor para no ofrecer en el panel "Severidad",
+                    # "Hotspot" o los índices clasificados cuando no hay
+                    # multiespectral (o "Térmico" cuando no hubo vuelo H20T):
+                    # antes esas entradas del panel eran incondicionales y
+                    # prometían una capa sin tiles detrás.
+                    "capas_disponibles": capas_disponibles,
                     "index_ranges": {k: [v[0], v[1]] for k, v in index_ranges.items()},
                     "ms_band_ranges": {k: [v[0], v[1]] for k, v in ms_band_ranges.items()}}, f)
     print(f"  centro: [{lat:.5f}, {lon:.5f}] -> {TILES_DIR}/bounds.json")

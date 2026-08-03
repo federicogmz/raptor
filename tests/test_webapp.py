@@ -200,6 +200,64 @@ class TestLogEnDisco:
         assert c.get("/api/missions/inexistente/log").status_code == 404
 
 
+class TestAgregarSensorYReusarOdm:
+    """SKIP_ODM en docker/entrypoint.sh es un interruptor GLOBAL: salta las
+    TRES reconstrucciones ODM a la vez, no sensor por sensor. Agregar un vuelo
+    multiespectral a una misión que ya tenía RGB+térmico y pedir 'reusar'
+    saltearía también la reconstrucción MS que nunca existió — el pipeline
+    seguiría con datos de impacto vacíos, y el primer error visible saldría
+    recién en detect_area_afectada.py, sin mencionar la causa real."""
+
+    def _con_processing(self, runs, mision, *sensores):
+        d = runs / mision / "processing"
+        for s, sub in (("rgb", "rgb_odm"), ("thermal", "thermal_native_odm"),
+                      ("multispectral", "multispectral_odm")):
+            if s in sensores:
+                p = d / sub / "opensfm"
+                p.mkdir(parents=True)
+                (p / "reconstruction.json").write_text("[]")
+
+    def test_rechaza_reusar_si_el_sensor_nuevo_nunca_se_reconstruyo(self, app):
+        c, M, runs, montaje = app
+        self._con_processing(runs, "m7", "rgb", "thermal")   # MS nunca corrió
+        d = runs / "m7" / "raw" / "rgb_thermal"; d.mkdir(parents=True)
+        (d / "a_V.JPG").write_text("x")
+        r = c.post("/api/missions/m7/start", data={
+            "mode": "rgb+thermal", "has_multispectral": "true", "reuse_odm": "true"})
+        assert r.status_code == 400
+        assert "multiespectral" in r.json()["detail"]
+        assert M._state is None
+
+    # El resto se prueba directo sobre _validate_reuse_odm(), sin pasar por
+    # /start: llegar al camino de ÉXITO del endpoint dispara activate_mission()
+    # de verdad, que reemplaza /app/{processing,outputs,...} por symlinks — en
+    # el contenedor de test eso es el repo real montado (`docker run -v
+    # $PWD:/app ...`), no un tmp_path aislado. Ningún otro test de este archivo
+    # llega tan lejos por el mismo motivo; la función de validación en sí no
+    # tiene ese problema (no toca disco más que leer reconstruction.json).
+    def test_acepta_reusar_si_todos_los_sensores_pedidos_ya_existen(self, app):
+        c, M, runs, montaje = app
+        self._con_processing(runs, "m8", "rgb", "thermal")
+        assert M._validate_reuse_odm(runs / "m8", "rgb+thermal", False, True) == []
+
+    def test_reusar_sin_pedirlo_no_valida_nada(self, app):
+        c, M, runs, montaje = app
+        # Ninguna reconstrucción previa Y reuse_odm=False: no debe quejarse,
+        # porque no se pidió reusar nada.
+        assert M._validate_reuse_odm(runs / "m9", "rgb", True, False) == []
+
+    def test_multiespectral_agregado_sin_reconstruir_se_detecta(self, app):
+        c, M, runs, montaje = app
+        self._con_processing(runs, "m10", "rgb", "thermal")
+        errs = M._validate_reuse_odm(runs / "m10", "rgb+thermal", True, True)
+        assert errs and "multiespectral" in errs[0]
+
+    def test_mode_none_no_exige_rgb_ni_termico(self, app):
+        c, M, runs, montaje = app
+        self._con_processing(runs, "m11", "multispectral")
+        assert M._validate_reuse_odm(runs / "m11", "none", True, True) == []
+
+
 class TestGuardasDeMisionActiva:
     def test_no_se_reapunta_una_mision_mientras_otra_corre(self, app):
         """activate_mission() mueve symlinks GLOBALES del contenedor: abrir

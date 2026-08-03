@@ -936,7 +936,23 @@ async function uploadAndStart(){
   }
 }
 
-showLanding();
+// Entrada directa a "agregar multiespectral" desde el geovisor: una misión
+// sin datos MS no puede mostrar área afectada/severidad/hotspot-recortado/
+// índices (necesitan NDVI), y el geovisor linkea acá en vez de dejar esas
+// capas mudas sin explicación — ver el botón "➕ Agregar vuelo multiespectral"
+// en geovisor/index.html.
+(function abrirDesdeGeovisor(){
+  const p = new URLSearchParams(location.search);
+  const mision = p.get('mission');
+  if(!mision) { showLanding(); return; }
+  openSetup(mision).then(()=>{
+    if(p.get('addms') === '1'){
+      sensors.ms = true;
+      refreshUI();
+      document.getElementById('dz-ms')?.scrollIntoView({behavior:'smooth', block:'center'});
+    }
+  });
+})();
 </script>
 </body>
 </html>

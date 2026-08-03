@@ -396,6 +396,33 @@ def _odm_projects(mission_dir: Path):
     return found
 
 
+def _validate_reuse_odm(mission_dir, mode, has_multispectral, reuse_odm):
+    """"Reusar lo ya reconstruido" (SKIP_ODM=1) es un interruptor GLOBAL en
+    docker/entrypoint.sh: salta las TRES reconstrucciones ODM a la vez, no
+    sensor por sensor. Si se pide reusar pero algún sensor de ESTA corrida
+    nunca se reconstruyó en esta misión —el caso típico: agregar un vuelo
+    multiespectral a una misión que ya tenía RGB+térmico— esa reconstrucción
+    nueva quedaría salteada igual, y la misión sigue con procesamiento
+    incompleto sin ningún error claro (detect_area_afectada.py recién
+    fallaría más adelante, con un mensaje que no menciona el sensor real)."""
+    if not reuse_odm:
+        return []
+    odm_prev = _odm_projects(mission_dir)
+    faltantes = []
+    if mode != "none" and not odm_prev["rgb"]:
+        faltantes.append("RGB")
+    if mode == "rgb+thermal" and not odm_prev["thermal"]:
+        faltantes.append("térmico")
+    if has_multispectral and not odm_prev["multispectral"]:
+        faltantes.append("multiespectral")
+    if not faltantes:
+        return []
+    return [f"Pediste reusar reconstrucciones ODM, pero {' y '.join(faltantes)} "
+            f"nunca se reconstruyó en esta misión — no hay nada que reusar ahí. "
+            "Elegí «Empezar de cero» (reconstruye lo nuevo; lo que ya existe, "
+            "ODM lo retoma solo y no lo rehace de cero)."]
+
+
 # ── Landing + páginas estáticas de la webapp (no confundir con geovisor/) ──
 @app.get("/", response_class=HTMLResponse)
 def index():
@@ -679,6 +706,7 @@ async def start_mission(mission: str, mode: str = Form(...),
     uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k))
                for k in UPLOAD_KINDS}
     errors = _validate(mode, has_multispectral, uploads)
+    errors += _validate_reuse_odm(mission_dir, mode, has_multispectral, reuse_odm)
     export_errors, export_env = _validate_export(
         mission_dir, export_dir.strip(), _parse_products(export_products),
         export_raster_format.strip().lower(), export_vector_format.strip().lower(),
