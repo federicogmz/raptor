@@ -224,7 +224,12 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
   border:1px solid var(--line)!important}
 .leaflet-control-scale-line{background:var(--surface)!important;color:var(--ink)!important;
   border:1.5px solid var(--ink)!important;border-top:none!important;font-family:var(--font);
-  font-size:.7em;padding:1px 6px}
+  font-size:.7em;padding:1px 6px;
+  /* leaflet.css trae text-shadow:1px 1px #fff de fábrica (pensado para texto
+     oscuro sobre mapa satelital claro) y esta regla no lo pisaba. En tema
+     oscuro el texto (--ink, claro) queda con un halo casi del mismo tono
+     desplazado 1px — se ve como el número "duplicado y borroso". */
+  text-shadow:none!important}
 .map-extra-control{background:var(--surface);width:30px;height:30px;display:flex;
   align-items:center;justify-content:center;font-size:1em;color:var(--ink-muted)}
 .map-extra-control:hover{background:var(--surface-2);color:var(--accent)}
