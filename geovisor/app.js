@@ -75,6 +75,11 @@ let THERMAL_MIN=15,THERMAL_MAX=55;   // fallback (vuelo original, rango amplio)
 let INDEX_RANGES={};   // {} si la misión no tiene datos multiespectrales (M3M)
 let MS_BAND_RANGES={};  // {} si la misión no tiene datos multiespectrales (M3M)
 let RESOLUCION_CM=null; // cm/px MEDIDOS por producto (bounds.json)
+// Qué capas TIENEN tiles de verdad (generate_tiles.py, campo capas_disponibles
+// de bounds.json) — de acá salen severidad/hotspot/índices clasificados: antes
+// se registraban sin condición y el panel ofrecía capas de una misión sin
+// multiespectral (o sin térmico) que no tenían ningún tile detrás.
+let CAPAS_DISPONIBLES=new Set();
 // `preliminary` lo escribe export_flight_path.py cuando la corrida TODAVÍA
 // está en curso y lo único que hay es la ruta de vuelo: el visor se abre
 // igual (sirve desde el minuto uno) pero sabe que faltan productos y avisa
@@ -98,6 +103,7 @@ try{
     if(b.index_ranges)INDEX_RANGES=b.index_ranges;
     if(b.ms_band_ranges)MS_BAND_RANGES=b.ms_band_ranges;
     if(b.resolucion_cm)RESOLUCION_CM=b.resolucion_cm;
+    if(b.capas_disponibles)CAPAS_DISPONIBLES=new Set(b.capas_disponibles);
     PRELIMINARY=!!b.preliminary;
   }
 }catch(e){}
@@ -359,12 +365,40 @@ function classLegend(classes){
     `<div class="stat-row"><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:${color};margin-right:6px;vertical-align:middle"></span><span class="lbl">${label}</span></div>`
   ).join('')}</div>`;
 }
-LAYER_REGISTRY.severidad={label:'🔥 Severidad',group:'impacto',layer:severidadLayer,defaultOn:false,defaultOpacity:.85,
-  legend:()=>`<p>Severidad relativa al vigor de vegetación sana de esta misma misión (z-score robusto de brillo multiespectral — se autocalibra a cada vuelo, no un umbral fijo). Cortes en 1/2/3 sigma (regla empírica 68-95-99.7 de control estadístico de procesos). Recortado al polígono de área afectada — el verde NO significa "fuera del incendio" (eso ya se recortó), significa terreno DENTRO del perímetro sin anomalía espectral: islas reales sin quemar (roca, claro, vegetación húmeda) o huecos que el detector rellena al cerrar el contorno.</p>`+
-    classLegend([['#228B22','Isla no quemada (&lt;1σ)'],['#FFEB3B','Leve (1-2σ)'],['#FF9800','Moderado (2-3σ)'],['#D32F2F','Severo (≥3σ)']])},
-LAYER_REGISTRY.hotspot_termico={label:'♨️ Hotspot térmico',group:'impacto',layer:hotspotLayer,defaultOn:false,defaultOpacity:.85,
-  legend:()=>`<p>Temperatura ABSOLUTA (no anomalía relativa — un umbral relativo da falsos positivos en suelo/cultivo calentado por el sol). El corte de "foco activo" (88°C/190°F) es el umbral operacional citado en literatura de detección de hotspots con drones para "fuego activo bajo superficie". Uso operacional: riesgo de reactivación / mop-up, distinto de la severidad de daño.</p>`+
-    classLegend([['#2196F3','Normal (&lt;40°C)'],['#FFEB3B','Elevado (40-60°C)'],['#FF9800','Caliente (60-88°C)'],['#C62828','Foco activo (≥88°C)']])};
+// severidad/hotspot_termico/*_class: el objeto Layer de Leaflet se crea SIEMPRE
+// (su pane ya existe desde el layerOrder.forEach de arriba, no cuesta nada),
+// pero la entrada en LAYER_REGISTRY —lo que hace que aparezcan en el panel de
+// Capas— se registra SOLO si bounds.json dice que hay tiles de verdad
+// (CAPAS_DISPONIBLES, ver generate_tiles.py). Antes se registraban sin
+// condición: una misión sin multiespectral (o sin térmico) igual ofrecía
+// "Severidad", "Hotspot" y los 4 índices clasificados con tiles inexistentes.
+// registerSeveridad()/registerHotspot()/registerIndexClass() se llaman una vez
+// al cargar la página (para lo que ya está listo) y de nuevo en
+// pollBoundsForChanges() (para lo que aparece mientras la misión sigue
+// procesándose) — mismo patrón que registerIndexLayer()/registerMsComposite().
+function registerSeveridad(){
+  if(LAYER_REGISTRY.severidad||!CAPAS_DISPONIBLES.has('severidad'))return false;
+  LAYER_REGISTRY.severidad={label:'🔥 Severidad',group:'impacto',layer:severidadLayer,defaultOn:false,defaultOpacity:.85,
+    legend:()=>`<p>Severidad relativa al vigor de vegetación sana de esta misma misión (z-score robusto de brillo multiespectral — se autocalibra a cada vuelo, no un umbral fijo). Cortes en 1/2/3 sigma (regla empírica 68-95-99.7 de control estadístico de procesos). Recortado al polígono de área afectada — el verde NO significa "fuera del incendio" (eso ya se recortó), significa terreno DENTRO del perímetro sin anomalía espectral: islas reales sin quemar (roca, claro, vegetación húmeda) o huecos que el detector rellena al cerrar el contorno.</p>`+
+      classLegend([['#228B22','Isla no quemada (&lt;1σ)'],['#FFEB3B','Leve (1-2σ)'],['#FF9800','Moderado (2-3σ)'],['#D32F2F','Severo (≥3σ)']])};
+  return true;
+}
+function registerHotspot(){
+  if(LAYER_REGISTRY.hotspot_termico||!CAPAS_DISPONIBLES.has('hotspot_termico'))return false;
+  LAYER_REGISTRY.hotspot_termico={label:'♨️ Hotspot térmico',group:'impacto',layer:hotspotLayer,defaultOn:false,defaultOpacity:.85,
+    // "recortado" se evalúa DENTRO de la leyenda (no al registrar): esta
+    // función puede llamarse ANTES de que se declare `let liveMsBandIds` más
+    // abajo en el archivo (el registro inicial corre en la misma pasada de
+    // carga), así que leerla acá adentro —recién cuando el usuario abre la
+    // leyenda, bien después de que el script terminó de evaluarse— evita
+    // referenciarla antes de tiempo y de paso muestra el estado ACTUAL, no el
+    // de cuando se registró (el multiespectral puede seguir procesándose).
+    legend:()=>{const recortado=liveMsBandIds.length>0;
+      return `<p>Temperatura ABSOLUTA (no anomalía relativa — un umbral relativo da falsos positivos en suelo/cultivo calentado por el sol). El corte de "foco activo" (88°C/190°F) es el umbral operacional citado en literatura de detección de hotspots con drones para "fuego activo bajo superficie". Uso operacional: riesgo de reactivación / mop-up, distinto de la severidad de daño.</p>
+      <p>${recortado?'Recortado al polígono de área afectada detectado.':'Esta misión no tiene multiespectral: se muestra sobre <b>toda</b> la cobertura térmica, sin recortar a ningún polígono.'}</p>`+
+      classLegend([['#2196F3','Normal (&lt;40°C)'],['#FFEB3B','Elevado (40-60°C)'],['#FF9800','Caliente (60-88°C)'],['#C62828','Foco activo (≥88°C)']]);}};
+  return true;
+}
 
 const INDEX_CLASS_LUTS={
   ndvi_class:buildDiscreteLUT({0:[0,0,0,0],1:[141,110,99,255],2:[255,235,59,255],3:[76,175,80,255]}),
@@ -381,10 +415,17 @@ const INDEX_CLASS_DEFS={
 const indexClassLayers={};
 Object.keys(INDEX_CLASS_DEFS).forEach(name=>{
   indexClassLayers[name]=new ClassGrid({layerName:name,lut:INDEX_CLASS_LUTS[name],maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:.85,pane:'pane-'+name});
+});
+function registerIndexClass(name){
+  if(LAYER_REGISTRY[name]||!CAPAS_DISPONIBLES.has(name))return false;
   const def=INDEX_CLASS_DEFS[name];
   LAYER_REGISTRY[name]={label:def.label,group:'indices',layer:indexClassLayers[name],defaultOn:false,defaultOpacity:.85,
     legend:()=>`<p>${def.desc}</p>`+classLegend(def.classes)};
-});
+  return true;
+}
+registerSeveridad();
+registerHotspot();
+Object.keys(INDEX_CLASS_DEFS).forEach(registerIndexClass);
 
 // ═══════════════════════════════════════════════════════════════════
 // Polígono del área afectada (detect_area_afectada.py) — capa vectorial
@@ -838,11 +879,34 @@ function layerCardHTML(id){
     <div class="layer-legend-body" data-id="${id}">${def.legend()}</div>
   </div>`;
 }
+// Grupo vacío porque a esta misión le falta el vuelo multiespectral (no
+// porque no haya nada que mostrar): en vez de que la sección desaparezca sin
+// explicación, se ofrece la vía directa para agregarlo — NDVI es la señal
+// primaria de la que salen el polígono de área afectada, la severidad y estos
+// índices (ver detect_area_afectada.py); el hotspot térmico NO depende de
+// esto y ya se muestra sin multiespectral (scripts/compute_thermal_hotspot.py).
+function addMsCtaHTML(titulo, detalle){
+  if(!urlMission)return'';
+  const href=`/?mission=${encodeURIComponent(urlMission)}&addms=1`;
+  return `<div class="layer-group" data-group="addms-cta">
+    <div class="layer-group-title">${titulo}</div>
+    <div class="addms-cta"><p>${detalle}</p>
+      <a class="btn primary sm" href="${href}">➕ Agregar vuelo multiespectral</a></div>
+  </div>`;
+}
 function layersPanelHTML(){
   let html=basePickerHTML();
   GROUP_ORDER.forEach(group=>{
     const ids=layerOrder.filter(id=>LAYER_REGISTRY[id]&&LAYER_REGISTRY[id].group===group);
-    if(ids.length===0)return;
+    if(ids.length===0){
+      if(group==='indices'&&!MS_BAND_IDS.length)
+        html+=addMsCtaHTML('🌿 Índices de vegetación',
+          'Esta misión no tiene vuelo multiespectral (M3M) todavía — sin él no hay NDVI/GNDVI/NDRE/MSAVI2 que mostrar.');
+      else if(group==='impacto'&&!MS_BAND_IDS.length&&!CAPAS_DISPONIBLES.has('hotspot_termico'))
+        html+=addMsCtaHTML('🔥 Área afectada y severidad',
+          'Sin multiespectral no hay NDVI, y el polígono de área afectada y la severidad se calculan a partir de esa señal — agregalo para habilitar la medición automática de área y las métricas de impacto.');
+      return;
+    }
     html+=`<div class="layer-group" data-group="${group}">
       <div class="layer-group-title">${GROUP_LABELS[group]}</div>
       <div class="layer-list" data-group="${group}">${ids.map(layerCardHTML).join('')}</div>
@@ -1134,12 +1198,19 @@ async function pollBoundsForChanges(){
       liveMsBandIds=Object.keys(MS_BAND_RANGES);
       if(registerMsComposite())added=true;
     }
+    if(b.capas_disponibles){
+      CAPAS_DISPONIBLES=new Set(b.capas_disponibles);
+      if(registerSeveridad())added=true;
+      if(registerHotspot())added=true;
+      Object.keys(INDEX_CLASS_DEFS).forEach(n=>{if(registerIndexClass(n))added=true;});
+    }
     if(await tryLoadFlightPath())added=true;
     if(await tryLoadAreaAfectada())added=true;
     if(added)renderCapasPanel();
     // Redibuja TODAS las capas ráster ya registradas: sus tiles pueden haber
-    // aparecido recién (RGB/térmico/hillshade/severidad/hotspot/clasificados
-    // están registrados desde el arranque, solo esperaban esto).
+    // mejorado (rgb/thermal/hillshade están registrados desde el arranque,
+    // sin depender de capas_disponibles, así que un producto preliminar puede
+    // haberse reemplazado por el final entre una pasada y la siguiente).
     Object.values(LAYER_REGISTRY).forEach(d=>{ if(d.layer.redraw)d.layer.redraw(); });
     // Modo simple: situation.json aparece recién en la etapa de severidad
     // (bastante después que bounds.json cambie por primera vez) — se
