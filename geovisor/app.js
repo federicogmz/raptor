@@ -3,11 +3,11 @@
 // ═══════════════════════════════════════════════════════════════════
 // Única paleta térmica: Ironbow (negro→púrpura→rojo→naranja→amarillo→
 // blanco = frío→caliente). Es el estándar de facto en cámaras térmicas
-// FLIR — quien responde a incendios ya la reconoce de su propio equipo de
+// FLIR: quien responde a incendios ya la reconoce de su propio equipo de
 // mano, así que no hace falta leyenda para leerla. El pedido original era
 // "hot/cold" en el sentido de UNA sola paleta clara (vs. picker de 6
 // opciones, que era ruido para un caso de uso con una sola respuesta
-// correcta) — pero los colores que quedaron eran, sin querer, los mismos
+// correcta), pero los colores que quedaron eran, sin querer, los mismos
 // de un jet/arcoíris genérico (pasa por VERDE en la mitad), el problema de
 // percepción más conocido de esa familia de paletas: un valor "medio" no
 // tiene por qué leerse como verde, y genera bandas falsas donde no hay
@@ -42,14 +42,14 @@ const INDEX_PALETTE = {name:'RdYlGn',colors:['#a50026','#d73027','#f46d43','#fda
 const INDEX_LUT = buildLUT(INDEX_PALETTE);
 
 // ═══════════════════════════════════════════════════════════════════
-// ACTIVAR LA MISIÓN DE LA URL — antes de leer nada más
+// ACTIVAR LA MISIÓN DE LA URL: antes de leer nada más
 // ═══════════════════════════════════════════════════════════════════
 // /view/{mission} (la entrada normal desde la webapp) activa los symlinks
-// y RECIÉN AHÍ redirige acá — pero un F5 sobre esta misma URL ya redirigida
+// y RECIÉN AHÍ redirige acá, pero un F5 sobre esta misma URL ya redirigida
 // es un GET directo a un archivo estático, nunca vuelve a pasar por
 // /view/. Si entre medio se activó otra misión (o el contenedor arrancó de
 // cero), esta página leía bounds.json de lo que sea que estuviera activo
-// en ESE momento — no necesariamente la de la URL. Con ?mission= presente
+// en ESE momento, no necesariamente la de la URL. Con ?mission= presente
 // se le pide al servidor reactivarla, sincrónico, ANTES del fetch de
 // bounds.json de más abajo (si no hay ?mission=, no hay nada que activar:
 // geovisor abierto suelto, se deja como estaba).
@@ -68,7 +68,7 @@ if(urlMission){
 // Centro/zoom por defecto (fallback si tiles/bounds.json no existe todavía,
 // p.ej. corridas viejas sin regenerar tiles, o el geovisor se abrió sin
 // ?mission= y sin ninguna misión activada nunca en este contenedor). Cada
-// misión real tiene su propia ubicación — bounds.json lo calcula
+// misión real tiene su propia ubicación, bounds.json lo calcula
 // generate_tiles.py desde el centro real del ortomosaico.
 let CENTER=[6.3619,-75.5465],ZOOM=17;
 let THERMAL_MIN=15,THERMAL_MAX=55;   // fallback (vuelo original, rango amplio)
@@ -76,7 +76,7 @@ let INDEX_RANGES={};   // {} si la misión no tiene datos multiespectrales (M3M)
 let MS_BAND_RANGES={};  // {} si la misión no tiene datos multiespectrales (M3M)
 let RESOLUCION_CM=null; // cm/px MEDIDOS por producto (bounds.json)
 // Qué capas TIENEN tiles de verdad (generate_tiles.py, campo capas_disponibles
-// de bounds.json) — de acá salen severidad/hotspot/índices clasificados: antes
+// de bounds.json): de acá salen severidad/hotspot/índices clasificados. Antes
 // se registraban sin condición y el panel ofrecía capas de una misión sin
 // multiespectral (o sin térmico) que no tenían ningún tile detrás.
 let CAPAS_DISPONIBLES=new Set();
@@ -85,15 +85,24 @@ let CAPAS_DISPONIBLES=new Set();
 // igual (sirve desde el minuto uno) pero sabe que faltan productos y avisa
 // cuando aparecen. generate_tiles.py lo pisa sin la marca al terminar.
 let PRELIMINARY=false;
+// true si el vuelo INCLUYE fotos multiespectrales, aunque ODM todavía no haya
+// calculado ningún índice. Se saca del tally de flight_path.geojson (arma la
+// ruta de vuelo desde el EXIF de TODAS las fotos, incluidas las MS, antes de
+// que arranque la reconstrucción) — es la señal más temprana posible de que
+// hay M3M en esta misión. Sin esto, "¿tiene multiespectral?" se confundía con
+// "¿YA terminó de calcular los índices?": la caja "Agregar multiespectral"
+// (pensada para una misión que arrancó SIN M3M) aparecía igual en una misión
+// que sí lo tiene, mientras la reconstrucción seguía en curso.
+let hasMsInput=false;
 // true si esta carga inicial YA encontró un centro real (bounds.json existía,
 // aunque sea la versión "preliminary" de export_flight_path.py). Si queda en
 // false, es que se abrió el geovisor en la ventana de pocos segundos ANTES de
-// que ese archivo exista siquiera — pollBoundsForChanges() recentra una sola
+// que ese archivo exista siquiera. pollBoundsForChanges() recentra una sola
 // vez apenas aparezca, en vez de dejar el mapa pegado en el respaldo fijo.
 let boundsWasReal=false;
 try{
   const req=new XMLHttpRequest();
-  req.open('GET','tiles/bounds.json',false);
+  req.open('GET','tiles/bounds.json?t='+Date.now(),false);
   req.send(null);
   if(req.status===200){
     const b=JSON.parse(req.responseText);
@@ -113,7 +122,7 @@ try{
 // ═══════════════════════════════════════════════════════════════════
 const map=L.map('map',{center:CENTER,zoom:ZOOM,maxZoom:21,zoomControl:false,
   attributionControl:{position:'bottomleft',prefix:false}});
-// Columna única y discreta (zoom + encuadrar), abajo a la derecha — no el
+// Columna única y discreta (zoom + encuadrar), abajo a la derecha, no el
 // default de Leaflet arriba a la izquierda, que en el diseño nuevo queda
 // tapado por el selector Mapa/Lista.
 L.control.zoom({position:'bottomright'}).addTo(map);
@@ -133,7 +142,7 @@ const FitBoundsControl=L.Control.extend({
 new FitBoundsControl().addTo(map);
 
 // Cada capa de dato (no los mapas base) recibe su propio pane con un
-// zIndex explícito — es lo que permite que el reordenamiento por arrastre
+// zIndex explícito: es lo que permite que el reordenamiento por arrastre
 // del panel "Capas" cambie el orden VISUAL real en el mapa. Compartir el
 // tilePane por defecto (como antes) solo permite z-order = orden de
 // addTo(), que no se puede reordenar después de agregado.
@@ -142,22 +151,27 @@ const MS_BAND_IDS=Object.keys(MS_BAND_RANGES);
 // Copia actualizable de MS_BAND_IDS: pollBoundsForChanges() la reasigna
 // cuando el multiespectral de una misión EN CURSO aparece más tarde (ver
 // registerMsComposite()/registerHotspot()). Declarada acá, junto a
-// MS_BAND_IDS, y NO más abajo en el archivo — el registro inicial de capas
+// MS_BAND_IDS, y NO más abajo en el archivo. El registro inicial de capas
 // (registerHotspot() etc.) llama a `def.legend()` de forma SÍNCRONA al armar
 // el panel de Capas por primera vez (renderCapasPanel(), unas líneas antes de
 // donde esto vivía), y con `let` en la zona muerta temporal esa lectura
-// temprana tira "Cannot access before initialization" — excepción sin
+// temprana tira "Cannot access before initialization": una excepción sin
 // capturar que corta la ejecución del script ahí mismo y deja el resto de la
-// inicialización (incluido renderSummaryCards()) sin correr nunca: el panel
+// inicialización (incluido renderSummaryCards()) sin correr nunca. El panel
 // de "Situación actual" se queda pegado en "Cargando datos de la misión…"
-// para SIEMPRE. Bug real, encontrado corriendo la página real en jsdom.
+// para siempre. Bug real, encontrado corriendo la página real en jsdom.
 let liveMsBandIds=[...MS_BAND_IDS];
-let layerOrder=['hillshade','rgb',...(MS_BAND_IDS.length?['ms_composite']:[]),'thermal',...INDEX_NAMES,'ndvi_class','gndvi_class','ndre_class','msavi2_class','severidad','hotspot_termico','area_afectada']; // bottom → top
+// flight_path acá igual que area_afectada: layersPanelHTML()/renderMapLegend()
+// filtran por layerOrder, no por LAYER_REGISTRY directo — una capa que se
+// registra (sync o vía tryLoadFlightPath()) pero nunca entra a este array
+// se dibuja en el mapa igual (el loop de defaultOn de más abajo no depende
+// de layerOrder) pero no existía ni en el sidebar ni en la leyenda flotante.
+let layerOrder=['hillshade','rgb','dband',...(MS_BAND_IDS.length?['ms_composite']:[]),'thermal',...INDEX_NAMES,'ndvi_class','gndvi_class','ndre_class','msavi2_class','severidad','hotspot_termico','area_afectada','flight_path']; // bottom → top
 layerOrder.forEach((id,i)=>map.createPane('pane-'+id).style.zIndex=210+i*10);
 
 // "Calles": OSM crudo (colores saturados, cientos de etiquetas de comercios/
 // POI que no aportan nada en una zona rural quemada) se cambió por CARTO
-// Voyager — cartografía curada, gris-cálida, con SOLO vías/lugares/relieve
+// Voyager: cartografía curada, gris-cálida, con SOLO vías/lugares/relieve
 // (la referencia real que sirve para orientarse: caminos de acceso, veredas
 // cercanas), sin el ruido visual de un mapa de ciudad. Misma licencia
 // (datos OSM), atribución obligatoria abajo a la izquierda.
@@ -168,17 +182,48 @@ const osmBase=L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager
 const satBase=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
   maxZoom:19,attribution:'© Esri, Maxar, Earthstar Geographics',
 });
-// La satelital de Esri viene SIN nombres de calles/veredas — para orientarse
+// La satelital de Esri viene SIN nombres de calles/veredas. Para orientarse
 // (rutas de acceso, poblados cercanos) hace falta la capa de referencia
 // (etiquetas + vías, transparente) encima. Se agrega/saca junto con la base,
 // nunca sola — ver wireLayersPanel(), selector de mapa base.
 const satLabels=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,pane:'overlayPane'});
 let currentBase='osm';
 
+// ── Sin conexión ────────────────────────────────────────────────────
+// Leaflet y todo el geovisor se sirven desde la imagen (ver vendor/ en
+// index.html), así que las capas de ESTA misión —que son las que importan—
+// se ven igual sin internet. Los mapas base NO se pueden empaquetar (son
+// tiles de todo el mundo, de terceros): sin conexión el fondo queda gris.
+// Un fondo gris mudo se lee como "el geovisor está roto"; se dice qué pasa
+// y qué sigue funcionando. Se avisa UNA vez, con varios tiles fallados —
+// un 404 suelto en el borde del área es normal y no significa nada.
+let _tilesBaseFallidos=0, _avisoOfflineDado=false;
+function avisarSiSinMapaBase(){
+  if(_avisoOfflineDado || ++_tilesBaseFallidos < 6) return;
+  _avisoOfflineDado=true;
+  const d=document.createElement('div');
+  d.className='aviso-offline';
+  d.setAttribute('role','status');
+  d.innerHTML='<b>Sin conexión al mapa base.</b> Las capas de esta misión '
+            + '(ortomosaico, térmico, índices, área afectada) se ven igual — '
+            + 'lo que falta es el fondo de calles y satelital, que viene de '
+            + 'internet.<button class="reset" aria-label="Cerrar">✕</button>';
+  d.querySelector('button').addEventListener('click',()=>d.remove());
+  document.body.appendChild(d);
+}
+for(const capa of [osmBase,satBase,satLabels]) capa.on('tileerror',avisarSiSinMapaBase);
+
 const rgbLayer=L.tileLayer('tiles/rgb/{z}/{x}/{y}.png',{maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:1,pane:'pane-rgb'}).addTo(map);
 
+// Banda D del M3M (mosaico visible rápido, opt-in) — a diferencia de
+// rgbLayer, NO se agrega al mapa ni se registra de entrada: la mayoría de
+// las misiones no la tienen. Se registra recién si aparece en
+// capas_disponibles (ver registerDband(), mismo patrón que severidad/
+// hotspot más abajo).
+const dbandLayer=L.tileLayer('tiles/dband/{z}/{x}/{y}.png',{maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:1,pane:'pane-dband'});
+
 // ── RGB con orden de canales configurable ('normal' o personalizado
-// r/g/b→cualquier canal fuente) — mismo tile 'rgb' de siempre, remapeado en
+// r/g/b→cualquier canal fuente), mismo tile 'rgb' de siempre, remapeado en
 // canvas client-side. channelOrder=['r','g','b'] es la identidad (igual que
 // rgbLayer de arriba); se usa solo cuando el usuario elige un orden
 // personalizado, para no pagar el costo de canvas en el caso normal. ──
@@ -205,7 +250,7 @@ function setRgbChannelOrder(order){
 
 // ── Compositor multi-banda para el multiespectral: arma un RGB en canvas
 // combinando 3 bandas espectrales crudas (una por canal), sin pre-generar
-// cada combinación posible en disco — el usuario elige presets (falso color
+// cada combinación posible en disco: el usuario elige presets (falso color
 // IR, RedEdge) o una combinación personalizada desde el panel de capas. ──
 const BandCompositeGrid=L.GridLayer.extend({createTile:function(coords,done){
   const t=document.createElement('canvas');t.width=256;t.height=256;
@@ -259,7 +304,7 @@ let hillshadeLayer=L.tileLayer('tiles/hillshade/{z}/{x}/{y}.png',{maxZoom:21,max
 // datos multiespectrales (/input_ms montado). Mismo patrón canvas-remap que
 // ThermalGrid, pero con la paleta divergente fija.
 const IndexGrid=L.GridLayer.extend({createTile:function(coords,done){const t=document.createElement('canvas');t.width=256;t.height=256;const ctx=t.getContext('2d'),img=new Image();img.crossOrigin='anonymous';const z=coords.z,x=coords.x,y=coords.y,name=this.options.indexName;img.onload=function(){ctx.drawImage(img,0,0);const d=ctx.getImageData(0,0,256,256).data,lut=INDEX_LUT;for(let i=0;i<d.length;i+=4){const v=d[i],idx=v*4,origA=d[i+3];d[i]=lut[idx];d[i+1]=lut[idx+1];d[i+2]=lut[idx+2];d[i+3]=origA*lut[idx+3]/255;}ctx.putImageData(new ImageData(d,256,256),0,0);done(null,t);};img.onerror=function(){done(null,t);};img.src=`tiles/${name}/${z}/${x}/${y}.png`;return t;}});
-const INDEX_LABELS={ndvi:['🌿 NDVI','Salud/vigor de vegetación'],gndvi:['🌾 GNDVI','Sensible a clorofila'],ndre:['🍃 NDRE','Estrés en dosel denso'],msavi2:['🌱 MSAVI2','NDVI corregido por brillo de suelo — más confiable que NDVI en dosel disperso/regeneración post-incendio']};
+const INDEX_LABELS={ndvi:['🌿 NDVI','Salud/vigor de vegetación'],gndvi:['🌾 GNDVI','Sensible a clorofila'],ndre:['🍃 NDRE','Estrés en dosel denso'],msavi2:['🌱 MSAVI2','NDVI corregido por brillo de suelo, más confiable que NDVI en dosel disperso/regeneración post-incendio']};
 const indexLayers={};
 INDEX_NAMES.forEach(name=>{
   indexLayers[name]=new IndexGrid({indexName:name,maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:.8,pane:'pane-'+name});
@@ -288,7 +333,7 @@ L.control.scale({imperial:false,metric:true,position:'bottomleft'}).addTo(map);
 
 // Norte + coordenadas: se habían sacado del rediseño por error (el mockup
 // de referencia no las mostraba, pero el pedido original de mantenerlas
-// seguía en pie). Va como control de Leaflet —no un div absoluto a mano—
+// seguía en pie). Va como control de Leaflet, no un div absoluto a mano,
 // para que se apile automáticamente arriba de la escala en la misma
 // esquina, sin pisarla ni tener que calcular offsets fijos.
 function fmtCoord(v,pos,neg){
@@ -346,7 +391,7 @@ if(MS_BAND_IDS.length){
   LAYER_REGISTRY.ms_composite={label:'🎨 Multiespectral (compuesto)',group:'opticas',layer:msCompositeLayer,defaultOn:false,defaultOpacity:1,
     legend:()=>{
       const presetKey=Object.entries(MS_COMPOSITE_PRESETS).find(([,p])=>p.bands.join(',')===msCompositeBands.join(','))?.[0]||'custom';
-      return `<p>Composición RGB armada en el navegador combinando 3 bandas espectrales crudas — no hay un archivo fijo por combinación, cambiar la selección recompone al vuelo.</p>
+      return `<p>Composición RGB armada en el navegador combinando 3 bandas espectrales crudas. No hay un archivo fijo por combinación, cambiar la selección recompone al vuelo.</p>
       <div class="band-picker">
         <label>Preset<select class="ms-composite-preset">
           ${Object.entries(MS_COMPOSITE_PRESETS).map(([k,p])=>`<option value="${k}"${presetKey===k?' selected':''}>${p.label}</option>`).join('')}
@@ -380,26 +425,33 @@ function classLegend(classes){
 }
 // severidad/hotspot_termico/*_class: el objeto Layer de Leaflet se crea SIEMPRE
 // (su pane ya existe desde el layerOrder.forEach de arriba, no cuesta nada),
-// pero la entrada en LAYER_REGISTRY —lo que hace que aparezcan en el panel de
-// Capas— se registra SOLO si bounds.json dice que hay tiles de verdad
+// pero la entrada en LAYER_REGISTRY (lo que hace que aparezcan en el panel de
+// Capas) se registra SOLO si bounds.json dice que hay tiles de verdad
 // (CAPAS_DISPONIBLES, ver generate_tiles.py). Antes se registraban sin
 // condición: una misión sin multiespectral (o sin térmico) igual ofrecía
 // "Severidad", "Hotspot" y los 4 índices clasificados con tiles inexistentes.
 // registerSeveridad()/registerHotspot()/registerIndexClass() se llaman una vez
 // al cargar la página (para lo que ya está listo) y de nuevo en
 // pollBoundsForChanges() (para lo que aparece mientras la misión sigue
-// procesándose) — mismo patrón que registerIndexLayer()/registerMsComposite().
+// procesándose), mismo patrón que registerIndexLayer()/registerMsComposite().
+function registerDband(){
+  if(LAYER_REGISTRY.dband||!CAPAS_DISPONIBLES.has('dband'))return false;
+  LAYER_REGISTRY.dband={label:'📷 Visible (banda D)',group:'opticas',layer:dbandLayer,defaultOn:false,defaultOpacity:1,
+    legend:()=>`<div class="stat-row"><span class="lbl">GSD</span><span class="val cool">${gsdTxt('dband')}</span></div><div class="stat-row"><span class="lbl">Sensor</span><span class="val">DJI M3M — cámara D (RGB)</span></div>
+      <p>Mosaico visible rápido, calculado a partir de la cámara RGB propia del M3M — un sensor aparte de las 4 bandas espectrales (G/R/RE/NIR), no coalineado con ellas. Pensado para una primera mirada visual, no reemplaza al ortomosaico RGB del vuelo M3T/H20T si esta misión también lo tiene.</p>`};
+  return true;
+}
 function registerSeveridad(){
   if(LAYER_REGISTRY.severidad||!CAPAS_DISPONIBLES.has('severidad'))return false;
   LAYER_REGISTRY.severidad={label:'🔥 Severidad',group:'impacto',layer:severidadLayer,defaultOn:false,defaultOpacity:.85,
-    legend:()=>`<p>Severidad relativa al vigor de vegetación sana de esta misma misión (z-score robusto de brillo multiespectral — se autocalibra a cada vuelo, no un umbral fijo). Cortes en 1/2/3 sigma (regla empírica 68-95-99.7 de control estadístico de procesos). Recortado al polígono de área afectada — el verde NO significa "fuera del incendio" (eso ya se recortó), significa terreno DENTRO del perímetro sin anomalía espectral: islas reales sin quemar (roca, claro, vegetación húmeda) o huecos que el detector rellena al cerrar el contorno.</p>`+
+    legend:()=>`<p>Severidad relativa al vigor de vegetación sana de esta misma misión (z-score robusto de brillo multiespectral, se autocalibra a cada vuelo, no un umbral fijo). Cortes en 1/2/3 sigma (regla empírica 68-95-99.7 de control estadístico de procesos). Recortado al polígono de área afectada: el verde NO significa "fuera del incendio" (eso ya se recortó), significa terreno DENTRO del perímetro sin anomalía espectral, es decir islas reales sin quemar (roca, claro, vegetación húmeda) o huecos que el detector rellena al cerrar el contorno.</p>`+
       classLegend([['#228B22','Isla no quemada (&lt;1σ)'],['#FFEB3B','Leve (1-2σ)'],['#FF9800','Moderado (2-3σ)'],['#D32F2F','Severo (≥3σ)']])};
   return true;
 }
 function registerHotspot(){
   if(LAYER_REGISTRY.hotspot_termico||!CAPAS_DISPONIBLES.has('hotspot_termico'))return false;
   // defaultOn: encendida de entrada SOLO si es la única señal de impacto de
-  // esta misión (sin severidad, típicamente sin multiespectral) — ahí es el
+  // esta misión (sin severidad, típicamente sin multiespectral). Ahí es el
   // dato principal, no algo que haya que ir a descubrir en el panel de
   // Capas. Si severidad SÍ existe, se prioriza esa (severidad queda como
   // defaultOn:false también) para no saturar el mapa con dos capas de
@@ -409,14 +461,14 @@ function registerHotspot(){
     // siempre refleja el estado ACTUAL de liveMsBandIds y no el de cuando se
     // registró (el multiespectral puede seguir procesándose y aparecer
     // después). liveMsBandIds tiene que estar declarada ANTES de este punto
-    // del archivo — renderCapasPanel() llama a este legend() de forma
+    // del archivo. renderCapasPanel() llama a este legend() de forma
     // SÍNCRONA al armar el panel por primera vez, así que una `let` declarada
     // más abajo revienta con "Cannot access before initialization" ahí mismo
     // (bug real que dejaba el panel de "Situación actual" pegado en
-    // "Cargando datos de la misión…" para siempre — ver dónde se declara
+    // "Cargando datos de la misión…" para siempre, ver dónde se declara
     // liveMsBandIds, junto a MS_BAND_IDS, con la nota completa).
     legend:()=>{const recortado=liveMsBandIds.length>0;
-      return `<p>Temperatura ABSOLUTA (no anomalía relativa — un umbral relativo da falsos positivos en suelo/cultivo calentado por el sol). El corte de "foco activo" (88°C/190°F) es el umbral operacional citado en literatura de detección de hotspots con drones para "fuego activo bajo superficie". Uso operacional: riesgo de reactivación / mop-up, distinto de la severidad de daño.</p>
+      return `<p>Temperatura ABSOLUTA (no anomalía relativa: un umbral relativo da falsos positivos en suelo/cultivo calentado por el sol). El corte de "foco activo" (88°C/190°F) es el umbral operacional citado en literatura de detección de hotspots con drones para "fuego activo bajo superficie". Uso operacional: riesgo de reactivación / mop-up, distinto de la severidad de daño.</p>
       <p>${recortado?'Recortado al polígono de área afectada detectado.':'Esta misión no tiene multiespectral: se muestra sobre <b>toda</b> la cobertura térmica, sin recortar a ningún polígono.'}</p>`+
       classLegend([['#2196F3','Normal (&lt;40°C)'],['#FFEB3B','Elevado (40-60°C)'],['#FF9800','Caliente (60-88°C)'],['#C62828','Foco activo (≥88°C)']]);}};
   return true;
@@ -432,7 +484,7 @@ const INDEX_CLASS_DEFS={
   ndvi_class:{label:'🌿 NDVI clasificado',desc:'Cortes estándar USGS.',classes:[['#8D6E63','Sin vegetación (&lt;0.1)'],['#FFEB3B','Escasa/estresada (0.1-0.6)'],['#4CAF50','Densa y sana (≥0.6)']]},
   gndvi_class:{label:'🌾 GNDVI clasificado',desc:'Cortes estándar de teledetección agrícola.',classes:[['#D32F2F','Estrés severo (&lt;0.3)'],['#FFEB3B','Moderada/estresada (0.3-0.5)'],['#4CAF50','Sana (≥0.5)']]},
   ndre_class:{label:'🍃 NDRE clasificado',desc:'Cortes estándar de nitrógeno foliar (agricultura de precisión).',classes:[['#D32F2F','Deficiencia N (&lt;0.2)'],['#FF9800','Transición (0.2-0.3)'],['#8BC34A','Saludable (0.3-0.6)'],['#1B5E20','Óptimo/maduro (≥0.6)']]},
-  msavi2_class:{label:'🌱 MSAVI2 clasificado',desc:'NDVI corregido por brillo de suelo (Qi et al. 1994) — más confiable que NDVI en dosel disperso (regeneración post-incendio, cobertura &lt;30%). Mismos cortes que NDVI (ver docstring de compute_severity_classes.py: MSAVI2 no tiene convención propia tan establecida, se reusa la de NDVI como punto de partida).',classes:[['#8D6E63','Sin vegetación (&lt;0.1)'],['#FFEB3B','Escasa/estresada (0.1-0.6)'],['#4CAF50','Densa y sana (≥0.6)']]},
+  msavi2_class:{label:'🌱 MSAVI2 clasificado',desc:'NDVI corregido por brillo de suelo (Qi et al. 1994), más confiable que NDVI en dosel disperso (regeneración post-incendio, cobertura &lt;30%). Mismos cortes que NDVI (ver docstring de compute_severity_classes.py: MSAVI2 no tiene convención propia tan establecida, se reusa la de NDVI como punto de partida).',classes:[['#8D6E63','Sin vegetación (&lt;0.1)'],['#FFEB3B','Escasa/estresada (0.1-0.6)'],['#4CAF50','Densa y sana (≥0.6)']]},
 };
 const indexClassLayers={};
 Object.keys(INDEX_CLASS_DEFS).forEach(name=>{
@@ -440,7 +492,7 @@ Object.keys(INDEX_CLASS_DEFS).forEach(name=>{
 });
 // Swatches [color,etiqueta] por capa, para la leyenda de la imagen exportada
 // (ver drawMapLegendOnCanvas() en la sección del reporte). Los 4 índices
-// clasificados ya traen los suyos en INDEX_CLASS_DEFS[id].classes —
+// clasificados ya traen los suyos en INDEX_CLASS_DEFS[id].classes.
 // severidad/hotspot_termico arman su leyenda como HTML inline (classLegend()
 // en su registerX()), así que acá se repiten solo esos dos, no se duplica
 // nada que ya viva en un array reusable.
@@ -460,12 +512,13 @@ function registerIndexClass(name){
     legend:()=>`<p>${def.desc}</p>`+classLegend(def.classes)};
   return true;
 }
+registerDband();
 registerSeveridad();
 registerHotspot();
 Object.keys(INDEX_CLASS_DEFS).forEach(registerIndexClass);
 
 // ═══════════════════════════════════════════════════════════════════
-// Polígono del área afectada (detect_area_afectada.py) — capa vectorial
+// Polígono del área afectada (detect_area_afectada.py): capa vectorial
 // EDITABLE: agregar/quitar polígonos sueltos, agregar/quitar vértices,
 // área en vivo en hectáreas, guardado al servidor.
 // ═══════════════════════════════════════════════════════════════════
@@ -479,7 +532,7 @@ let areaNewRingPoints=[],areaNewPreviewLayer=null;
 
 function ringAreaM2(latlngs){
   // shoelace en proyección equirectangular local (centrada en la latitud
-  // media del anillo) — precisión de sobra a la escala de una misión de
+  // media del anillo), precisión de sobra a la escala de una misión de
   // dron (pocas hectáreas, cientos de metros de extensión).
   if(latlngs.length<3)return 0;
   const R=6378137,meanLat=latlngs.reduce((s,p)=>s+p.lat,0)/latlngs.length*Math.PI/180;
@@ -533,8 +586,8 @@ function rebuildMidMarkers(entry){
     return m;
   });
 }
-// Solo mueve los marcadores de punto medio ya existentes (sin recrearlos)
-// — se usa durante el arrastre de un vértice, que dispara 'drag' muchas
+// Solo mueve los marcadores de punto medio ya existentes (sin recrearlos).
+// Se usa durante el arrastre de un vértice, que dispara 'drag' muchas
 // veces por segundo; recrear marcadores (rebuildMidMarkers) en cada tick
 // se ve tembloroso en polígonos con muchos vértices.
 function repositionMidMarkers(entry){
@@ -626,7 +679,7 @@ function finishDrawNewArea(e){
   if(e)L.DomEvent.stopPropagation(e);
   // Un doble-click dispara click+click+dblclick en el DOM: el último click
   // ya agregó un punto pegado al anterior (misma posición) antes de que
-  // este handler corriera — se descarta para no dejar un vértice duplicado.
+  // este handler corriera, así que se descarta para no dejar un vértice duplicado.
   if(areaNewRingPoints.length>=2){
     const a=areaNewRingPoints[areaNewRingPoints.length-1],b=areaNewRingPoints[areaNewRingPoints.length-2];
     if(Math.abs(a.lat-b.lat)<1e-7&&Math.abs(a.lng-b.lng)<1e-7)areaNewRingPoints.pop();
@@ -693,7 +746,7 @@ function discardAreaEdits(){
   document.getElementById('area-edit-status').textContent='';
 }
 
-// Se carga sync (mismo patrón que bounds.json) — si la misión no tiene
+// Se carga sync (mismo patrón que bounds.json). Si la misión no tiene
 // multiespectral+térmico, el archivo no existe y se omite sin error.
 areaAfectadaLayer.setOpacity=function(v){areaPolyEntries.forEach(e=>e.layer.setStyle({opacity:v,fillOpacity:.05*v}));};
 try{
@@ -704,7 +757,7 @@ try{
     loadAreaAfectada(JSON.parse(req.responseText));
     document.getElementById('area-edit-panel').classList.add('visible');
     LAYER_REGISTRY.area_afectada={label:'📐 Polígono área afectada',group:'impacto',layer:areaAfectadaLayer,defaultOn:true,defaultOpacity:1,
-      legend:()=>`<p>Contorno detectado automáticamente (ver capa Severidad para la metodología), editable con el botón 📐 sobre el mapa. Referencia espacial de dónde se recortan severidad/hotspot — no reemplaza una verificación en terreno.</p>`};
+      legend:()=>`<p>Contorno detectado automáticamente (ver capa Severidad para la metodología), editable con el botón 📐 sobre el mapa. Referencia espacial de dónde se recortan severidad/hotspot, no reemplaza una verificación en terreno.</p>`};
   }
 }catch(e){}
 
@@ -741,6 +794,7 @@ try{
          .addTo(flightLayer);
       }
     });
+    if(tally.multispectral)hasMsInput=true;
     const SN={rgb:'RGB',thermal:'térmico',multispectral:'multiespectral'};
     const resumen=Object.entries(tally).map(([s,n])=>`${n} ${SN[s]||s}`).join(' · ');
     // Encendida por defecto solo mientras la corrida está en curso: una vez
@@ -754,7 +808,7 @@ try{
 }catch(e){}
 
 // Orden pensado para decisión, no para flujo técnico: lo que más pesa para
-// decidir dónde actuar (severidad, hotspots, área) va primero — no al final
+// decidir dónde actuar (severidad, hotspots, área) va primero, no al final
 // de un scroll, que es donde quedaba con el orden "técnico" anterior.
 const GROUP_LABELS={impacto:'🔥 Impacto del incendio',indices:'🌿 Índices',opticas:'📷 Ópticas',termicas:'🌡️ Térmicas',terreno:'⛰️ Terreno',vuelo:'🛩️ Vuelo'};
 const GROUP_ORDER=['impacto','indices','opticas','termicas','terreno','vuelo'];
@@ -773,7 +827,7 @@ function applyLayerOrder(){
 // ═══════════════════════════════════════════════════════════════════
 // COMPARE SLIDER
 // ═══════════════════════════════════════════════════════════════════
-// Fábrica de instancias de capa para el comparador — cada lado usa su
+// Fábrica de instancias de capa para el comparador: cada lado usa su
 // PROPIA instancia (Leaflet no permite una misma capa en dos mapas a la
 // vez), armada con la misma receta que la capa original de LAYER_REGISTRY.
 // area_afectada (vectorial) queda afuera a propósito: el comparador es
@@ -809,14 +863,14 @@ function buildCompareSelect(side){
   sel.className='compare-select';
   // COMPARABLE_IDS es la lista ESTÁTICA de todo tipo de capa ráster posible
   // (RASTER_LAYER_FACTORY existe para los 4 índices y sus clasificados,
-  // severidad y hotspot sin importar la misión) — pero LAYER_REGISTRY[id]
+  // severidad y hotspot sin importar la misión), pero LAYER_REGISTRY[id]
   // solo existe para lo que ESTA misión realmente tiene tiles (ver
   // CAPAS_DISPONIBLES). Antes esto iteraba COMPARABLE_IDS sin filtrar y
   // `.label` sobre un LAYER_REGISTRY[id] undefined (p.ej. 'severidad' en una
   // misión sin multiespectral) tiraba un TypeError sin capturar que cortaba
   // toggleCompare() a la mitad: el ancho de #compare-left-map nunca se
   // fijaba y los listeners de sincronización de mover un mapa nunca se
-  // conectaban — los dos mapas del comparador quedaban del todo
+  // conectaban. Los dos mapas del comparador quedaban del todo
   // independientes uno del otro, exactamente el bug reportado (se
   // desalinean y se arrastran por separado).
   COMPARABLE_IDS.filter(id=>LAYER_REGISTRY[id]).forEach(id=>{
@@ -848,12 +902,12 @@ function toggleCompare(){
       compareRightMap.on('move',()=>{if(!syncing){syncing=true;compareLeftMap.setView(compareRightMap.getCenter(),compareRightMap.getZoom(),{animate:false});syncing=false;}});
       // Una sola vez (no en cada activación): initSliderDrag() cuelga
       // listeners en document (mousemove/mouseup/touchmove/touchend) que
-      // nunca se sueltan — llamarla de nuevo cada vez que se abre "Comparar"
+      // nunca se sueltan: llamarla de nuevo cada vez que se abre "Comparar"
       // los apilaba, uno más por cada apertura de la sesión.
       initSliderDrag();
     }
     // #compare-left-map (el contenedor real de Leaflet) siempre queda al
-    // ANCHO COMPLETO del visor — solo #compare-left (el div exterior, con
+    // ANCHO COMPLETO del visor. Solo #compare-left (el div exterior, con
     // overflow:hidden) se achica al arrastrar. Si en cambio se achicara el
     // propio contenedor de Leaflet, su noción interna de viewport/tiles
     // quedaría calculada para un mapa más chico, y el recorte visual y la
@@ -934,12 +988,12 @@ function layerCardHTML(id){
 }
 // Grupo vacío porque a esta misión le falta el vuelo multiespectral (no
 // porque no haya nada que mostrar): en vez de que la sección desaparezca sin
-// explicación, se dice por qué — NDVI es la señal primaria de la que salen
+// explicación, se dice por qué. NDVI es la señal primaria de la que salen
 // el polígono de área afectada, la severidad y estos índices (ver
 // detect_area_afectada.py); el hotspot térmico NO depende de esto y ya se
 // muestra sin multiespectral (scripts/compute_thermal_hotspot.py). El botón
 // para agregar el vuelo vive UNA sola vez, fijo al pie del sidebar (ver
-// renderFooterAddMsCta()) — antes también aparecía acá adentro, duplicado
+// renderFooterAddMsCta()); antes también aparecía acá adentro, duplicado
 // con el del pie cada vez que ambos estaban visibles a la vez.
 function addMsEmptyGroupHTML(titulo, detalle){
   return `<div class="layer-group" data-group="addms-cta">
@@ -947,7 +1001,7 @@ function addMsEmptyGroupHTML(titulo, detalle){
     <div class="addms-cta"><p>${detalle}</p></div>
   </div>`;
 }
-// El botón SÍ vive acá — es el único lugar que lo genera (ver comentario de
+// El botón SÍ vive acá: es el único lugar que lo genera (ver comentario de
 // addMsEmptyGroupHTML de arriba). Lo usa renderFooterAddMsCta().
 function addMsCtaHTML(titulo, detalle){
   if(!urlMission)return'';
@@ -963,12 +1017,21 @@ function layersPanelHTML(){
   GROUP_ORDER.forEach(group=>{
     const ids=layerOrder.filter(id=>LAYER_REGISTRY[id]&&LAYER_REGISTRY[id].group===group);
     if(ids.length===0){
+      // MS_BAND_IDS vacío solo dice "todavía no hay índices calculados" —
+      // pasa igual si la misión nunca tuvo M3M que si lo tiene y ODM sigue
+      // reconstruyendo. hasMsInput (del tally de flight_path.geojson, ver
+      // arriba) distingue los dos casos para no invitar a "agregar" un
+      // vuelo que ya está incluido y en curso.
       if(group==='indices'&&!MS_BAND_IDS.length)
-        html+=addMsEmptyGroupHTML('🌿 Índices de vegetación',
-          'Esta misión no tiene vuelo multiespectral (M3M) todavía — sin él no hay NDVI/GNDVI/NDRE/MSAVI2 que mostrar.');
+        html+=hasMsInput
+          ? addMsEmptyGroupHTML('🌿 Índices de vegetación','Vuelo multiespectral incluido — NDVI/GNDVI/NDRE/MSAVI2 van a aparecer acá cuando termine la reconstrucción.')
+          : addMsEmptyGroupHTML('🌿 Índices de vegetación',
+            'Esta misión no tiene vuelo multiespectral (M3M) todavía, sin él no hay NDVI/GNDVI/NDRE/MSAVI2 que mostrar.');
       else if(group==='impacto'&&!MS_BAND_IDS.length&&!CAPAS_DISPONIBLES.has('hotspot_termico'))
-        html+=addMsEmptyGroupHTML('🔥 Área afectada y severidad',
-          'Sin multiespectral no hay NDVI, y el polígono de área afectada y la severidad se calculan a partir de esa señal.');
+        html+=hasMsInput
+          ? addMsEmptyGroupHTML('🔥 Área afectada y severidad','Vuelo multiespectral incluido — área afectada y severidad van a aparecer acá cuando termine la reconstrucción.')
+          : addMsEmptyGroupHTML('🔥 Área afectada y severidad',
+            'Sin multiespectral no hay NDVI, y el polígono de área afectada y la severidad se calculan a partir de esa señal.');
       return;
     }
     html+=`<div class="layer-group" data-group="${group}">
@@ -1116,17 +1179,17 @@ window.addEventListener('beforeunload',e=>{
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// PRODUCTOS PROGRESIVOS — la corrida agrega capas mientras sigue viva
+// PRODUCTOS PROGRESIVOS: la corrida agrega capas mientras sigue viva
 // ═══════════════════════════════════════════════════════════════════
 // RGB/térmico/hillshade/severidad/hotspot/índices-clasificados YA están
-// registrados desde el arranque (sus tiles pueden no existir todavía —
+// registrados desde el arranque (sus tiles pueden no existir todavía,
 // simplemente no cargan hasta que aparecen; un .redraw() los recupera, ver
 // más abajo). Lo que SÍ falta registrar en caliente son los productos que
 // ni siquiera existían como CONCEPTO al cargar la página: los índices
-// continuos, el compuesto multiespectral y el polígono de área afectada —
-// si la misión se abrió con bounds.json todavía "preliminary" (solo ruta de
+// continuos, el compuesto multiespectral y el polígono de área afectada.
+// Si la misión se abrió con bounds.json todavía "preliminary" (solo ruta de
 // vuelo), ninguno de los tres tenía datos para calcular su rango de color.
-// (liveMsBandIds se declara arriba, junto a MS_BAND_IDS — ver el comentario
+// (liveMsBandIds se declara arriba, junto a MS_BAND_IDS; ver el comentario
 // ahí sobre por qué no puede vivir acá.)
 
 function ensurePane(id){
@@ -1161,7 +1224,7 @@ function registerMsComposite(){
   LAYER_REGISTRY.ms_composite={label:'🎨 Multiespectral (compuesto)',group:'opticas',layer:msCompositeLayer,defaultOn:false,defaultOpacity:1,
     legend:()=>{
       const presetKey=Object.entries(MS_COMPOSITE_PRESETS).find(([,p])=>p.bands.join(',')===msCompositeBands.join(','))?.[0]||'custom';
-      return `<p>Composición RGB armada en el navegador combinando 3 bandas espectrales crudas — no hay un archivo fijo por combinación, cambiar la selección recompone al vuelo.</p>
+      return `<p>Composición RGB armada en el navegador combinando 3 bandas espectrales crudas. No hay un archivo fijo por combinación, cambiar la selección recompone al vuelo.</p>
       <div class="band-picker">
         <label>Preset<select class="ms-composite-preset">
           ${Object.entries(MS_COMPOSITE_PRESETS).map(([k,p])=>`<option value="${k}"${presetKey===k?' selected':''}>${p.label}</option>`).join('')}
@@ -1185,14 +1248,14 @@ async function tryLoadAreaAfectada(){
     loadAreaAfectada(geo);
     document.getElementById('area-edit-panel').classList.add('visible');
     LAYER_REGISTRY.area_afectada={label:'📐 Polígono área afectada',group:'impacto',layer:areaAfectadaLayer,defaultOn:true,defaultOpacity:1,
-      legend:()=>`<p>Contorno detectado automáticamente (ver capa Severidad para la metodología), editable con el botón 📐 sobre el mapa. Referencia espacial de dónde se recortan severidad/hotspot — no reemplaza una verificación en terreno.</p>`};
+      legend:()=>`<p>Contorno detectado automáticamente (ver capa Severidad para la metodología), editable con el botón 📐 sobre el mapa. Referencia espacial de dónde se recortan severidad/hotspot, no reemplaza una verificación en terreno.</p>`};
     areaAfectadaLayer.addTo(map);
     return true;
   }catch(e){ return false; }
 }
 
 // Reintento de outputs/flight_path.geojson: el bloque de arriba lo intenta
-// una sola vez, sync, al cargar la página — si el geovisor se abre en los
+// una sola vez, sync, al cargar la página. Si el geovisor se abre en los
 // pocos segundos entre "arrancó la corrida" y "export_flight_path.py terminó
 // de escribir el archivo" (el caso normal: la webapp redirige acá apenas
 // arranca el pipeline), esa lectura da 404 y la capa queda sin registrar para
@@ -1219,6 +1282,7 @@ async function tryLoadFlightPath(){
          .addTo(flightLayer);
       }
     });
+    if(tally.multispectral)hasMsInput=true;
     const SN={rgb:'RGB',thermal:'térmico',multispectral:'multiespectral'};
     const resumen=Object.entries(tally).map(([s,n])=>`${n} ${SN[s]||s}`).join(' · ');
     LAYER_REGISTRY.flight_path={label:'🛩️ Ruta de vuelo',group:'vuelo',layer:flightLayer,
@@ -1241,17 +1305,32 @@ async function pollBoundsForChanges(){
     const r=await fetch('tiles/bounds.json?t='+Date.now(),{cache:'no-store'});
     if(!r.ok)return;
     const sig=await r.text();
-    if(lastBoundsSig===null){
-      lastBoundsSig=sig;
-      let first={}; try{first=JSON.parse(sig);}catch(e){}
-      if(!boundsWasReal&&first.center){map.setView(first.center,first.zoom||ZOOM);boundsWasReal=true;}
-      return;
-    }
+    // OJO: antes, la primera lectura exitosa solo fijaba lastBoundsSig y
+    // volvía (sin registrar nada) — la idea era "ya lo vio el fetch sync de
+    // arriba, acá solo hace falta una base para detectar cambios futuros".
+    // Pero export_flight_path.py escribe bounds.json Y flight_path.geojson
+    // en el mismo instante, y bounds.json no vuelve a cambiar hasta que
+    // generate_tiles.py corre —mucho después, tras la reconstrucción ODM—.
+    // Si la página se abrió ANTES de que export_flight_path.py terminara
+    // (el caso normal: la webapp redirige acá apenas arranca la corrida),
+    // el fetch sync inicial daba 404 y esta era la ÚNICA lectura que iba a
+    // ver el archivo recién aparecido; al cortar acá, tryLoadFlightPath()
+    // nunca se llamaba y la ruta de vuelo no se registraba nunca, aunque el
+    // archivo ya existiera en disco. Registrar acá es seguro aunque el
+    // sync de arriba ya lo haya hecho: cada tryLoad*/register* de abajo es
+    // idempotente (chequea LAYER_REGISTRY antes de hacer nada).
     if(sig===lastBoundsSig)return;
     lastBoundsSig=sig;
     let b={};
     try{b=JSON.parse(sig);}catch(e){}
     if(!boundsWasReal&&b.center){map.setView(b.center,b.zoom||ZOOM);boundsWasReal=true;}
+    // PRELIMINARY se fija normalmente en el fetch sync de arriba, al cargar
+    // la página. Si ESE fetch dio 404 (bounds.json todavía no existía),
+    // queda pegado en el default `false` para siempre — y con eso,
+    // tryLoadFlightPath() de más abajo registraría la ruta de vuelo pero
+    // apagada, aunque la corrida siga en curso y sea justo lo único que hay
+    // para mostrar. Se refresca acá con el dato fresco de esta lectura.
+    if(b.preliminary!==undefined)PRELIMINARY=!!b.preliminary;
     if(b.thermal_range){THERMAL_MIN=b.thermal_range[0];THERMAL_MAX=b.thermal_range[1];}
     let added=false;
     if(b.index_ranges)Object.entries(b.index_ranges).forEach(([name,range])=>{
@@ -1265,10 +1344,11 @@ async function pollBoundsForChanges(){
     }
     if(b.capas_disponibles){
       CAPAS_DISPONIBLES=new Set(b.capas_disponibles);
+      if(registerDband())added=true;
       if(registerSeveridad())added=true;
       // A diferencia del registro inicial (línea ~448, seguido del loop que
       // agrega al mapa toda capa con defaultOn), un registro que llega
-      // DESPUÉS —misión todavía procesando— nunca pasa por ese loop: sin
+      // DESPUÉS, con la misión todavía procesando, nunca pasa por ese loop: sin
       // esto, hotspot_termico podía terminar con defaultOn:true y aun así
       // no aparecer solo hasta que el usuario lo tildara a mano.
       if(registerHotspot()){added=true;if(LAYER_REGISTRY.hotspot_termico.defaultOn)hotspotLayer.addTo(map);}
@@ -1283,7 +1363,7 @@ async function pollBoundsForChanges(){
     // haberse reemplazado por el final entre una pasada y la siguiente).
     Object.values(LAYER_REGISTRY).forEach(d=>{ if(d.layer.redraw)d.layer.redraw(); });
     // Modo simple: situation.json aparece recién en la etapa de severidad
-    // (bastante después que bounds.json cambie por primera vez) — se
+    // (bastante después que bounds.json cambie por primera vez). Se
     // reintenta cada vez que bounds.json cambia, no solo una vez al final.
     // flight_quality.json sigue el mismo patrón (aparece bastante antes,
     // en la etapa de recorte térmico, pero se recarga igual acá para
@@ -1305,7 +1385,7 @@ async function pollBoundsForChanges(){
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// HUD DE PROGRESO — la webapp y el geovisor son UNA sola pantalla
+// HUD DE PROGRESO: la webapp y el geovisor son UNA sola pantalla
 // ═══════════════════════════════════════════════════════════════════
 // Antes: arrancar una misión mostraba una pantalla de progreso aparte (en
 // la webapp) y solo AL TERMINAR había un botón para pasar al geovisor. Acá
@@ -1313,11 +1393,11 @@ async function pollBoundsForChanges(){
 // corrida (webapp/static/index.html navega directo a esta página con
 // ?mission=<nombre>), y este bloque se conecta al MISMO endpoint SSE que
 // antes consumía la webapp (/api/missions/<mision>/events) para llenar el
-// HUD — sin reimplementar nada del lado del servidor.
+// HUD, sin reimplementar nada del lado del servidor.
 //
 // Si la misión del parámetro NO es la que el servidor tiene activa (p.ej.
 // se abre el link de una misión ya vieja, en otra sesión), /events
-// responde 404 y el HUD simplemente no se muestra — no hace falta
+// responde 404 y el HUD simplemente no se muestra. No hace falta
 // distinguir "en vivo" de "ya terminada" a mano, el propio 404 lo resuelve.
 // (urlMission ya se definió arriba de todo, antes de leer bounds.json)
 let phTimerInterval=null, phServerElapsed=0, phServerElapsedAt=0, phDone=false;
@@ -1329,9 +1409,11 @@ function fmtElapsed(s){
 }
 function phTick(){
   const el=document.getElementById('ph-time');
-  if(!el)return;
-  const live=phServerElapsed+(Date.now()-phServerElapsedAt)/1000;
-  el.textContent=fmtElapsed(live);
+  if(el){
+    const live=phServerElapsed+(Date.now()-phServerElapsedAt)/1000;
+    el.textContent=fmtElapsed(live);
+  }
+  renderPhaseTimers();
 }
 function toggleProgressLog(){
   const log=document.getElementById('ph-log'),btn=document.getElementById('ph-log-toggle');
@@ -1347,6 +1429,182 @@ function phSetBar(pct){
   const el=document.getElementById('ph-bar-fill');
   if(el)el.style.width=Math.max(0,Math.min(100,pct))+'%';
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// CHECKLIST DE FASES: ph-stage ([n/total] nombre) muestra el nombre real
+// de la etapa, pero "total" NO es el total del pipeline — son TRES
+// contadores independientes que se pisan en el mismo canal:
+//   1. Cada target del Makefile (prepare-rgb, prepare-multispectral,
+//      sdk-convert, etc.) se anuncia a sí mismo como "1/1" (progress.py
+//      stage-header con esos valores fijos en el Makefile).
+//   2. ODM (scripts/odm_progress_filter.py) reporta SUS propios 13 pasos
+//      internos (dataset→...→postprocess) como "n/13" — y arranca de nuevo
+//      en "1/13" en cada sensor (RGB, después térmico, después MS), que es
+//      justo el "se reinicia por sensor" reportado.
+//   3. Recién las etapas de POST-procesamiento (docker/entrypoint.sh,
+//      stage_begin) usan un total real del pipeline — pero solo cubre esa
+//      cola, no el pipeline completo.
+// Unificar los tres en un solo n/total de verdad es un cambio de fondo en
+// el backend (entrypoint.sh + Makefile + odm_progress_filter.py) que no
+// vale la pena arriesgar mientras hay una misión real corriendo. Esto en
+// cambio es 100% del lado del navegador: mapea el NOMBRE de cada etapa
+// real (ya es texto fijo y conocido, no algo que cambie por sensor) contra
+// una lista de fases grandes conocida de antemano, y va tildando/resaltando
+// esa lista a medida que los nombres van llegando — sin depender de que
+// los números sean coherentes entre sí.
+// Cada fase "grande" (stage_begin en entrypoint.sh) envuelve varios targets
+// de Make que TAMBIÉN emiten su propio stage-header — match() tiene que
+// cubrir el nombre del envoltorio Y el de cada sub-paso real adentro,
+// si no cualquier sub-paso sin match cae en el fallback de abajo (se
+// agrega como fase nueva en vez de quedar adentro de la fase que ya
+// estaba en curso). Nombres sacados de docker/entrypoint.sh + Makefile.
+const PHASE_CATALOG=[
+  {key:'flight_path',label:'Ruta de vuelo',when:()=>true,
+    desc:'Arma el recorrido del vuelo y la fecha de captura desde el GPS/tiempo EXIF de las fotos — no espera a la reconstrucción 3D, así que el geovisor ya muestra algo real desde el principio.',
+    match:n=>n==='Ruta de vuelo'},
+  // RGB, multiespectral, térmico y banda D se preparan EN PARALELO (docker/
+  // entrypoint.sh, jobs de fondo + wait, presupuesto de concurrencia
+  // compartido) — antes eran fases separadas y secuenciales, pero como
+  // ahora corren a la vez, sus eventos de "stage" llegan intercalados sin
+  // ningún orden fijo entre sí. Separarlas en el checklist causaría que una
+  // llegara "antes" de la otra por pura casualidad del intercalado, no
+  // porque una fase haya empezado después de la otra — se muestran juntas,
+  // como lo que son: una sola fase paralela. "Preparación banda D" tiene
+  // que estar en este match() igual que las demás — si se olvida, cae en
+  // el fallback de advancePhase() y aparece como si fuera secuencial,
+  // aunque el bash de abajo la corra al mismo tiempo que el resto.
+  {key:'prep',label:'Preparación (en paralelo)',when:()=>true,
+    desc:'Organiza las fotos de cada sensor para que ODM las pueda reconstruir: copia las RGB, convierte el térmico de °C nativo del SDK de DJI y le pasa un filtro de ruido, y prepara las bandas multiespectrales y la banda D del M3M. Todo esto corre A LA VEZ, no una etapa atrás de la otra — son datos independientes entre sí.',
+    match:n=>n==='Preparación imágenes RGB'||n==='Preparación bandas multiespectrales'
+      ||n==='Conversión R-JPEG → °C (DJI SDK)'||n==='Filtro bilateral (denoise)'
+      ||n==='Preparación térmica nativa (ODM)'||n==='Preparación banda D (RGB, M3M)'},
+  {key:'odm_rgb',label:'Reconstrucción 3D — RGB',when:ctx=>ctx.rgb,
+    desc:'SfM + nube de puntos densa (MVS) del vuelo RGB — arma el modelo de superficie y el ortomosaico visible. Es la reconstrucción más pesada de la corrida.',
+    match:n=>n.startsWith('ODM RGB')},
+  {key:'odm_thermal',label:'Reconstrucción 3D — Térmico',when:ctx=>ctx.thermal,
+    desc:'Reconstrucción 3D del vuelo térmico con el renderizador nativo de ODM y la calibración radiométrica del sensor — el ortomosaico térmico real (temperaturas en °C) sale de acá, no de un blending propio.',
+    match:n=>n.startsWith('ODM THERMAL')},
+  {key:'odm_ms',label:'Reconstrucción 3D — Multiespectral',when:ctx=>ctx.ms,
+    desc:'Reconstrucción del vuelo multiespectral (M3M): calibra a reflectancia con el sensor de sol embebido y alinea las 4 bandas de cada captura.',
+    match:n=>n.startsWith('ODM MULTISPECTRAL')},
+  {key:'odm_dband',label:'Reconstrucción 3D — Banda D',when:ctx=>ctx.dband,
+    desc:'Reconstrucción rápida de la cámara RGB propia del M3M (banda D) — un mosaico visible adicional, sin modelo de superficie (no pide --dsm a propósito).',
+    match:n=>n.startsWith('ODM DBAND')},
+  // El recorte/índices de cada sensor ahora arranca de fondo apenas termina
+  // SU reconstrucción (docker/entrypoint.sh, POST_PIDS + wait) y corre EN
+  // PARALELO con la reconstrucción del sensor siguiente — no una etapa
+  // atrás de la otra como antes (por eso una sola fase 'trim', mismo
+  // criterio que 'prep' más arriba: eventos intercalados sin orden fijo
+  // entre sí no se pueden separar en fases secuenciales sin mentir sobre
+  // el orden real).
+  {key:'trim',label:'Recorte de bordes + índices (en paralelo)',when:()=>true,
+    desc:'Limpia el modelo de superficie de valores erróneos, recorta los bordes de baja confianza de cada sensor y calcula los índices de vegetación — todo esto arranca apenas termina la reconstrucción de CADA sensor, sin esperar a las demás.',
+    match:n=>n==='Recorte de bordes + índices (en paralelo con la reconstrucción)'
+      ||n==='Limpieza del DSM'||n==='Recorte de bordes del DSM'||n==='Recorte de bordes RGB'
+      ||n==='Recorte de bordes térmicos'||n==='Recorte de bordes multiespectrales'
+      ||n==='Índices de vegetación (NDVI/GNDVI/NDRE)'||n==='Recorte de bordes banda D'},
+  {key:'confianza',label:'Máscara de confianza',when:ctx=>ctx.rgb&&ctx.thermal,
+    desc:'Cruza RGB y térmico para marcar qué zonas del ortomosaico térmico tienen suficiente respaldo de cámaras, y mide la calidad del levantamiento (solape, velocidad de vuelo).',
+    match:n=>n==='Máscara de confianza'||n==='Calidad del levantamiento'
+      // Hotspot + resumen de situación SOLO corren acá cuando la misión NO
+      // tiene multiespectral (si lo tiene, corren en el bloque de 'area' de
+      // más abajo) — no se agregan acá para no desambiguar mal: mejor que
+      // "Resumen de situación" caiga en el fallback (se agrega suelto al
+      // final) que no que se confunda con la fase de área ya en curso.
+      },
+  {key:'area',label:'Área afectada y severidad',when:ctx=>ctx.thermal&&ctx.ms,
+    desc:'Cruza el NDVI (multiespectral) con la anomalía térmica para delimitar el área afectada y clasificarla en niveles de severidad — necesita las dos señales juntas.',
+    match:n=>n==='Área afectada + clasificación de severidad'||n==='Detección de área afectada'
+      ||n==='Clasificación de severidad'||n==='Resumen de situación'},
+  {key:'tiles',label:'Generación de tiles',when:()=>true,
+    desc:'Genera los tiles XYZ que sirve el geovisor para cada capa disponible hasta este punto.',
+    match:n=>n==='Generación de tiles XYZ'},
+  {key:'cog',label:'Exportación cloud-optimized',when:()=>true,
+    desc:'Reescribe los ráster y nubes de puntos finales en formato cloud-optimized (COG/COPC) — un SIG puede leer solo la parte que necesita sin descargar el archivo entero.',
+    match:n=>n==='Exportación cloud-optimized (COG + COPC)'||n==='Rasters finales → COG'||n==='Nubes de puntos → COPC'},
+  // "Exportación a carpeta de entrega" queda afuera a propósito: no hay
+  // forma de saber desde acá si ESTA corrida la va a tener (depende de con
+  // qué --export se levantó el contenedor, no de mode/has_multispectral).
+  // Si aparece, advancePhase() la agrega sola (ver el fallback de abajo).
+];
+let PHASES=[];
+function buildPhaseList(ctx){
+  PHASES=PHASE_CATALOG.filter(p=>p.when(ctx)).map(p=>
+    ({key:p.key,label:p.label,desc:p.desc,match:p.match,status:'pending',startedAt:null,endedAt:null}));
+  renderPhases();
+}
+// t: epoch en SEGUNDOS del servidor (progress.py, ver el comentario de
+// _emit_progress) — no Date.now(). Así el tiempo por fase sale bien aunque
+// se reconecte/recargue a mitad de una corrida de horas: la SSE reproduce
+// el historial completo desde el principio en cada conexión nueva, y esos
+// eventos viejos traen su propio t real en vez de "ahora".
+function advancePhase(name,t){
+  if(!name)return;
+  const now=t?t*1000:Date.now();
+  let idx=PHASES.findIndex(p=>p.match(name));
+  if(idx===-1){
+    // No matchea ningún catálogo conocido — pasa con sub-pasos reales que a
+    // propósito se dejaron afuera del match() (p.ej. "Hotspot térmico" en
+    // una misión térmica sin multiespectral, ver el comentario en
+    // 'thermal_post') y con fases que no se pueden predecir de antemano
+    // ("Exportación a carpeta de entrega"). Se inserta INMEDIATAMENTE
+        // DESPUÉS de la última fase done/current, no al final del array: si
+    // se agregara al final sin más, cualquier fase posterior YA cargada
+    // (p.ej. 'tiles'/'cog') quedaría marcada 'done' de pura casualidad de
+    // orden del array, antes de haber pasado de verdad.
+    const after=PHASES.reduce((acc,p,i)=>(p.status==='done'||p.status==='current')?i:acc,-1);
+    idx=after+1;
+    PHASES.splice(idx,0,{key:'extra-'+name,label:name,desc:null,match:n=>n===name,status:'pending',
+      startedAt:null,endedAt:null});
+  }
+  PHASES.forEach((p,i)=>{
+    const eraCurrent=p.status==='current';
+    p.status=i<idx?'done':i===idx?'current':'pending';
+    if(eraCurrent&&p.status!=='current'&&!p.endedAt)p.endedAt=now;
+    if(p.status==='current'&&!p.startedAt)p.startedAt=now;
+  });
+  renderPhases();
+}
+function fmtPhaseDuration(ms){
+  const s=Math.max(0,Math.round(ms/1000));
+  if(s<60)return `${s}s`;
+  const m=Math.floor(s/60),ss=s%60;
+  return ss?`${m}m ${ss}s`:`${m}m`;
+}
+// Cada fase es un <details> — el usuario despliega la que le interese para
+// saber QUÉ hace de verdad esa etapa, en vez de solo un nombre corto en la
+// lista. Sin desc (fallback de advancePhase(), nombres de sub-pasos que no
+// están en PHASE_CATALOG) se muestra sin flecha, no hay nada que desplegar.
+// Duración: "done" muestra cuánto tardó (endedAt-startedAt); "current"
+// muestra un cronómetro EN VIVO desde que arrancó (lo actualiza phTick(),
+// mismo intervalo de 1s que ya usa el reloj general — ver renderPhaseTimers()
+// más abajo, así no hace falta re-renderizar la lista entera cada segundo).
+function phaseDurationHTML(p){
+  if(p.status==='done'&&p.startedAt&&p.endedAt)
+    return `<span class="ph-phase-dur">${fmtPhaseDuration(p.endedAt-p.startedAt)}</span>`;
+  if(p.status==='current'&&p.startedAt)
+    return `<span class="ph-phase-dur ph-phase-live" data-started="${p.startedAt}">${fmtPhaseDuration(Date.now()-p.startedAt)}</span>`;
+  return '';
+}
+function renderPhases(){
+  const box=document.getElementById('ph-phases');
+  if(!box)return;
+  box.innerHTML=PHASES.map(p=>
+    p.desc
+      ? `<li class="${p.status}"><details><summary><span class="ph-phase-dot"></span>${p.label}${phaseDurationHTML(p)}</summary>`
+        + `<div class="ph-phase-desc">${p.desc}</div></details></li>`
+      : `<li class="${p.status} ph-phase-nodesc"><span class="ph-phase-dot"></span>${p.label}${phaseDurationHTML(p)}</li>`
+  ).join('');
+}
+// Actualiza SOLO el número del cronómetro de la fase en curso, sin
+// reconstruir toda la lista (evita perder el <details> abierto del usuario
+// cada segundo) — se llama desde phTick(), que ya corre cada 1s.
+function renderPhaseTimers(){
+  const el=document.querySelector('.ph-phase-live');
+  if(!el)return;
+  el.textContent=fmtPhaseDuration(Date.now()-Number(el.dataset.started));
+}
+
 const MAX_PH_LOG_LINES=600; // ventana acotada: una corrida entera son miles de líneas
 let phLogLines=[];
 function phAppendLog(line){
@@ -1369,6 +1627,27 @@ function connectLiveMission(mission){
     boundsPoll=setInterval(pollBoundsForChanges,6000);
     pollBoundsForChanges(); // primera lectura: fija lastBoundsSig, no espera 6s
     labelMission();
+    // Cancelar: mientras la corrida sigue, no cuando ya terminó — el
+    // handler 'done' de más abajo reemplaza este botón por "Ver log
+    // completo"/"Cerrar".
+    const actions=document.getElementById('ph-actions');
+    if(actions){
+      actions.innerHTML='';
+      const cancel=document.createElement('button');
+      cancel.className='btn sm';cancel.textContent='✕ Cancelar';
+      cancel.onclick=async()=>{
+        if(!confirm('¿Cancelar el procesamiento en curso? Lo hecho hasta ahora en esta corrida se pierde.'))return;
+        cancel.disabled=true;cancel.textContent='Cancelando…';
+        try{
+          const r=await fetch(`/api/missions/${encodeURIComponent(mission)}/cancel`,{method:'POST'});
+          if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.detail||'no se pudo cancelar');}
+        }catch(e){
+          alert('No se pudo cancelar: '+e.message);
+          cancel.disabled=false;cancel.textContent='✕ Cancelar';
+        }
+      };
+      actions.appendChild(cancel);
+    }
   };
   es.onmessage=(ev)=>{
     let d; try{d=JSON.parse(ev.data);}catch(e){return;}
@@ -1376,9 +1655,11 @@ function connectLiveMission(mission){
       phServerElapsed=d.elapsed||0; phServerElapsedAt=Date.now();
       if(phTimerInterval)clearInterval(phTimerInterval);
       phTimerInterval=setInterval(phTick,1000); phTick();
-      if(d.mode)phSetStage('Conectado — esperando la primera etapa…');
+      if(d.mode)phSetStage('Conectado, esperando la primera etapa…');
+      buildPhaseList({rgb:d.mode!=='thermal'&&d.mode!=='none',
+        thermal:(d.mode||'').includes('thermal'),ms:!!d.has_multispectral,dband:!!d.dband});
     }else if(d.kind==='progress'){
-      if(d.event==='stage'){ phSetStage(`[${d.n}/${d.total}] ${d.name}`); phSetBar(0); }
+      if(d.event==='stage'){ phSetStage(`[${d.n}/${d.total}] ${d.name}`); phSetBar(0); advancePhase(d.name,d.t); }
       else if(d.event==='bar'){
         const cur=parseFloat(d.current||0), tot=parseFloat(d.total||100)||100;
         phSetBar((cur/tot)*100);
@@ -1393,7 +1674,12 @@ function connectLiveMission(mission){
       const ok=d.returncode===0;
       hud.classList.add(ok?'done':'failed');
       phSetStage(ok?'✅ Procesamiento completo':`❌ Falló (código ${d.returncode})`);
-      if(ok)phSetBar(100);
+      // La última fase que haya llegado a estar "current" nunca recibe su
+      // propio endedAt (nada la reemplaza) — se completa acá, al terminar
+      // la corrida entera, mejor aproximación que un endedAt=null.
+      PHASES.forEach(p=>{ if(p.status==='current'&&!p.endedAt)p.endedAt=Date.now(); });
+      if(ok){phSetBar(100);PHASES.forEach(p=>p.status='done');}
+      renderPhases();
       const actions=document.getElementById('ph-actions');
       if(actions){
         actions.innerHTML='';
@@ -1418,7 +1704,7 @@ function connectLiveMission(mission){
   };
   es.onerror=()=>{
     // Si el servidor nunca trackeó esta misión como activa (link viejo,
-    // otra sesión), la primera respuesta ya viene con status 404 — no hay
+    // otra sesión), la primera respuesta ya viene con status 404. No hay
     // "reintentos infinitos silenciosos": se cierra y no se muestra nada.
     if(!hud.classList.contains('visible')){ es.close(); if(boundsPoll)clearInterval(boundsPoll); }
   };
@@ -1429,7 +1715,7 @@ if(urlMission)connectLiveMission(urlMission);
 // TEMA CLARO / OSCURO
 // ═══════════════════════════════════════════════════════════════════
 // El oscuro es el default (ortofotos y mapas de calor se leen mejor sobre
-// fondo oscuro), pero en campo —pantalla al sol— es directamente ilegible.
+// fondo oscuro), pero en campo, con la pantalla al sol, es directamente ilegible.
 // Todo el color va por variables CSS, así que alcanza con marcar <html>.
 const THEME_KEY='raptor-geovisor-theme';
 function applyTheme(t){
@@ -1457,7 +1743,7 @@ function soloLayer(id){
   if(!def)return;
   // GLOBAL, no solo dentro del grupo: la primera versión aislaba nada más
   // que los hermanos del mismo grupo temático (p.ej. "solo" en RGB dejaba
-  // el térmico prendido, porque vive en otro grupo) — el resultado visible
+  // el térmico prendido, porque vive en otro grupo). El resultado visible
   // era indistinguible de que el botón no hiciera nada. "Solo" ahora apaga
   // TODO lo demás, sin excepción: es el modelo mental simple que alguien sin
   // experiencia en GIS espera de un botón así.
@@ -1507,21 +1793,21 @@ function resetLayers(){
 // EXPORTAR MAPA (PNG de la vista actual, no un volcado de JSON)
 // ═══════════════════════════════════════════════════════════════════
 // El mapa base (OSM/Satélite) es de un servidor EXTERNO sin cabecera CORS
-// garantizada — dibujar ese píxel en el mismo canvas que después se lee con
+// garantizada. Dibujar ese píxel en el mismo canvas que después se lee con
 // toDataURL() "contamina" el canvas ENTERO (no solo ese tile) y el
 // navegador tira SecurityError al exportar. Para no depender de que un
 // tercero decida agregar CORS algún día, la exportación directamente NO
 // toca el mapa base: compone solo las capas de DATOS (todas servidas por
 // este mismo geovisor, mismo origen) sobre un fondo sólido, y lo dice en el
-// pie de la imagen — resultado 100% predecible en vez de "a veces funciona
+// pie de la imagen. Resultado 100% predecible en vez de "a veces funciona
 // según qué capa esté prendida".
 //
 // Los tiles de datos ya están en el DOM como <img>/<canvas> (Leaflet los
-// mantiene ahí mientras la capa está activa) — se leen sus posiciones reales
+// mantiene ahí mientras la capa está activa). Se leen sus posiciones reales
 // en pantalla con getBoundingClientRect() en vez de recalcular la matemática
 // interna de teselado: más simple y no depende de la versión de Leaflet.
 // captureMapSnapshot(): la composición del MAPA en sí (sin encabezado ni
-// estadísticas) — devuelve el canvas crudo (no un dataURL) más sus medidas
+// estadísticas). Devuelve el canvas crudo (no un dataURL) más sus medidas
 // LÓGICAS (en px CSS, no de dispositivo), para poder incrustarlo dentro de
 // un canvas más grande vía drawImage() sin lidiar con el devicePixelRatio
 // dos veces. La usan exportView() (descarga directa, solo el mapa) y
@@ -1541,7 +1827,7 @@ async function captureMapSnapshot(){
     ctx.scale(dpr,dpr);
 
     // Fondo SIEMPRE blanco, sin importar el tema activo de la UI (antes
-    // seguía el tema oscuro por defecto — #0d1117, casi negro — y esa franja
+    // seguía el tema oscuro por defecto (#0d1117, casi negro) y esa franja
     // se veía donde el mosaico no cubre el rectángulo completo del mapa:
     // "sale fondo negro" en la imagen exportada). Un reporte para compartir
     // o imprimir se comporta como una hoja, no como la interfaz.
@@ -1570,7 +1856,7 @@ async function captureMapSnapshot(){
     ctx.globalAlpha=1;
 
     // Vectores: se reproyectan a mano (lat/lng → pixel de pantalla) y se
-    // dibujan con las mismas primitivas de canvas — no dependen de leer DOM.
+    // dibujan con las mismas primitivas de canvas, no dependen de leer DOM.
     if(map.hasLayer(areaAfectadaLayer)){
       areaPolyEntries.forEach(entry=>{
         ctx.beginPath();
@@ -1601,7 +1887,7 @@ async function captureMapSnapshot(){
       });
     }
 
-    // Escala: mismo cálculo conceptual que L.control.scale — distancia real
+    // Escala: mismo cálculo conceptual que L.control.scale. Distancia real
     // entre dos puntos separados 100px en pantalla, redondeada a un número
     // "lindo" (1/2/5×10ⁿ), y la barra se dibuja proporcional a esa distancia.
     const p1=map.containerPointToLatLng([20,rect.height-10]);
@@ -1624,7 +1910,7 @@ async function captureMapSnapshot(){
     ctx.fillText(scaleLabel,20+barPx+8,sy+4);
 
     // Norte: mismo glifo "▲N" del control en pantalla (.coords-control
-    // .compass, ver CoordsControl más arriba en este archivo) — antes era un
+    // .compass, ver CoordsControl más arriba en este archivo). Antes era un
     // triángulo relleno dibujado a mano, con otra forma y otro color, que no
     // se parecía al indicador real del geovisor. La app no rota el mapa, así
     // que "arriba" siempre es norte.
@@ -1636,7 +1922,7 @@ async function captureMapSnapshot(){
     // Sin pie de misión/fecha ni nota de mapa base acá a propósito: quien
     // llama a esta función decide si hace falta encabezado (buildReportCanvas()
     // ya pone nombre+fecha arriba de todo; exportView(), el export suelto de
-    // "modo operativo", no necesita ninguno — el nombre del archivo alcanza).
+    // "modo operativo", no necesita ninguno; el nombre del archivo alcanza).
     const missionName=document.getElementById('incident-name')?.textContent||'';
 
     if(!anyRaster&&!map.hasLayer(areaAfectadaLayer)&&!map.hasLayer(flightLayer)){
@@ -1665,10 +1951,10 @@ async function exportView(){
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// IMAGEN DE "GENERAR RESUMEN DE SITUACIÓN" — una sola pieza para compartir
+// IMAGEN DE "GENERAR RESUMEN DE SITUACIÓN": una sola pieza para compartir
 // con todo lo necesario para decidir: encabezado (misión+fecha+confianza),
 // las mismas 3 métricas del panel, el mapa, y la recomendación en texto.
-// No un recorte del mapa solo — ESE es exportView()/"Exportar" (modo
+// No un recorte del mapa solo, ESE es exportView()/"Exportar" (modo
 // operativo). Esta es la versión para compartir con quien no va a abrir el
 // geovisor.
 // ═══════════════════════════════════════════════════════════════════
@@ -1694,19 +1980,26 @@ function buildRecommendationText(s){
     `activo${s.hotspots_activos===1?'':'s'}`;
   if(s.solo_termico){
     // Sin multiespectral no hay severidad/área que reportar (ver
-    // detect_area_afectada.py: su señal primaria es NDVI) — el resumen se
+    // detect_area_afectada.py: su señal primaria es NDVI). El resumen se
     // recorta a lo único que el térmico solo puede decir. Esta pieza es
     // para COMPARTIR fuera del geovisor (ver comentario de sección más
-    // abajo): no menciona lo que falta ni invita a agregar un vuelo —esa
+    // abajo): no menciona lo que falta ni invita a agregar un vuelo (esa
     // acción vive en la app, no tiene sentido en una imagen que ya salió de
-    // ahí— y en cambio reporta temperatura real de TODO el ortomosaico
+    // ahí) y en cambio reporta temperatura real de TODO el ortomosaico
     // térmico, no solo el pico de un foco activo (que puede no haber
     // ninguno y aun así haber datos de temperatura que reportar).
     const temp=s.temp_max!=null?`. Temp. superficial: máx ${s.temp_max}°C, promedio ${s.temp_promedio}°C`:'';
     // La calidad del vuelo va aparte, en su propia píldora (ver
-    // buildReportCanvas()) — mezclarla acá duplicaba la misma cifra dos
+    // buildReportCanvas()), mezclarla acá duplicaba la misma cifra dos
     // veces en la misma imagen.
     return `${focos}${temp}.`;
+  }
+  if(s.sin_impacto_detectado){
+    // Corrió con los dos sensores pero ningún píxel superó el umbral — no
+    // hay severidad/área que reportar, pero sí temperatura real medida
+    // (mismo criterio que la rama solo_termico de arriba).
+    const temp=s.temp_max!=null?`. Temp. superficial: máx ${s.temp_max}°C, promedio ${s.temp_promedio}°C`:'';
+    return `Sin área afectada detectable${temp}.`;
   }
   return `${focos}, severidad dominante ${s.severidad.dominante}.`+
     (s.severidad.severo_pct>0?' Se recomienda priorizar verificación en terreno en las zonas de severidad alta.':'');
@@ -1742,13 +2035,13 @@ async function buildReportCanvas(){
   const sevColor={leve:good,moderado:warning,severo:critical}[sevKey]||inkMuted;
   const sevSoft={leve:goodSoft,moderado:warningSoft,severo:criticalSoft}[sevKey]||surface2;
   // Urgencia general de la misión: 3 niveles, atados a lo mismo que YA se
-  // muestra en las tarjetas de arriba (focos activos, severidad dominante)
-  // — no un umbral aparte que pueda contradecirlas. Antes esto se disparaba
+  // muestra en las tarjetas de arriba (focos activos, severidad dominante),
+  // no un umbral aparte que pueda contradecirlas. Antes esto se disparaba
   // con CUALQUIER % de severidad "severo" mayor a cero (hasta un 1% por
   // ruido de clasificación ya lo activaba), así que podía decir "requiere
   // atención" en rojo con "0 focos activos" bien visible arriba: la propia
   // imagen se contradecía. Ahora el rojo queda reservado para lo que
-  // realmente lo amerita — foco activo real, o que la severidad DOMINANTE
+  // realmente lo amerita: foco activo real, o que la severidad DOMINANTE
   // (no un resto minoritario) sea severa.
   const urgentLevel=!s?'none':s.hotspots_activos>0?'critical':sevKey==='severo'?'critical':sevKey==='moderado'?'warning':'good';
   const urgentLabel={critical:s?.hotspots_activos>0?'⚠ Riesgo de reactivación':'⚠ Requiere atención',
@@ -1756,7 +2049,7 @@ async function buildReportCanvas(){
   const urgentColor={critical,warning,good,none:inkMuted}[urgentLevel];
   const urgentSoft={critical:criticalSoft,warning:warningSoft,good:goodSoft,none:surface2}[urgentLevel];
   // Calidad del LEVANTAMIENTO (compute_flight_quality.py), no confianza del
-  // dato de impacto — ver renderSummaryCards()/flightQualityCardHTML() para
+  // dato de impacto. Ver renderSummaryCards()/flightQualityCardHTML() para
   // la explicación completa de por qué se reemplazó ese concepto.
   const calColor={buena:good,regular:warning,baja:critical}[fq?.calidad]||inkMuted;
   const calSoft={buena:goodSoft,regular:warningSoft,baja:criticalSoft}[fq?.calidad]||surface2;
@@ -1770,14 +2063,14 @@ async function buildReportCanvas(){
   const ctx=out.getContext('2d');
   ctx.scale(dpr,dpr);
 
-  // Marco general redondeado — sin esto el PNG es un rectángulo a lo bruto,
+  // Marco general redondeado. Sin esto el PNG es un rectángulo a lo bruto,
   // se ve "hecho en dos minutos" apenas se comparte sobre cualquier fondo
   // que no sea blanco puro (un chat, una presentación).
   roundRectPath(ctx,0,0,mapW,totalH,RADIUS);
   ctx.clip();
   ctx.fillStyle=surface;ctx.fillRect(0,0,mapW,totalH);
 
-  // Franja de acento arriba de todo — la única nota de color puramente
+  // Franja de acento arriba de todo, la única nota de color puramente
   // decorativa de la pieza, a propósito: ancla la identidad de la
   // herramienta sin competir con el semántico (severidad/confianza) que sí
   // significa algo.
@@ -1791,7 +2084,7 @@ async function buildReportCanvas(){
   ctx.fillStyle=inkMuted;ctx.font=F(500,13.5);
   ctx.fillText(s?fmtFecha(s.captura):'Sin datos de impacto todavía',PAD,headY+60);
   if(fq){
-    // Calidad del levantamiento como píldora de color, no texto suelto —
+    // Calidad del levantamiento como píldora de color, no texto suelto,
     // mismo lenguaje visual que los "chips" del panel en vivo.
     ctx.font=F(700,12.5);
     const pillLbl=`Calidad del vuelo: ${fq.calidad}`;
@@ -1806,14 +2099,14 @@ async function buildReportCanvas(){
   // ── Fila de métricas: 3 tarjetas reales, no columnas separadas por líneas ──
   const statsY=headY+HEADER_H;
   ctx.fillStyle=surface;ctx.fillRect(0,statsY,mapW,STATS_H);
-  // Sin multiespectral no hay tarjeta de "Área y severidad" que mostrar —
-  // antes decía "Sin MS" (lo que FALTA); una pieza para compartir fuera del
+  // Sin multiespectral no hay tarjeta de "Área y severidad" que mostrar.
+  // Antes decía "Sin MS" (lo que FALTA); una pieza para compartir fuera del
   // geovisor no debería anunciar ausencias, así que en su lugar van
   // estadísticas de temperatura reales de todo el ortomosaico térmico
   // (compute_situation_summary.py::_resumen_solo_termico), que siempre
   // existen tenga o no focos activos.
   const stats=!s?[['—','','Sin datos de impacto',inkMuted,surface2]]
-    :s.solo_termico?[
+    :(s.solo_termico||s.sin_impacto_detectado)?[
       [`${s.hotspots_activos}`,'','Focos activos',s.hotspots_activos>0?critical:ink,s.hotspots_activos>0?criticalSoft:surface2],
       [s.temp_max!=null?`${s.temp_max}`:'—','°C','Temp. máxima',ink,surface2],
       [s.temp_promedio!=null?`${s.temp_promedio}`:'—','°C','Temp. promedio',ink,surface2],
@@ -1828,7 +2121,7 @@ async function buildReportCanvas(){
     roundRectPath(ctx,cx0,cy0,cardW,cardH,12);
     ctx.fillStyle=soft;ctx.fill();
     // Marca de color: un pequeño acento redondo arriba-izquierda de la
-    // tarjeta en vez de teñir todo el fondo con demasiada fuerza — visible
+    // tarjeta en vez de teñir todo el fondo con demasiada fuerza: visible
     // pero no gritado.
     ctx.beginPath();ctx.arc(cx0+18,cy0+18,4,0,7);ctx.fillStyle=color;ctx.fill();
     const midx=cx0+cardW/2;
@@ -1854,12 +2147,12 @@ async function buildReportCanvas(){
   ctx.strokeStyle=line;ctx.lineWidth=1;
   ctx.beginPath();ctx.moveTo(0,mapY);ctx.lineTo(mapW,mapY);ctx.stroke();
 
-  // ── Leyenda de la capa temática visible — reportado: la imagen exportada
+  // ── Leyenda de la capa temática visible: reportado que la imagen exportada
   // mostraba el mapa coloreado (severidad/hotspot/índice) sin decir qué
   // significa cada color, algo que SÍ se ve en pantalla (panel de Capas o
   // leyenda flotante del modo simple). Se toma la primera capa VISIBLE de
   // layerOrder que tenga swatches (ya viene en orden de prioridad de
-  // decisión — ver el comentario de GROUP_ORDER/layerOrder más arriba). Se
+  // decisión, ver el comentario de GROUP_ORDER/layerOrder más arriba). Se
   // dibuja arriba a la derecha del mapa para no chocar con la escala
   // (abajo-izquierda) ni el norte (abajo-derecha), ya horneados en mapCanvas.
   const legendId=layerOrder.find(id=>LAYER_REGISTRY[id]&&map.hasLayer(LAYER_REGISTRY[id].layer)&&legendSwatchesFor(id));
@@ -1890,7 +2183,7 @@ async function buildReportCanvas(){
     ctx.restore();
   }
 
-  // ── Pie: recomendación, coloreada según urgencia real — es lo último
+  // ── Pie: recomendación, coloreada según urgencia real. Es lo último
   // que se lee pero lo primero que se PERCIBE (el color) al abrir la
   // imagen compartida. Centrado VERTICALMENTE en la franja (antes quedaba
   // pegado arriba, con aire de sobra abajo cuando la recomendación era
@@ -2209,6 +2502,11 @@ async function renderSummaryCards(){
       <div class="l">Área afectada, severidad y vegetación</div>
       <div class="sub">Esta misión no tiene vuelo multiespectral (M3M) — esas tres cifras salen de NDVI, que
         el térmico solo no puede calcular.</div>
+    </div>` : s.sin_impacto_detectado?`
+    <div class="stat-card" style="grid-column:1/-1">
+      <div class="l">Área afectada, severidad y vegetación</div>
+      <div class="sub">Ningún píxel superó el umbral de anomalía en esta misión — sin área afectada detectable
+        en los datos multiespectrales/térmicos. Los focos térmicos (arriba) siguen siendo el dato real medido.</div>
     </div>` : (()=>{
       const dom={leve:'Leve',moderado:'Moderada',severo:'Severa'}[s.severidad.dominante]||'—';
       return `
@@ -2237,7 +2535,7 @@ async function renderSummaryCards(){
       <div class="l">Focos térmicos activos</div>
       <div class="v tabnum">${s.hotspots_activos}</div>
       <div class="sub">${s.hotspots_activos>0?'Riesgo de reactivación':'Ninguno detectado'}${
-        s.solo_termico&&s.temp_max!=null?` · máx ${s.temp_max}°C · prom ${s.temp_promedio}°C`:''}</div>
+        (s.solo_termico||s.sin_impacto_detectado)&&s.temp_max!=null?` · máx ${s.temp_max}°C · prom ${s.temp_promedio}°C`:''}</div>
     </div>
     ${impactoCards}
     <div class="stat-card">
@@ -2397,7 +2695,11 @@ function renderSimpleTabs(){
 // sola en cuanto liveMsBandIds deja de estar vacío (ya no hay nada que
 // ofrecer).
 function renderFooterAddMsCta(){
-  const html=liveMsBandIds.length===0
+  // liveMsBandIds vacío no alcanza: es cierto tanto para "esta misión nunca
+  // tuvo M3M" (acá SÍ corresponde ofrecer agregarlo) como para "tiene M3M
+  // pero ODM todavía no terminó de calcular los índices" (acá NO — ya está
+  // incluido, solo falta que termine). hasMsInput distingue los dos casos.
+  const html=(liveMsBandIds.length===0&&!hasMsInput)
     ? addMsCtaHTML('🌿 Agregar multiespectral','Habilita área afectada, severidad e índices de vegetación automáticos.')
     : '';
   const simple=document.getElementById('footer-addms-cta-simple');
@@ -2612,11 +2914,12 @@ async function openReport(){
       `${displayName(mission||'')} — ${s?fmtFecha(s.captura):'sin datos de impacto'}`;
     document.getElementById('report-stats').innerHTML=!s
       ? `<div class="card" style="grid-column:1/-1"><div class="l">Sin datos de impacto — esta misión no tiene ni multiespectral+térmico ni térmico solo</div></div>`
-      : s.solo_termico
+      : (s.solo_termico||s.sin_impacto_detectado)
       // Mismo criterio que buildReportCanvas(): esta vista previa es
       // exactamente lo que se descarga (ver comentario más abajo), así que
       // tampoco debe anunciar lo que falta — muestra temperatura real del
-      // ortomosaico térmico en su lugar.
+      // ortomosaico térmico en su lugar. sin_impacto_detectado usa la MISMA
+      // vista: no hay severidad/área que mostrar en ninguno de los dos casos.
       ? `<div class="card"><div class="v tabnum">${s.hotspots_activos}</div><div class="l">Focos activos</div></div>
          <div class="card"><div class="v tabnum">${s.temp_max??'—'}°C</div><div class="l">Temp. máxima</div></div>
          <div class="card"><div class="v tabnum">${s.temp_promedio??'—'}°C</div><div class="l">Temp. promedio</div></div>`

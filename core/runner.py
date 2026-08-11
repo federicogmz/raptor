@@ -7,6 +7,7 @@ import asyncio
 import os
 import re
 import shutil
+import signal
 import time
 from pathlib import Path
 
@@ -45,17 +46,32 @@ class PipelineRun:
     y el log crudo (para mostrar si falla)."""
 
     def __init__(self, *, mode, source_dir, ms_source_dir=None,
-                 skip_odm=False, port=8080, progress_file, export=None, quality=75):
+                 skip_odm=False, port=8080, progress_file, export=None,
+                 preset=None, quality=None, dband=False, terreno=None):
         self.mode = mode
         self.source_dir = str(source_dir)
         self.ms_source_dir = str(ms_source_dir) if ms_source_dir else None
         self.skip_odm = skip_odm
-        self.quality = int(quality)
+        # `preset` es la forma actual (vistazo/rapido/estandar/alta/maxima);
+        # `quality` (0-100) es la anterior y se sigue aceptando — el mapeo lo
+        # hace scripts/hardware.py, que es donde vive la tabla.
+        self.preset = str(preset if preset is not None
+                          else (quality if quality is not None else "estandar"))
         self.port = port
         self.progress_file = str(progress_file)
         # export: dict con las EXPORT_* que entiende docker/entrypoint.sh
         # (ver scripts/export_products.py). None/vacío = no se exporta nada.
         self.export = export or {}
+        # Banda D del M3M (mosaico visible rápido, opt-in) — ver DBAND en
+        # docker/entrypoint.sh. Solo tiene efecto si además hay ms_source_dir
+        # con archivos *_D.JPG; entrypoint.sh lo ignora silenciosamente si no.
+        self.dband = bool(dband)
+        # "plano" (default) o "escarpado" — ver TERRENOS en scripts/hardware.py.
+        # "escarpado" fuerza sfm_algorithm=incremental incluso en vistazo/
+        # rápido: en terreno plano/aéreo estándar reconstruir por homografías
+        # (planar) es válido y rápido, pero en relieve fuerte puede descartar
+        # la mayoría de las fotos en silencio — confirmado en vivo.
+        self.terreno = str(terreno) if terreno else "plano"
         self.returncode = None
         self.raw_lines = []
         self._proc = None
@@ -66,7 +82,9 @@ class PipelineRun:
             "MODE": self.mode,
             "SOURCE_DIR": self.source_dir,
             "SKIP_ODM": "1" if self.skip_odm else "0",
-            "QUALITY": str(self.quality),
+            "PRESET": self.preset,
+            "TERRENO": self.terreno,
+            "DBAND": "1" if self.dband else "0",
             "SERVE": "0",
             "PORT": str(self.port),
             "PROGRESS_FILE": self.progress_file,
@@ -144,8 +162,43 @@ class PipelineRun:
         return self.returncode
 
     def kill(self):
-        if self._proc and self._proc.returncode is None:
-            self._proc.kill()
+        """Mata el pipeline COMPLETO, no solo el bash de entrypoint.sh.
+
+        entrypoint.sh es apenas la raíz: ODM (run.py), opensfm y el resto de
+        las herramientas corren como nietos/bisnietos de ese proceso, y
+        alguna (opensfm) arranca su propia sesión nueva — matar solo el
+        `_proc` directo (lo que hacía esto antes) deja a esos hijos
+        huérfanos pero VIVOS, reparentados a PID 1, consumiendo CPU/RAM
+        igual que si nada hubiera pasado (confirmado en vivo: la corrida
+        seguía usando el GPU/CPU entero después de "cancelarla"). Se
+        recorre /proc para juntar TODO el árbol de descendientes antes de
+        matar nada — no depende de grupos de proceso, así que también
+        alcanza a lo que se haya desprendido a su propia sesión."""
+        if not self._proc or self._proc.returncode is not None:
+            return
+        for pid in reversed(_descendant_pids(self._proc.pid)):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        self._proc.kill()
+
+
+def _descendant_pids(pid):
+    """Todos los PIDs descendientes de `pid`, recursivo, vía /proc — no usa
+    grupos de proceso (ver el comentario de kill() sobre por qué no alcanza)."""
+    pids = []
+    frontier = [pid]
+    while frontier:
+        p = frontier.pop()
+        try:
+            with open(f"/proc/{p}/task/{p}/children") as f:
+                children = [int(x) for x in f.read().split()]
+        except OSError:
+            children = []
+        pids.extend(children)
+        frontier.extend(children)
+    return pids
 
 
 def parse_progress_events(path: str, since_pos: int):

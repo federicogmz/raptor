@@ -142,6 +142,38 @@ class TestCapasDisponibles:
         correr()
         assert "rgb" in _bounds()["capas_disponibles"]
 
+    def test_indices_crudos_se_reportan(self, correr):
+        """Bug real, reportado en vivo: NDVI/GNDVI/NDRE/MSAVI2 se teselaban
+        bien (confirmado en el log de la corrida real) pero nunca se
+        agregaban a capas_disponibles — a diferencia de sus versiones
+        "_class" (clasificadas), que sí lo hacían. El geovisor no gatea la
+        capa CRUDA de índice con esto (usa index_ranges), pero otras partes
+        sí consultan esta lista, y la inconsistencia por sí sola ya era un
+        bug de datos: se decía "no disponible" de algo que sí estaba."""
+        _dsm()
+        os.makedirs("outputs/indices", exist_ok=True)
+        _raster("outputs/indices/ndvi.tif", 0.1, dtype=gdal.GDT_Float32)
+        correr()
+        assert "ndvi" in _bounds()["capas_disponibles"]
+
+    def test_bandas_ms_crudas_se_reportan(self, correr):
+        _dsm()
+        s = osr.SpatialReference(); s.ImportFromEPSG(32618)
+        ds = gdal.GetDriverByName("GTiff").Create("outputs/multispectral_orthomosaic.tif", 64, 64, 5, gdal.GDT_Float32)
+        ds.SetGeoTransform((466000.0, 0.05, 0.0, 708900.0, 0.0, -0.05))
+        ds.SetProjection(s.ExportToWkt())
+        for i, desc in enumerate(["Red", "Green", "NIR", "RedEdge"], start=1):
+            b = ds.GetRasterBand(i)
+            b.WriteArray(np.full((64, 64), 0.05, np.float32))
+            b.SetDescription(desc)
+        alpha = ds.GetRasterBand(5)
+        alpha.WriteArray(np.full((64, 64), 255, np.float32))
+        alpha.SetColorInterpretation(gdal.GCI_AlphaBand)
+        ds = None
+        correr()
+        b = _bounds()["capas_disponibles"]
+        assert {"ms_red", "ms_green", "ms_nir", "ms_rededge"} <= set(b)
+
 
 class TestTilesCompletos:
     """Reportado: "hay un nivel de zoom en que el hotspot térmico no

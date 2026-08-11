@@ -319,7 +319,13 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
   box-shadow:var(--shadow);color:var(--ink-muted);display:none;align-items:center;
   justify-content:center;font-size:1.05em}
 .panel-collapsed .panel-toggle{display:flex}
-#panel-simple,#panel-advanced{display:flex;flex-direction:column;height:100%;overflow:hidden}
+/* flex:1;min-height:0 en vez de height:100% — con el HUD de progreso como
+   tercer hijo de .panel (ver index.html), height:100% dejaba a estos dos
+   ocupando TODO el alto igual y el HUD quedaba empujado fuera de vista;
+   min-height:0 es necesario además porque un hijo flex por defecto no se
+   encoge más chico que su contenido (overflow:hidden de acá solo, sin
+   esto, no alcanza). */
+#panel-simple,#panel-advanced{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
 /* El atributo [hidden] nativo pierde contra CUALQUIER regla de autor que
    fije `display` en el mismo elemento (la hoja de estilos del navegador que
    lo implementa es de menor prioridad que la nuestra, sin importar
@@ -564,9 +570,14 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
 .area-trash{font-size:16px;text-align:center;line-height:24px;cursor:pointer;
   filter:drop-shadow(0 0 3px rgba(0,0,0,.6))}
 
-/* HUD de progreso */
-#progress-hud{display:none;position:absolute;top:70px;left:50%;transform:translateX(-50%);z-index:950;
-  padding:10px 16px;min-width:280px;max-width:min(92vw,420px)}
+/* HUD de progreso — embebido al pie del sidebar (no flota sobre el mapa,
+   ver el comentario en index.html), flex-shrink:0 para no perder espacio
+   contra panel-simple/panel-advanced (ver la regla de esos dos, más abajo,
+   que pasó de height:100% a flex:1;min-height:0 por lo mismo). Su propio
+   contenido puede crecer bastante (fases + log) así que tiene tope y
+   scroll propio para no empujar el resto del sidebar fuera de pantalla. */
+#progress-hud{display:none;flex-shrink:0;border:none;border-top:1px solid var(--line);
+  border-radius:0;box-shadow:none;padding:10px 16px;max-height:45vh;overflow-y:auto}
 #progress-hud.visible{display:block}
 .ph-top{display:flex;align-items:center;gap:9px;margin-bottom:7px}
 .ph-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex-shrink:0;
@@ -580,6 +591,25 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
 .ph-bar-fill{height:100%;background:var(--accent);width:0%;transition:width .3s}
 #progress-hud.done .ph-bar-fill{background:var(--good)}
 #progress-hud.failed .ph-bar-fill{background:var(--critical)}
+.ph-phases{list-style:none;margin:9px 0 0;padding:0;display:flex;flex-direction:column;gap:3px;
+  max-height:260px;overflow-y:auto}
+.ph-phases li{font-size:.72em;color:var(--ink-faint);padding:2px 0}
+.ph-phases li.ph-phase-nodesc{display:flex;align-items:center;gap:7px}
+.ph-phases details summary{display:flex;align-items:center;gap:7px;cursor:pointer;list-style:none}
+.ph-phases details summary::-webkit-details-marker{display:none}
+.ph-phases details summary::after{content:'›';margin-left:auto;color:var(--ink-faint);
+  transition:transform .15s}
+.ph-phases details[open] summary::after{transform:rotate(90deg)}
+.ph-phases .ph-phase-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;background:var(--line)}
+.ph-phases li.done{color:var(--ink-muted)}
+.ph-phases li.done .ph-phase-dot{background:var(--good)}
+.ph-phases li.current{color:var(--ink);font-weight:600}
+.ph-phases li.current .ph-phase-dot{background:var(--accent);animation:ph-pulse 1.6s ease-in-out infinite}
+.ph-phase-desc{margin:4px 0 6px 13px;font-weight:400;color:var(--ink-faint);line-height:1.4;
+  font-size:.96em}
+.ph-phase-dur{margin-left:6px;font-weight:400;font-variant-numeric:tabular-nums;color:var(--ink-faint);
+  font-size:.92em}
+.ph-phases li.current .ph-phase-dur{color:var(--accent)}
 .ph-actions{display:flex;gap:7px;margin-top:9px}
 .ph-actions button{flex:1}
 .ph-log-toggle{background:none;border:none;color:var(--ink-faint);font-size:.7em;cursor:pointer;
@@ -606,3 +636,23 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
      no hace falta ocultarlo acá, solo dejar que la regla de
      .panel-collapsed .panel-toggle{display:flex} (arriba) siga aplicando. */
 }
+
+/* ── Aviso de "sin mapa base" ────────────────────────────────────────
+   Ver avisarSiSinMapaBase() en app.js: sin internet los tiles de CARTO/Esri
+   no cargan y el fondo queda gris. Las capas de la misión sí se ven (todo
+   el geovisor se sirve desde la imagen), así que el aviso explica eso en
+   vez de dejar que el gris se lea como "está roto". */
+.aviso-offline{
+  position:fixed; left:50%; bottom:22px; transform:translateX(-50%);
+  z-index:1200; max-width:min(560px,calc(100vw - 32px));
+  display:flex; align-items:flex-start; gap:12px;
+  padding:13px 15px; border-radius:12px; font-size:.85rem; line-height:1.5;
+  background:var(--pnl); color:var(--tx); border:1px solid var(--bd);
+  border-left:3px solid var(--warn,#f59e0b);
+  box-shadow:0 8px 28px rgba(0,0,0,.22);
+}
+.aviso-offline button{
+  margin-left:auto; flex:none; cursor:pointer; color:var(--tx3);
+  font-size:1rem; line-height:1; padding:2px 4px;
+}
+.aviso-offline button:hover{color:var(--tx)}

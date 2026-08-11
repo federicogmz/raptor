@@ -98,9 +98,16 @@ def write_class_tif(path, arr, gt, proj):
 
 
 def main():
-    if not os.path.isfile(CACHE_PATH) or not os.path.isfile(POLY_PATH):
+    if not os.path.isfile(CACHE_PATH):
         print(f"❌ ERROR: corre scripts/detect_area_afectada.py primero")
         sys.exit(1)
+    if not os.path.isfile(POLY_PATH):
+        # CACHE_PATH existe pero POLY_PATH no: detect_area_afectada.py SÍ
+        # corrió, solo que no encontró ningún píxel que superara el umbral
+        # — resultado válido (misión sin área afectada detectable), no un
+        # prerrequisito faltante. Nada que clasificar.
+        print("  (sin área afectada detectada — nada que clasificar)")
+        return
 
     c = np.load(CACHE_PATH)
     z_severidad, temp_abs, valid = c["z_severidad"], c["temp_abs"], c["valid"]

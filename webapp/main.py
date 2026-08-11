@@ -37,6 +37,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from osgeo import gdal, osr
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 
 gdal.UseExceptions()
 
@@ -46,13 +47,14 @@ from core.scan import RUNS_ROOT, sanitize_mission_name, scan_existing_runs
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from hardware import estimate_message  # noqa: E402 — mensaje de calidad del formulario
+from hardware import preset as hw_preset  # noqa: E402 — valida el nombre del preset
 
 APP_DIR = Path(os.environ.get("RAPTOR_APP_DIR", "/app"))
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 GEOVISOR_DIR = APP_DIR / "geovisor"
 
 UPLOAD_KINDS = ("rgb_thermal", "multispectral")
-VALID_MODES = ("rgb", "rgb+thermal", "none")
+VALID_MODES = ("rgb", "rgb+thermal", "thermal", "none")
 
 # ── Exportación de la entrega ───────────────────────────────────────────
 # Catálogo y formatos los define scripts/export_products.py; acá solo se
@@ -69,13 +71,77 @@ EXPORT_VECTOR_FORMATS = ("geojson", "gpkg", "shp", "kml")
 # validar rutas que el usuario reconoce en su propio disco.
 # EXPORT_MOUNT es configurable solo para poder probarlo sin escribir en /: en
 # producción siempre es /export, que es donde monta el lanzador.
+def _normalize_host_dir(v):
+    """os.path.normpath, no solo rstrip("/") — sin esto, un valor con "./"
+    o ".." sin resolver (p.ej. EXPORT_HOST_DIR=".../raptor/./entregas", que
+    podía pasar antes por cómo el lanzador `raptor` armaba la ruta) nunca
+    hace match de prefijo contra una ruta que SÍ llega normalizada
+    (host_a_contenedor() normaliza la ruta entrante) — el resultado es un
+    "está fuera de la carpeta montada" apuntando, de forma confusa, a la
+    carpeta correcta. El lanzador ya normaliza de su lado (ver abs() en
+    ./raptor); esto es la misma garantía por si la variable llega de otro
+    lado (un `docker run -e` a mano, por ejemplo)."""
+    return os.path.normpath(v) if v else v
+
+
 EXPORT_MOUNT = os.environ.get("EXPORT_MOUNT", "/export").rstrip("/")
-EXPORT_HOST_DIR = os.environ.get("EXPORT_HOST_DIR", "").rstrip("/")
+EXPORT_HOST_DIR = _normalize_host_dir(os.environ.get("EXPORT_HOST_DIR", "").rstrip("/"))
 
 
 def export_disponible():
     """La exportación solo se ofrece si hay una carpeta del host montada."""
     return bool(EXPORT_HOST_DIR) and os.path.isdir(EXPORT_MOUNT)
+
+
+# ── Importar fotos ya presentes en el disco del servidor ────────────────
+# Cuando la webapp corre en la MISMA máquina donde están las fotos (el caso
+# de campo típico: un solo equipo, sin red de por medio), subir por el
+# navegador es leer todo el archivo a memoria del cliente + mandarlo por
+# HTTP para volver a escribirlo en el mismo disco — con cientos de fotos de
+# varios GB en total, eso es minutos de tráfico local para copiar algo que
+# ya está ahí. Mismo patrón que la exportación (./raptor webapp --import
+# DIR monta esa carpeta del host, de solo lectura, y expone su ruta real
+# para que el formulario la muestre): en vez de subir, el usuario apunta a
+# una ruta del host y el servidor copia directo en el filesystem, sin pasar
+# por el navegador.
+IMPORT_MOUNT = os.environ.get("IMPORT_MOUNT", "/import").rstrip("/")
+IMPORT_HOST_DIR = _normalize_host_dir(os.environ.get("IMPORT_HOST_DIR", "").rstrip("/"))
+
+
+def import_disponible():
+    return bool(IMPORT_HOST_DIR) and os.path.isdir(IMPORT_MOUNT)
+
+
+def import_host_a_contenedor(ruta_host):
+    """Traduce una ruta del host (dentro de IMPORT_HOST_DIR) a su ruta
+    dentro del contenedor. None si no hay carpeta montada o la ruta cae
+    fuera de ella — mismo criterio que host_a_contenedor() para export,
+    pero de SOLO LECTURA (import nunca escribe ahí)."""
+    if not import_disponible():
+        return None
+    ruta = os.path.normpath(ruta_host.rstrip("/") or IMPORT_HOST_DIR)
+    if ruta == IMPORT_HOST_DIR:
+        return IMPORT_MOUNT
+    prefijo = IMPORT_HOST_DIR + os.sep
+    if not ruta.startswith(prefijo):
+        return None
+    return os.path.join(IMPORT_MOUNT, ruta[len(prefijo):])
+
+
+def import_contenedor_a_host(ruta_cont):
+    """Inversa de import_host_a_contenedor() — para mostrarle al usuario una
+    ruta que reconoce en su propio disco (el explorador de carpetas de
+    /api/import/browse, y la lista de "ya agregadas" del status) en vez de
+    la ruta interna /import/... del contenedor."""
+    if not IMPORT_HOST_DIR:
+        return ruta_cont
+    ruta_cont = os.path.normpath(ruta_cont)
+    if ruta_cont == IMPORT_MOUNT:
+        return IMPORT_HOST_DIR
+    prefijo = IMPORT_MOUNT + os.sep
+    if ruta_cont.startswith(prefijo):
+        return os.path.join(IMPORT_HOST_DIR, ruta_cont[len(prefijo):])
+    return ruta_cont
 
 
 def host_a_contenedor(ruta_host):
@@ -125,7 +191,21 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         path = request.url.path
         if path.startswith(("/geovisor", "/static")):
-            if "/tiles/" in path:
+            # Solo los PNG de los tiles son de verdad inmutables. tiles/bounds.json
+            # vive en la MISMA carpeta pero cambia por misión y hasta durante una
+            # misma corrida (pollBoundsForChanges lo sondea justamente porque
+            # cambia) — con el año de caché de acá, el navegador quedaba pegado al
+            # bounds.json de la primera misión que abrió (centro/zoom viejos) sin
+            # volver a pedirlo nunca más, aunque la URL fuera la misma para
+            # cualquier misión que se activara después.
+            # status_code==200 además de .png: un tile pedido ANTES de que
+            # existiera (típico durante una corrida en curso) responde 404,
+            # y sin este chequeo ese 404 se cacheaba "para siempre" igual —
+            # el navegador nunca lo volvía a pedir ni cuando el archivo real
+            # ya estaba escrito. Bug real, reportado en vivo: el térmico
+            # nunca aparecía aunque bounds.json y el archivo en disco ya
+            # estuvieran bien.
+            if "/tiles/" in path and path.endswith(".png") and response.status_code == 200:
                 response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
             else:
                 response.headers["Cache-Control"] = "no-cache"
@@ -133,6 +213,17 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(NoCacheStaticMiddleware)
+
+# Compresión HTTP. Sin esto se mandaban SIN comprimir, en cada carga, el
+# app.js del geovisor (176 KB), su hoja de estilos (42 KB) y la página de la
+# webapp (93 KB) — texto que comprime ~4x. En una laptop sobre localhost eso
+# no se nota; en la tablet del puesto de mando, contra el hotspot del celular
+# de alguien, sí.
+#
+# minimum_size deja pasar sin comprimir lo chico (donde el gasto de CPU no se
+# paga) y, sobre todo, no toca los tiles: son PNG ya comprimidos, y el
+# middleware los saltea solo porque no están en el rango de tipos de texto.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
 # ── Clasificación de archivos crudos ────────────────────────────────────
@@ -190,7 +281,84 @@ def _incomplete_captures(names):
 
 
 def _listdir_names(d: Path):
-    return [p.name for p in d.iterdir() if p.is_file()] if d.is_dir() else []
+    """Nombres de archivo (sin ruta) bajo `d`, RECURSIVO — classify_files()
+    solo mira sufijos/nombres, nunca la ruta completa, así que aplanar acá
+    es seguro. Antes era solo el nivel superior: alcanzaba para raw/<kind>/
+    (la subida por navegador ya llega aplanada ahí, ver /api/upload), pero
+    import-local() (ver ese endpoint) puede dejar raw/<kind> como un
+    SYMLINK directo a una carpeta del usuario con la estructura original
+    del dron (p.ej. 100MEDIA/) — sin recursividad, esas fotos quedaban
+    invisibles para el conteo de "qué hay subido" (calidad, validación,
+    lista de misiones), aunque el pipeline (docker/setup-data.sh, que sí
+    busca recursivo) las procesara igual.
+
+    os.walk(followlinks=True), NO Path.rglob(): confirmado en vivo (Python
+    3.12.3, el mismo de esta imagen) que rglob('*') NO desciende adentro de
+    un symlink que encuentra A MITAD de la recorrida — solo lo lista como
+    una entrada más, sin entrar. Eso pasaba desapercibido mientras raw/<kind>
+    era EL symlink de partida (ahí sí lo sigue, mismo motivo que find sin -L
+    vs find -L), pero deja de alcanzar apenas raw/<kind> es un directorio
+    real que contiene VARIOS symlinks adentro (una carpeta por fuente
+    elegida, ver import-local()) — exactamente el mismo bug de fondo que el
+    de `find` en docker/setup-data.sh, esta vez del lado de pathlib."""
+    if not d.is_dir():
+        return []
+    names = []
+    for _root, _dirs, files in os.walk(d, followlinks=True):
+        names.extend(files)
+    return names
+
+
+def _link_one_folder(dest_dir: Path, src_root: str) -> str:
+    """Agrega UNA carpeta fuente como symlink adentro de dest_dir, con
+    nombre libre de colisión. Si src_root ya estaba agregada (mismo destino
+    real, aunque bajo otro nombre), no duplica — devuelve la entrada
+    existente tal cual."""
+    real_src = os.path.realpath(src_root)
+    for entry in dest_dir.iterdir():
+        if entry.is_symlink() and os.path.realpath(entry) == real_src:
+            return entry.name
+    base = os.path.basename(src_root.rstrip("/")) or "carpeta"
+    name, i = base, 2
+    while (dest_dir / name).exists():
+        name = f"{base}-{i}"
+        i += 1
+    os.symlink(src_root, dest_dir / name)
+    return name
+
+
+def _add_import_folder(dest_dir: Path, src_root: str) -> str:
+    """Agrega src_root como una carpeta más adentro de dest_dir (raw/<kind>/),
+    que a partir de ahora SIEMPRE es un directorio real que contiene un
+    symlink por cada carpeta fuente elegida — nunca copia ni un byte.
+
+    dest_dir puede llegar siendo un symlink de TOPE directo a una sola
+    carpeta (el diseño anterior, de una sola fuente por kind): se migra acá
+    mismo antes de agregar la nueva, preservando la que ya estaba como la
+    primera entrada, sin perder nada."""
+    if dest_dir.is_symlink():
+        old_target = os.readlink(dest_dir)
+        dest_dir.unlink()
+        dest_dir.mkdir(parents=True)
+        _link_one_folder(dest_dir, old_target)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    return _link_one_folder(dest_dir, src_root)
+
+
+def _imported_folders(dest_dir: Path):
+    """Carpetas fuente ya agregadas a raw/<kind>/ (para que la UI las
+    liste con opción de sacar una sola, sin tener que vaciar todo)."""
+    if not dest_dir.is_dir() or dest_dir.is_symlink():
+        return []
+    out = []
+    try:
+        for entry in dest_dir.iterdir():
+            if entry.is_symlink():
+                out.append({"name": entry.name,
+                            "host_path": import_contenedor_a_host(os.path.realpath(entry))})
+    except OSError:
+        pass
+    return sorted(out, key=lambda e: e["name"].lower())
 
 
 # ── Estado de la corrida activa (una sola a la vez, ver docstring) ─────────
@@ -199,12 +367,13 @@ class RunState:
     # el log son miles de redibujos: se guarda una ventana, no todo.
     MAX_LOG = 4000
 
-    def __init__(self, mission_name, mission_dir, run_obj, mode, has_ms):
+    def __init__(self, mission_name, mission_dir, run_obj, mode, has_ms, dband=False):
         self.mission_name = mission_name
         self.mission_dir = mission_dir
         self.run = run_obj
         self.mode = mode
         self.has_ms = has_ms
+        self.dband = dband
         self.log_lines = []
         self.log_dropped = 0        # cuántas se descartaron por la ventana
         self.done = False
@@ -390,13 +559,13 @@ def _odm_projects(mission_dir: Path):
     proc = mission_dir / "processing"
     found = {}
     for key, sub in (("rgb", "rgb_odm"), ("thermal", "thermal_native_odm"),
-                     ("multispectral", "multispectral_odm")):
+                     ("multispectral", "multispectral_odm"), ("dband", "dband_odm")):
         d = proc / sub
         found[key] = (d / "opensfm" / "reconstruction.json").exists()
     return found
 
 
-def _validate_reuse_odm(mission_dir, mode, has_multispectral, reuse_odm):
+def _validate_reuse_odm(mission_dir, mode, has_multispectral, reuse_odm, dband=False):
     """"Reusar lo ya reconstruido" (SKIP_ODM=1) es un interruptor GLOBAL en
     docker/entrypoint.sh: salta las TRES reconstrucciones ODM a la vez, no
     sensor por sensor. Si se pide reusar pero algún sensor de ESTA corrida
@@ -409,12 +578,14 @@ def _validate_reuse_odm(mission_dir, mode, has_multispectral, reuse_odm):
         return []
     odm_prev = _odm_projects(mission_dir)
     faltantes = []
-    if mode != "none" and not odm_prev["rgb"]:
+    if mode in ("rgb", "rgb+thermal") and not odm_prev["rgb"]:
         faltantes.append("RGB")
-    if mode == "rgb+thermal" and not odm_prev["thermal"]:
+    if mode in ("rgb+thermal", "thermal") and not odm_prev["thermal"]:
         faltantes.append("térmico")
     if has_multispectral and not odm_prev["multispectral"]:
         faltantes.append("multiespectral")
+    if dband and not odm_prev["dband"]:
+        faltantes.append("banda D")
     if not faltantes:
         return []
     return [f"Pediste reusar reconstrucciones ODM, pero {' y '.join(faltantes)} "
@@ -429,12 +600,38 @@ def index():
     return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
 
+def _run_ok_from_disk(mission_dir):
+    """True/False según outputs/run_summary.json — docker/entrypoint.sh lo
+    escribe SIEMPRE al terminar una corrida, incluso si falló (trap
+    resumen_al_salir). Es la fuente que sobrevive a que el contenedor se
+    reinicie (redeploy): _state (en memoria) se pierde en cada arranque
+    nuevo del proceso, así que sin esto una misión que falló justo antes de
+    un redeploy volvía a mostrarse como si nunca hubiera corrido — el botón
+    de la tarjeta (webapp/static/index.html::loadMissions) mandaba al
+    geovisor en vez de a "corregir y reintentar". None = nunca corrió."""
+    p = mission_dir / "outputs" / "run_summary.json"
+    if not p.is_file():
+        return None
+    try:
+        with open(p) as f:
+            return bool(json.load(f).get("ok"))
+    except Exception:
+        return None
+
+
 @app.get("/api/missions")
 def list_missions():
     out = []
     for r in scan_existing_runs():
+        ok = _run_ok_from_disk(r.path)
+        # _state manda si es la misión que corrió en ESTA sesión del
+        # proceso — más al día que el archivo en el instante entre que
+        # termina la corrida y run_summary.py alcanza a escribirlo.
+        if _state and _state.done and _state.mission_name == r.name:
+            ok = _state.returncode == 0
         out.append({"name": r.name, "has_outputs": r.has_outputs,
-                    "has_processing": r.has_processing, "has_tiles": r.has_tiles})
+                    "has_processing": r.has_processing, "has_tiles": r.has_tiles,
+                    "ok": ok})
     running = _running_mission()
     last = None
     if _state and _state.done:
@@ -464,6 +661,9 @@ def mission_status(mission: str):
             "export_host_root": EXPORT_HOST_DIR,
             "default_export_dir": (os.path.join(EXPORT_HOST_DIR, safe)
                                    if export_disponible() else ""),
+            "import_enabled": import_disponible(),
+            "import_host_root": IMPORT_HOST_DIR,
+            "imported": {k: _imported_folders(mission_dir / "raw" / k) for k in UPLOAD_KINDS},
             "has_tiles": tiles_ready, "running": running, "last_run": last_run,
             "elapsed": elapsed, "mode": _state.mode if (_state and _state.mission_name == safe) else None,
             "has_multispectral": _state.has_ms if (_state and _state.mission_name == safe) else None,
@@ -494,6 +694,117 @@ async def upload(mission: str = Form(...), kind: str = Form(...), file: UploadFi
     return {"ok": True, "mission": safe, "file": fname, "size": dest.stat().st_size}
 
 
+@app.get("/api/import/browse")
+def import_browse(path: str = ""):
+    """Explorador de carpetas del lado del SERVIDOR para elegir la fuente de
+    import-local() a golpe de clic, sin escribir ninguna ruta a mano.
+
+    No hay otra forma de hacer esto sin subir nada: ningún navegador le da a
+    JS la ruta absoluta real de una carpeta del disco, ni con
+    <input webkitdirectory> ni arrastrándola desde el escritorio — es una
+    restricción de seguridad deliberada del navegador, no algo que dependa
+    de esta implementación. Por eso el picker vive acá: lista lo que ya está
+    montado en IMPORT_MOUNT (./raptor webapp --import DIR), y el navegador
+    solo necesita mostrar nombres y dejar click."""
+    if not import_disponible():
+        raise HTTPException(400, "no hay carpeta de importación montada — arrancá con --import DIR")
+    src = import_host_a_contenedor(path) if path else IMPORT_MOUNT
+    if src is None or not os.path.isdir(src):
+        raise HTTPException(400, f"«{path}» no existe o está fuera de la carpeta montada.")
+
+    parent = None
+    if os.path.normpath(src) != IMPORT_MOUNT:
+        parent = import_contenedor_a_host(os.path.dirname(src.rstrip("/")))
+
+    entries = []
+    try:
+        subdirs = sorted(
+            (e for e in os.scandir(src) if e.is_dir() and not e.name.startswith(".")),
+            key=lambda e: e.name.lower())
+    except OSError as exc:
+        raise HTTPException(400, f"no se pudo leer «{path}»: {exc}")
+    for e in subdirs:
+        hint = classify_files(_quick_hint_names(e.path))
+        entries.append({"name": e.name, "host_path": import_contenedor_a_host(e.path),
+                        "hint": {"rgb": hint["rgb"], "thermal": hint["thermal"],
+                                 "ms": hint["ms"], "dband": hint["dband"], "total": hint["total"]}})
+    return {"host_path": import_contenedor_a_host(src), "parent": parent, "entries": entries}
+
+
+def _quick_hint_names(path, max_files=800, max_dirs=60):
+    """Pista de contenido para el explorador: sufijos de archivo bajo `path`,
+    RECURSIVO pero acotado. Probado en vivo con "solo el nivel superior": una
+    carpeta de vuelo real (drone SD card / export típico) casi nunca tiene
+    las fotos sueltas ahí mismo — vienen en subcarpetas (rgb_mosaico/,
+    termica/, 100MEDIA/) — así que un hint no-recursivo mostraba "vacía"
+    para carpetas con miles de fotos adentro. Los topes (800 archivos / 60
+    subcarpetas) evitan que listar una carpeta con muchas hijas (donde ESTE
+    hint corre una vez por hija) se vuelva lento — alcanzan de sobra para
+    reconocer un vuelo real, que rara vez pasa de un puñado de subcarpetas."""
+    names = []
+    dirs_seen = 0
+    for _root, _dirs, files in os.walk(path):
+        dirs_seen += 1
+        names.extend(files)
+        if len(names) >= max_files or dirs_seen >= max_dirs:
+            break
+    return names
+
+
+@app.post("/api/missions/{mission}/import-local")
+def import_local(mission: str, kind: str = Form(...), host_path: str = Form(...)):
+    """Agrega una carpeta ya presente en el disco del servidor como fuente
+    para `kind`, sin pasar por el navegador — ver el comentario de
+    IMPORT_MOUNT/IMPORT_HOST_DIR más arriba sobre por qué esto existe.
+    host_path es una ruta del HOST (normalmente la devuelve /api/import/browse,
+    no se escribe a mano); se resuelve a la ruta real del contenedor y se
+    valida que caiga DENTRO de la carpeta montada antes de tocar nada.
+
+    raw/<kind>/ es SIEMPRE un directorio real que contiene un symlink por
+    cada carpeta agregada — nunca copia ni un byte, así que elegir varias
+    carpetas (p.ej. dos tarjetas de un mismo vuelo, 100MEDIA/ + 101MEDIA/)
+    solo agrega symlinks nuevos, no reemplaza lo que ya había. Reportado en
+    vivo: una versión anterior de esto copiaba/hardlinkeaba archivo por
+    archivo al reimportar — "¿por qué se duplican, si ya están acá?", con
+    razón (un hardlink sigue siendo una segunda ruta real). _add_import_folder()
+    también migra sola el diseño viejo (raw/<kind> como symlink de tope
+    directo a una única carpeta), si lo encuentra."""
+    if kind not in UPLOAD_KINDS:
+        raise HTTPException(400, f"kind debe ser uno de {UPLOAD_KINDS}")
+    src_root = import_host_a_contenedor(host_path)
+    if src_root is None:
+        raise HTTPException(400, f"«{host_path}» está fuera de la carpeta montada "
+                                  f"({IMPORT_HOST_DIR or 'ninguna — arrancá con --import DIR'}).")
+    if not os.path.isdir(src_root):
+        raise HTTPException(400, f"«{host_path}» no existe o no es una carpeta.")
+
+    safe, mission_dir = _mission_dir(mission, create=True)
+    dest_dir = mission_dir / "raw" / kind
+    dest_dir.parent.mkdir(parents=True, exist_ok=True)
+    entry = _add_import_folder(dest_dir, src_root)
+
+    uploads = classify_files(_listdir_names(dest_dir))
+    return {"ok": True, "mission": safe, "kind": kind, "entry": entry, "uploads": uploads}
+
+
+@app.post("/api/missions/{mission}/import-remove")
+def import_remove(mission: str, kind: str = Form(...), name: str = Form(...)):
+    """Saca UNA carpeta ya agregada (no todo el lote) — para cuando se
+    eligió una de más entre varias, sin tener que vaciar y volver a
+    agregar el resto."""
+    if kind not in UPLOAD_KINDS:
+        raise HTTPException(400, f"kind debe ser uno de {UPLOAD_KINDS}")
+    if _state and not _state.done and _state.mission_name == sanitize_mission_name(mission):
+        raise HTTPException(409, "no se pueden borrar archivos de una misión que está procesándose")
+    _safe, mission_dir = _mission_dir(mission)
+    dest_dir = mission_dir / "raw" / kind
+    entry = dest_dir / os.path.basename(name)
+    if not entry.is_symlink():
+        raise HTTPException(404, "esa carpeta no está agregada")
+    entry.unlink()
+    return {"ok": True, "uploads": classify_files(_listdir_names(dest_dir))}
+
+
 @app.post("/api/missions/{mission}/clear-uploads")
 def clear_uploads(mission: str, kind: str = Form(...)):
     """Vaciar un lote ya subido — para cuando se eligió la carpeta equivocada,
@@ -504,7 +815,15 @@ def clear_uploads(mission: str, kind: str = Form(...)):
         raise HTTPException(409, "no se pueden borrar archivos de una misión que está procesándose")
     _safe, mission_dir = _mission_dir(mission)
     d = mission_dir / "raw" / kind
-    if d.is_dir():
+    if d.is_symlink():
+        # import-local (ver ese endpoint) puede haber dejado esto como un
+        # symlink directo a una carpeta del usuario, no una copia — hay que
+        # sacar SOLO el symlink. shutil.rmtree sobre un symlink de nivel
+        # superior tira OSError a propósito (no sigue el link para borrar
+        # del otro lado), así que ni hace falta el chequeo: unlink() es lo
+        # correcto acá y no toca un solo byte de la carpeta original.
+        d.unlink()
+    elif d.is_dir():
         shutil.rmtree(d)
     return {"ok": True}
 
@@ -526,11 +845,11 @@ def _validate(mode, has_ms, uploads):
                 + (f" ({rt['total']} archivos)" if rt["total"] else "")
                 + ". Sube la carpeta del vuelo M3T/H20T, o desactiva ese sensor "
                   "si solo vas a procesar el multiespectral.")
-        if mode == "rgb+thermal" and rt["thermal"] == 0:
+        if mode in ("rgb+thermal", "thermal") and rt["thermal"] == 0:
             errors.append(
-                "Elegiste RGB + térmico pero no hay fotos térmicas (*_T.JPG) "
-                f"entre los {rt['total']} archivos subidos. Agrega las fotos "
-                "térmicas del vuelo, o cambia el producto a «Solo RGB».")
+                "Elegiste un producto con térmico pero no hay fotos térmicas "
+                f"(*_T.JPG) entre los {rt['total']} archivos subidos. Agrega "
+                "las fotos térmicas del vuelo, o cambia el producto a «Solo RGB».")
     if has_ms and ms["ms"] == 0:
         errors.append(
             "Activaste el multiespectral pero no hay bandas (*_MS_*.TIF) entre "
@@ -653,29 +972,48 @@ def check_export(mission: str, export_dir: str = Form(""), export_epsg: str = Fo
 
 
 @app.get("/api/missions/{mission}/quality-estimate")
-def quality_estimate(mission: str, quality: int = 75, mode: str = "rgb+thermal",
-                     has_multispectral: bool = False):
+def quality_estimate(mission: str, preset: str = "", quality: int | None = None,
+                     mode: str = "rgb+thermal", terreno: str = "plano",
+                     has_multispectral: bool = False, n_photos: int | None = None):
     """A qué resolución van a salir los productos y cuánto se espera que
-    tarde, para el slider de calidad del formulario — mismo cálculo que ve
-    `./raptor run` antes de arrancar (scripts/hardware.py, fuente única) y que
-    corre después de verdad en docker/entrypoint.sh.
+    tarde — mismo cálculo que ve `./raptor run` antes de arrancar
+    (scripts/hardware.py, fuente única) y que corre después de verdad en
+    docker/entrypoint.sh.
 
-    n_photos sale de lo que YA está subido para esta misión: no hace falta
-    arrancar nada para saber cuántas fotos va a procesar ODM."""
-    quality = max(0, min(100, quality))
-    _safe, mission_dir = _mission_dir(mission)
-    uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k))
-               for k in UPLOAD_KINDS}
-    n_photos = 0
-    if mode != "none":
-        n_photos += uploads["rgb_thermal"]["rgb"]
-        if mode == "rgb+thermal":
-            n_photos += uploads["rgb_thermal"]["thermal"]
-    if has_multispectral:
-        # classify_files ya cuenta TIFs individuales (una banda = un archivo),
-        # así que esto ya es "4 por captura" sin multiplicar de nuevo.
-        n_photos += uploads["multispectral"]["ms"]
-    return estimate_message(quality, n_photos)
+    La respuesta trae `opciones`: los CINCO presets con su tiempo estimado
+    para esta misión concreta. Es lo que hace que la elección sea informada
+    — antes era un slider de 0 a 100 y el usuario no tenía forma de saber
+    qué compraba cada tramo.
+
+    `quality` (0-100) se sigue aceptando: el mapeo a preset lo hace
+    scripts/hardware.py.
+
+    n_photos: el navegador ya lo sabe apenas el usuario elige la carpeta
+    (classify() sobre el FileList, sin esperar nada del servidor) y lo manda
+    directo — contar desde disco daba "0 fotos" mientras la subida seguía en
+    curso, porque el archivo recién llega a raw/ cuando termina de subirse,
+    no cuando se elige. Si no llega (llamada vieja a la API, o sin JS), se
+    cae al conteo de lo que ya está en disco como antes."""
+    elegido = preset.strip() or (str(quality) if quality is not None else "estandar")
+    if n_photos is None:
+        _safe, mission_dir = _mission_dir(mission)
+        uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k))
+                   for k in UPLOAD_KINDS}
+        n_photos = 0
+        if mode != "none":
+            if mode != "thermal":
+                n_photos += uploads["rgb_thermal"]["rgb"]
+            if mode in ("rgb+thermal", "thermal"):
+                n_photos += uploads["rgb_thermal"]["thermal"]
+        if has_multispectral:
+            # classify_files ya cuenta TIFs individuales (una banda = un
+            # archivo), así que esto ya es "4 por captura" sin multiplicar
+            # de nuevo.
+            n_photos += uploads["multispectral"]["ms"]
+    try:
+        return estimate_message(elegido, n_photos, terreno=terreno)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
 
 
 @app.post("/api/missions/{mission}/validate")
@@ -691,8 +1029,10 @@ def validate_mission(mission: str, mode: str = Form(...), has_multispectral: boo
 @app.post("/api/missions/{mission}/start")
 async def start_mission(mission: str, mode: str = Form(...),
                         has_multispectral: bool = Form(False),
+                        dband: bool = Form(False),
                         reuse_odm: bool = Form(False),
-                        quality: int = Form(75),
+                        preset: str = Form("estandar"),
+                        terreno: str = Form("plano"),
                         export_dir: str = Form(""),
                         export_products: str = Form(""),
                         export_raster_format: str = Form("cog"),
@@ -706,14 +1046,19 @@ async def start_mission(mission: str, mode: str = Form(...),
     uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k))
                for k in UPLOAD_KINDS}
     errors = _validate(mode, has_multispectral, uploads)
-    errors += _validate_reuse_odm(mission_dir, mode, has_multispectral, reuse_odm)
+    errors += _validate_reuse_odm(mission_dir, mode, has_multispectral, reuse_odm, dband)
     export_errors, export_env = _validate_export(
         mission_dir, export_dir.strip(), _parse_products(export_products),
         export_raster_format.strip().lower(), export_vector_format.strip().lower(),
         export_epsg)
     errors += export_errors
-    if not (0 <= quality <= 100):
-        errors.append(f"La calidad tiene que ser 0-100 (recibida: {quality}).")
+    try:
+        # Valida preset Y terreno contra la tabla real (scripts/hardware.py)
+        # en vez de repetir la lista acá, que sería una segunda copia para
+        # desincronizar.
+        hw_preset(preset, terreno=terreno)
+    except ValueError as exc:
+        errors.append(str(exc))
     if errors:
         raise HTTPException(400, " ".join(errors))
 
@@ -728,10 +1073,10 @@ async def start_mission(mission: str, mode: str = Form(...),
     run_obj = PipelineRun(
         mode=mode, source_dir=source_dir, ms_source_dir=ms_source_dir,
         skip_odm=reuse_odm, port=8080, progress_file=progress_file,
-        export=export_env, quality=quality,
+        export=export_env, preset=preset, dband=dband, terreno=terreno,
     )
     await run_obj.start()
-    _state = RunState(safe, mission_dir, run_obj, mode, has_multispectral)
+    _state = RunState(safe, mission_dir, run_obj, mode, has_multispectral, dband)
     asyncio.create_task(_state.consume())
     return {"ok": True, "mission": safe}
 
@@ -754,7 +1099,7 @@ async def events(mission: str):
         # (cronómetro incluido) sin depender de lo que tenía en memoria.
         yield ("data: " + json.dumps({
             "kind": "hello", "elapsed": round(state.elapsed()),
-            "mode": state.mode, "has_multispectral": state.has_ms,
+            "mode": state.mode, "has_multispectral": state.has_ms, "dband": state.dband,
             "done": state.done}) + "\n\n")
         while True:
             pos, evs = parse_progress_events(str(state.run.progress_file), pos)
@@ -774,6 +1119,23 @@ async def events(mission: str):
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/missions/{mission}/cancel")
+def cancel_mission(mission: str):
+    """Cancela la corrida en curso — ODM y el resto de las herramientas
+    (opensfm, exiftool, gdal2tiles...) mueren de verdad, no solo el bash de
+    entrypoint.sh (ver el comentario de PipelineRun.kill() en
+    core/runner.py sobre por qué eso NO alcanzaba). El estado queda "done"
+    apenas la tarea que lee la salida del proceso lo detecta (consume(),
+    en su bloque finally) — no hace falta marcarlo acá."""
+    safe = sanitize_mission_name(mission)
+    if _state is None or _state.mission_name != safe:
+        raise HTTPException(404, "esa misión no está procesándose ahora")
+    if _state.done:
+        raise HTTPException(409, "esa misión ya terminó")
+    _state.run.kill()
+    return {"ok": True}
 
 
 @app.delete("/api/missions/{mission}")

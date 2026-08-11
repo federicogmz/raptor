@@ -3,208 +3,423 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pipeline UAV de respuesta rápida</title>
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Pipeline UAV de respuesta rápida — ortomosaicos RGB, térmicos y multiespectrales para DJI H20T / M3T / M3M.">
+<title>Raptor · Centro de misiones</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='none' stroke='%230f172a' stroke-width='7' stroke-linecap='round'%3E%3Cpath d='M35 38 L18 20'/%3E%3Cpath d='M65 38 L82 20'/%3E%3Cpath d='M35 62 L18 80'/%3E%3Cpath d='M65 62 L82 80'/%3E%3C/g%3E%3Ccircle cx='18' cy='20' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='82' cy='20' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='18' cy='80' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='82' cy='80' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Crect x='32' y='38' width='36' height='24' rx='7' fill='%230f172a'/%3E%3C/svg%3E">
 <style>
-/* Public Sans auto-hospedada (fonts/*.woff2, NO Google Fonts CDN): esta app
-   se usa en campo, donde puede no haber internet — los archivos viven en la
-   imagen y se sirven desde el mismo origen (symlink static/fonts ->
-   ../../geovisor/fonts, una sola copia para las dos UIs). */
+/* ═══════════════════════════════════════════════════════════════════
+   Raptor · Centro de misiones — identidad visual
+   ─────────────────────────────────────────────────────────────────────
+   Redesign total: minimalista y editorial, tipografía-led. Menos cajas,
+   más aire: hairline borders en vez de tarjetas apiladas, jerarquía
+   grande de display, un solo acento (teal institucional de SIATA, mismo
+   que el geovisor — las dos pantallas son UN producto).
+
+   Reglas de forma (documentadas, se cumplen en todos lados):
+     · tarjetas/paneles ........ 14–20px de radio
+     · inputs/selects/botones .. 10px
+     · chips/estados/badges .... 999px (píldora)
+   Sombras teñidas del fondo (nunca negro puro), rgba (no color-mix)
+   para que funcione en Chromium viejos de campo.
+
+   Public Sans auto-hospedada (fonts/*.woff2): esta app se usa en campo,
+   donde puede no haber internet — los archivos viven en la imagen y se
+   sirven desde el mismo origen (symlink static/fonts -> ../../geovisor/fonts).
+   ═══════════════════════════════════════════════════════════════════ */
 @font-face{font-family:'Public Sans';font-style:normal;font-weight:400;font-display:swap;
-  src:url('fonts/pubsans-400.woff2') format('woff2')}
+  src:url('/static/fonts/pubsans-400.woff2') format('woff2')}
 @font-face{font-family:'Public Sans';font-style:normal;font-weight:500;font-display:swap;
-  src:url('fonts/pubsans-500.woff2') format('woff2')}
+  src:url('/static/fonts/pubsans-500.woff2') format('woff2')}
 @font-face{font-family:'Public Sans';font-style:normal;font-weight:600;font-display:swap;
-  src:url('fonts/pubsans-600.woff2') format('woff2')}
+  src:url('/static/fonts/pubsans-600.woff2') format('woff2')}
 @font-face{font-family:'Public Sans';font-style:normal;font-weight:700;font-display:swap;
-  src:url('fonts/pubsans-700.woff2') format('woff2')}
+  src:url('/static/fonts/pubsans-700.woff2') format('woff2')}
 @font-face{font-family:'Public Sans';font-style:normal;font-weight:800;font-display:swap;
-  src:url('fonts/pubsans-800.woff2') format('woff2')}
-/* Mismos tokens que geovisor/style.css — esta pantalla y el geovisor son
-   UN SOLO producto (arrancar una misión desemboca directo en el geovisor):
-   teal institucional (identidad de SIATA, ver geovisor/style.css) en vez
-   del azul/ámbar de cualquier dashboard genérico, Public Sans como única
-   tipografía. */
+  src:url('/static/fonts/pubsans-800.woff2') format('woff2')}
+
 :root{
   --font:'Public Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
-  --bg:#F4F7F8; --bg2:#FFFFFF; --bg3:#EAF1F2; --bg4:#DBE5E7;
-  --bd:#DBE5E7; --bd2:#8B9CA0;
-  --tx:#15262C; --tx2:#55696E; --tx3:#8B9CA0;
-  --ac:#157A8C; --ac2:#0F5C6B; --on-ac:#fff;
-  --ok:#2E8256; --warn:#B9791C; --err:#C1401A;
-  --rgb:#157A8C; --ther:#C1401A; --ms:#2E8256;
-  --note-info-bg:#DEF0F2; --note-info-bd:#A9D6DC; --note-info-tx:#0F4650;
-  --note-warn-bg:#FBF0DB; --note-warn-bd:#E9C97E; --note-warn-tx:#6b4c00;
-  --note-err-bg:#FBE7DE;  --note-err-bd:#EFB69C;  --note-err-tx:#7a2415;
-  --note-ok-bg:#DFF0E6;   --note-ok-bd:#A0CDB2;   --note-ok-tx:#1d4a30;
-  --sel-bg:#DEF0F2;
-  --logbg:#EAF1F2;
+  --bg:#F5F8F6; --bg2:#FFFFFF; --bg3:#EEF3F0;
+  --bd:#E1E8E4; --bd2:#B9C6C0;
+  --tx:#14201D; --tx2:#4E615B; --tx3:#64746E;
+  --ac:#0E7A68; --ac2:#0A5C4E; --on-ac:#FFFFFF;
+  --ok:#2F7D5C; --warn:#A9751E; --err:#C2401F;
+  --rgb:#0E7A68; --ther:#C2401F; --ms:#2F7D5C;
+  --note-info-bg:#E7F2EE; --note-info-bd:#BCD9CE; --note-info-tx:#0C4F41;
+  --note-warn-bg:#FBF3E1; --note-warn-bd:#EACF94; --note-warn-tx:#6B4E06;
+  --note-err-bg:#FBEAE3;  --note-err-bd:#EFB9A3;  --note-err-tx:#7C2A16;
+  --note-ok-bg:#E7F3EC;   --note-ok-bd:#AFD4BD;   --note-ok-tx:#1E4A33;
+  --sel-bg:#E4F1EC;
+  --r-sm:10px; --r-md:14px; --r-lg:20px;
+  --shadow-sm:0 1px 2px rgba(16,44,38,.05);
+  --shadow-md:0 2px 6px rgba(16,44,38,.06),0 16px 44px rgba(16,44,38,.09);
 }
-/* Modo oscuro: mismo teal institucional, pizarra oscura (identidad SIATA). */
 :root[data-theme="dark"]{
-  --bg:#0C1A1F; --bg2:#142428; --bg3:#1A2D31; --bg4:#2A3F43;
-  --bd:#2A3F43; --bd2:#3f5459;
-  --tx:#EAF3F4; --tx2:#9CB2B5; --tx3:#6E8386;
-  --ac:#5CC2CF; --ac2:#3fa0ad; --on-ac:#072024;
-  --ok:#7FCB9C; --warn:#F0BE68; --err:#FF9166;
-  --rgb:#5CC2CF; --ther:#FF9166; --ms:#7FCB9C;
-  --note-info-bg:#1B3438; --note-info-bd:#2F4F54; --note-info-tx:#bfe4e9;
-  --note-warn-bg:#3A2E15; --note-warn-bd:#6B5726; --note-warn-tx:#F0BE68;
-  --note-err-bg:#3A2418;  --note-err-bd:#6B4128;  --note-err-tx:#ffb59e;
-  --note-ok-bg:#1B3327;   --note-ok-bd:#365E46;   --note-ok-tx:#a8e6bd;
-  --sel-bg:#1B3438;
-  --logbg:#0b1518;
+  --bg:#0C1412; --bg2:#121D1A; --bg3:#182622;
+  --bd:#23332E; --bd2:#3A4C46;
+  --tx:#E8F0EC; --tx2:#9DB0A9; --tx3:#7E918A;
+  --ac:#4FC2A4; --ac2:#3BA688; --on-ac:#06201A;
+  --ok:#7CD4A4; --warn:#E7B45C; --err:#FF8B6B;
+  --rgb:#4FC2A4; --ther:#FF8B6B; --ms:#7CD4A4;
+  --note-info-bg:#13241F; --note-info-bd:#2A4A40; --note-info-tx:#B4E3D4;
+  --note-warn-bg:#2E2410; --note-warn-bd:#5C4A1F; --note-warn-tx:#E7B45C;
+  --note-err-bg:#311B14;  --note-err-bd:#5E3527;  --note-err-tx:#FFB59E;
+  --note-ok-bg:#14251D;   --note-ok-bd:#2E4A3B;   --note-ok-tx:#A8E6BD;
+  --sel-bg:#162B24;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.28);
+  --shadow-md:0 2px 8px rgba(0,0,0,.32),0 18px 48px rgba(0,0,0,.42);
 }
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:var(--font);background:var(--bg);
-  color:var(--tx);min-height:100vh;-webkit-font-smoothing:antialiased;line-height:1.5;
-  transition:background .2s,color .2s}
-/* appearance:none — sin esto el navegador puede dibujar el chrome nativo
-   del sistema operativo (ButtonFace/ButtonText) en hover/focus de un
-   <button>, ajeno a nuestro tema: fondo y texto quedaban blancos sobre
-   blanco (o negro sobre negro en modo oscuro) porque era EL NAVEGADOR
-   pintando encima, no un color mal calculado por esta hoja de estilos. */
+html{scroll-behavior:smooth}
+body{font-family:var(--font);background:var(--bg);color:var(--tx);
+  min-height:100vh;-webkit-font-smoothing:antialiased;line-height:1.55;
+  transition:background .25s,color .25s;
+  background-image:radial-gradient(1100px 460px at 88% -12%,rgba(14,122,104,.06),transparent 62%)}
 button{font-family:inherit;color:inherit;cursor:pointer;
-  appearance:none;-webkit-appearance:none;-moz-appearance:none;
-  background:transparent}
+  appearance:none;-webkit-appearance:none;-moz-appearance:none;background:transparent}
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--ac);outline-offset:2px;border-radius:6px}
+::selection{background:rgba(14,122,104,.18)}
 
-header{background:var(--bg2);border-bottom:1px solid var(--bd);
-  padding:14px 22px;display:flex;align-items:center;gap:13px;position:sticky;top:0;z-index:20}
-header .logo{width:28px;height:28px;flex-shrink:0}
-header h1{font-size:1.05em;font-weight:650;letter-spacing:-.01em}
-header .sub{font-size:.75em;color:var(--tx3);margin-top:1px}
+/* ── Iconos SVG inline (un solo trazo en toda la app) ─────────────── */
+.ic{width:1.15em;height:1.15em;flex-shrink:0;vertical-align:-.18em}
+button .ic,label .ic{pointer-events:none}
+
+/* ── Barra superior: mínima, hairline, sin sombra ─────────────────── */
+header{position:sticky;top:0;z-index:20;height:60px;
+  display:flex;align-items:center;gap:12px;padding:0 24px;
+  background:rgba(255,255,255,.88);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--bd)}
+:root[data-theme="dark"] header{background:rgba(12,20,18,.88)}
+header .logo{width:26px;height:26px;flex-shrink:0;color:var(--ac)}
 header .title-block{min-width:0}
-#btn-back,#btn-theme{width:32px;height:32px;border-radius:9px;background:var(--bg4);
-  border:1px solid var(--bd);color:var(--tx);cursor:pointer;font-size:1em;
-  display:grid;place-items:center;flex-shrink:0;font-family:inherit;transition:background .15s}
-#btn-back:hover,#btn-theme:hover{background:var(--ac);border-color:var(--ac);color:var(--on-ac)}
-main{max-width:840px;margin:0 auto;padding:28px 20px 60px}
+header h1{font-size:.98rem;font-weight:800;letter-spacing:-.015em;text-wrap:balance}
+header .sub{font-size:.72rem;color:var(--tx3);margin-top:1px}
+#btn-back,#btn-theme{width:36px;height:36px;border-radius:var(--r-sm);background:transparent;
+  border:1px solid var(--bd);color:var(--tx2);cursor:pointer;
+  display:grid;place-items:center;flex-shrink:0;font-family:inherit;
+  transition:background .15s,color .15s,border-color .15s,transform .1s}
+#btn-back:hover,#btn-theme:hover{background:var(--bg3);border-color:var(--bd2);color:var(--tx)}
+#btn-back:active,#btn-theme:active{transform:scale(.94)}
+/* Tema: los dos iconos viven en el botón, CSS decide cuál se ve */
+#theme-ic{display:grid;place-items:center;width:18px;height:18px;color:inherit}
+#theme-ic .ic-moon{display:none}
+:root[data-theme="dark"] #theme-ic .ic-sun{display:none}
+:root[data-theme="dark"] #theme-ic .ic-moon{display:block}
 
-.card{background:var(--bg2);border:1px solid var(--bd);border-radius:12px;padding:22px;margin-bottom:16px}
-.card>h2{font-size:1.05em;font-weight:650;margin-bottom:4px}
-.card>.card-sub{font-size:.84em;color:var(--tx2);margin-bottom:18px}
-.section-label{font-size:.72em;color:var(--tx3);text-transform:uppercase;letter-spacing:.08em;
-  font-weight:600;margin:22px 0 10px}
-.section-label:first-of-type{margin-top:0}
+.skip-link{position:absolute;left:-999px;top:0;background:var(--ac);color:var(--on-ac);
+  padding:8px 14px;border-radius:0 0 var(--r-sm) 0;z-index:100;font-size:.85em}
+.skip-link:focus{left:0}
 
-.btn{background:var(--bg4);border:1px solid var(--bd2);color:var(--tx);padding:9px 16px;
-  border-radius:8px;cursor:pointer;font-size:.87em;font-family:inherit;font-weight:500;
-  transition:background .15s,border-color .15s}
-/* :not(.primary):not(.ghost) — SIN esto, esta regla (más específica que
-   el .btn.primary{background:...} de base) le pisaba el fondo teal al
-   botón primario en hover, dejando SU texto blanco (pensado para
-   contrastar con teal) sobre gris claro: casi invisible en tema claro.
-   .primary/.ghost ya tienen su propio hover completo (filter / bg+color
-   a juego) un poco más abajo — esta regla es solo para el botón "neutro". */
-.btn:hover:not(:disabled):not(.primary):not(.ghost){background:var(--bd);border-color:var(--bd2)}
-.btn.primary{background:var(--ac2);border-color:var(--ac2);color:var(--on-ac);font-weight:600}
-.btn.primary:hover:not(:disabled){filter:brightness(1.1)}
+main{max-width:1120px;margin:0 auto;padding:0 24px 90px}
+
+/* ═══ LANDING ═══════════════════════════════════════════════════════ */
+.hero{display:flex;justify-content:space-between;align-items:flex-end;gap:26px;
+  flex-wrap:wrap;margin:56px 0 34px}
+.eyebrow{font-size:.68rem;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--ac);margin-bottom:12px}
+.hero h1{font-size:clamp(2.1rem,5vw,2.9rem);font-weight:800;letter-spacing:-.035em;line-height:1.05}
+.hero-sub{color:var(--tx2);max-width:54ch;margin-top:12px;font-size:.95rem}
+.hero-cta{margin-bottom:4px}
+.mlist-head{display:flex;align-items:center;gap:10px;margin-bottom:16px;
+  padding-bottom:14px;border-bottom:1px solid var(--bd)}
+#mcount{font-size:.7rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--tx3)}
+#mlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.mission{display:flex;flex-direction:column;justify-content:space-between;gap:16px;
+  background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r-lg);padding:20px;
+  transition:border-color .18s,box-shadow .18s,transform .18s;
+  animation:card-in .4s ease backwards}
+.mission:hover{border-color:var(--bd2);transform:translateY(-2px);box-shadow:var(--shadow-md)}
+.mission .nm{font-size:1rem;font-weight:700;letter-spacing:-.01em;word-break:break-word;
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.mission .tg{font-size:.78rem;color:var(--tx2);margin-top:9px;display:flex;align-items:center;gap:7px}
+.mission .tg .ic{width:.9em;height:.9em;color:var(--ac);opacity:.8}
+.mission .row{justify-content:flex-end;margin-top:2px;gap:8px}
+@keyframes card-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.mission:nth-child(2){animation-delay:.04s}
+.mission:nth-child(3){animation-delay:.08s}
+.mission:nth-child(4){animation-delay:.12s}
+.mission:nth-child(5){animation-delay:.16s}
+.mission:nth-child(6){animation-delay:.2s}
+.mission:nth-child(n+7){animation-delay:.24s}
+.badge{font-size:.66rem;padding:3px 10px;border-radius:999px;font-weight:700;letter-spacing:.03em;
+  display:inline-flex;align-items:center;gap:6px}
+.badge.run{background:var(--note-ok-bg);color:var(--ok);border:1px solid var(--note-ok-bd)}
+.badge.run::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;
+  animation:pulse 1.6s ease infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.badge.fail{background:var(--note-err-bg);color:var(--err);border:1px solid var(--note-err-bd)}
+.empty{grid-column:1/-1;text-align:center;padding:76px 20px;color:var(--tx2);
+  font-size:.9rem;line-height:1.75}
+.empty .ic{width:44px;height:44px;margin:0 auto 20px;display:block;color:var(--ac);opacity:.5}
+.empty .go{font-weight:600;color:var(--ac)}
+
+/* ═══ SETUP ═════════════════════════════════════════════════════════ */
+.setup-wrap{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;align-items:start;
+  margin-top:40px}
+@media (min-width:1024px){
+  .setup-wrap{grid-template-columns:minmax(0,1fr) 300px}
+}
+.panel{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r-lg);
+  padding:28px 26px;box-shadow:var(--shadow-sm)}
+@media (min-width:1024px){.panel{padding:34px 36px}}
+.panel-title{font-size:1.35rem;font-weight:800;letter-spacing:-.02em;margin-bottom:4px}
+.panel-sub{font-size:.85rem;color:var(--tx2);margin-bottom:8px}
+.form-section{padding:24px 0}
+.form-section+.form-section{border-top:1px solid var(--bd)}
+.form-section:last-child{padding-bottom:0}
+.section-label{font-size:.68rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ac);display:flex;align-items:center;gap:8px;margin-bottom:13px}
+.section-label .ic{width:1em;height:1em}
+
+/* ── Botones ──────────────────────────────────────────────────────── */
+.btn{background:var(--bg2);border:1px solid var(--bd2);color:var(--tx);
+  padding:9px 16px;border-radius:var(--r-sm);cursor:pointer;font-size:.85rem;font-family:inherit;
+  font-weight:600;display:inline-flex;align-items:center;gap:8px;justify-content:center;
+  transition:background .15s,border-color .15s,color .15s,box-shadow .15s,transform .1s}
+.btn:hover:not(:disabled):not(.primary):not(.ghost){background:var(--bg3);border-color:var(--tx3)}
+.btn:active:not(:disabled){transform:scale(.97)}
+.btn.primary{background:var(--ac2);border-color:var(--ac2);color:var(--on-ac);
+  box-shadow:0 2px 10px rgba(10,92,78,.24)}
+.btn.primary:hover:not(:disabled){background:var(--ac);box-shadow:0 4px 14px rgba(10,92,78,.3)}
 .btn.ghost{background:transparent;border-color:transparent;color:var(--tx2)}
 .btn.ghost:hover:not(:disabled){background:var(--bg3);color:var(--tx)}
 .btn:disabled{opacity:.45;cursor:not-allowed}
-.btn.sm{padding:5px 11px;font-size:.8em}
+.btn.sm{padding:6px 12px;font-size:.78rem}
+.btn.danger{background:var(--err);border-color:var(--err);color:#fff;font-weight:700}
+.btn.danger:hover:not(:disabled){filter:brightness(1.08)}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.spread{justify-content:space-between}
 .hidden{display:none!important}
 
+/* ── Campos ───────────────────────────────────────────────────────── */
 input[type=text],.in{background:var(--bg);border:1px solid var(--bd2);color:var(--tx);
-  padding:10px 12px;border-radius:8px;font-family:inherit;font-size:.92em;width:100%}
-input[type=text]:focus,.in:focus{outline:none;border-color:var(--ac)}
+  padding:11px 13px;border-radius:var(--r-sm);font-family:inherit;font-size:.92rem;width:100%;
+  transition:border-color .15s,box-shadow .15s,background .15s}
+input[type=text]:hover:not(:focus),.in:hover:not(:focus){border-color:var(--tx3)}
+input[type=text]:focus,.in:focus{outline:none;border-color:var(--ac);
+  box-shadow:0 0 0 3px rgba(14,122,104,.14);background:var(--bg2)}
 select.in{cursor:pointer}
 
-/* ── Entrega: ruta, checks de productos, formatos ───────────────────── */
-.hint{font-size:.76em;color:var(--tx3);margin-top:6px;line-height:1.45}
-.hint code{background:var(--bg3);padding:1px 5px;border-radius:4px;font-size:.95em}
-.checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:8px}
-.chk{display:flex;gap:9px;align-items:flex-start;background:var(--bg3);border:1.5px solid var(--bd);
-  border-radius:9px;padding:10px 12px;cursor:pointer;transition:border-color .15s,background .15s;
-  user-select:none}
-.chk:hover{border-color:var(--bd2)}
-.chk.on{border-color:var(--ac);background:var(--sel-bg)}
-.chk.dis{opacity:.45;cursor:not-allowed}
-.chk input{margin-top:2px;accent-color:var(--ac);flex-shrink:0}
-.chk .ct{font-size:.84em;font-weight:500;line-height:1.3}
-.chk .cd{font-size:.73em;color:var(--tx3);margin-top:2px}
-.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:4px}
+.name-wrap{position:relative}
+.name-msg{color:var(--err);font-size:.78rem;margin-top:6px;opacity:0;transform:translateY(-3px);
+  transition:opacity .2s,transform .2s}
+.name-msg.show{opacity:1;transform:none}
+.name-hint{font-size:.76rem;color:var(--tx3);margin-top:7px}
 
-/* ── Tarjetas de sensor (seleccionables) ───────────────────────────── */
-.sensors{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
-.sensor{background:var(--bg3);border:1.5px solid var(--bd);border-radius:10px;padding:14px 16px;
-  cursor:pointer;transition:border-color .15s,background .15s;position:relative;user-select:none}
-.sensor:hover{border-color:var(--bd2)}
-.sensor.on{border-color:var(--ac);background:var(--sel-bg)}
-.sensor .st{display:flex;align-items:center;gap:9px}
-.sensor .tick{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--bd2);
-  display:grid;place-items:center;font-size:.7em;color:transparent;flex-shrink:0;transition:all .15s}
-.sensor.on .tick{background:var(--ac);border-color:var(--ac);color:var(--on-ac)}
-.sensor .nm{font-weight:600;font-size:.92em}
-.sensor .dsc{font-size:.78em;color:var(--tx2);margin-top:5px;padding-left:27px}
+.hint{font-size:.76rem;color:var(--tx2);margin-top:6px;line-height:1.5}
+.hint code{background:var(--bg3);padding:1px 6px;border-radius:6px;font-size:.95em;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 
-/* ── Dropzone + chips de detección ─────────────────────────────────── */
-.dz{border:1.5px dashed var(--bd2);border-radius:10px;padding:20px;text-align:center;
-  cursor:pointer;transition:all .15s;background:var(--bg3);margin-top:10px}
+/* ── Dropzone + chips ─────────────────────────────────────────────── */
+.dz{border:1.5px dashed var(--bd2);border-radius:var(--r-md);padding:26px 20px;text-align:center;
+  cursor:pointer;transition:border-color .18s,background .18s;background:var(--bg3)}
 .dz:hover,.dz.drag{border-color:var(--ac);background:var(--sel-bg)}
 .dz input{display:none}
-.dz .ic{font-size:1.5em;display:block;margin-bottom:4px;opacity:.7}
-.dz .t{font-size:.87em;font-weight:500}
-.dz .h{font-size:.75em;color:var(--tx3);margin-top:3px}
-.chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px;justify-content:center}
-.chip{display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--bd);
-  border-radius:20px;padding:4px 11px;font-size:.78em;font-variant-numeric:tabular-nums}
+.dz .ic{width:30px;height:30px;display:block;margin:0 auto 10px;color:var(--ac);opacity:.7}
+.dz .t{font-size:.9rem;font-weight:600}
+.dz .h{font-size:.76rem;color:var(--tx2);margin-top:6px;line-height:1.55}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+.chip{display:inline-flex;align-items:center;gap:7px;background:var(--bg2);border:1px solid var(--bd);
+  border-radius:999px;padding:5px 12px;font-size:.76rem;font-weight:600;
+  font-variant-numeric:tabular-nums;animation:chip-in .25s ease backwards}
+@keyframes chip-in{from{opacity:0;transform:translateY(4px) scale(.96)}to{opacity:1;transform:none}}
 .chip .dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.chip .ci{width:.85em;height:.85em}
 .chip.rgb .dot{background:var(--rgb)} .chip.ther .dot{background:var(--ther)}
 .chip.ms .dot{background:var(--ms)}   .chip.other .dot{background:var(--tx3)}
 .chip.warn{border-color:var(--note-warn-bd);background:var(--note-warn-bg);color:var(--note-warn-tx)}
-.stored{font-size:.78em;color:var(--tx2);margin-top:9px;text-align:center}
-.stored b{color:var(--ok);font-weight:600}
+.stored{font-size:.78rem;color:var(--tx2);margin-top:10px;text-align:center;line-height:1.7}
+.stored b{color:var(--ok);font-weight:700}
+.stored a{color:var(--tx2);text-decoration:underline;text-underline-offset:2px}
+.stored a:hover{color:var(--err)}
 
-/* ── Opciones (radio en tarjeta) ───────────────────────────────────── */
-.opts{display:flex;flex-direction:column;gap:8px}
-.opt{display:flex;gap:11px;align-items:flex-start;background:var(--bg3);border:1.5px solid var(--bd);
-  border-radius:9px;padding:12px 14px;cursor:pointer;transition:border-color .15s,background .15s}
+/* ── Carpetas importadas + explorador ─────────────────────────────── */
+.imported-list{display:flex;flex-direction:column;gap:7px;margin-top:10px}
+.imported-item{display:flex;align-items:center;gap:10px;background:var(--bg3);
+  border:1px solid var(--bd);border-radius:var(--r-sm);padding:9px 12px;font-size:.8rem}
+.imported-item .ic{color:var(--ac);opacity:.8}
+.imported-item .p{flex:1;color:var(--tx2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.imported-item .tag{flex-shrink:0;font-size:.7rem;color:var(--tx3);background:var(--bg2);
+  border-radius:999px;padding:2px 9px;border:1px solid var(--bd)}
+.imported-item .rm{cursor:pointer;color:var(--tx3);flex-shrink:0;
+  display:grid;place-items:center;width:24px;height:24px;border-radius:7px;
+  transition:color .15s,background .15s}
+.imported-item .rm:hover{color:var(--err);background:var(--note-err-bg)}
+.imported-item .rm .ic{width:.95em;height:.95em}
+.pick-btn{margin-top:10px}
+
+.picker-overlay{display:none;position:fixed;inset:0;background:rgba(9,22,18,.5);z-index:1000;
+  align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px)}
+.picker-overlay.open{display:flex;animation:fade-in .16s ease both}
+@keyframes fade-in{from{opacity:0}to{opacity:1}}
+.picker{background:var(--bg2);border-radius:var(--r-lg);max-width:580px;width:100%;max-height:80vh;
+  display:flex;flex-direction:column;box-shadow:var(--shadow-md);border:1px solid var(--bd);
+  animation:rise-in .2s ease both}
+@keyframes rise-in{from{opacity:0;transform:translateY(10px) scale(.985)}to{opacity:1;transform:none}}
+.picker-head{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--bd)}
+.picker-head .pt{font-weight:700;flex:1;font-size:.95rem}
+.x{cursor:pointer;color:var(--tx3);display:grid;place-items:center;width:28px;height:28px;
+  border-radius:8px;transition:color .15s,background .15s}
+.x:hover{color:var(--tx);background:var(--bg3)}
+.picker-crumbs{font-size:.78rem;color:var(--tx2);padding:10px 20px;border-bottom:1px solid var(--bd);
+  white-space:nowrap;overflow-x:auto;display:flex;align-items:center;gap:8px}
+.picker-crumbs a{color:var(--ac);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:5px;
+  font-weight:600}
+.picker-crumbs a:hover{text-decoration:underline}
+.picker-list{overflow-y:auto;flex:1;padding:8px}
+.picker-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--r-sm);
+  transition:background .12s}
+.picker-row:hover{background:var(--bg3)}
+.picker-row .ic{font-size:1.1em;flex-shrink:0;cursor:pointer;color:var(--ac);opacity:.85;
+  width:1.4em;height:1.4em;padding:2px}
+.picker-row .nm{flex:1;font-size:.87rem;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.picker-row .hint{font-size:.72rem;color:var(--tx3);flex-shrink:0;margin-top:0}
+.picker-row .add{flex-shrink:0;font-size:.75rem;padding:5px 10px}
+.picker-row.added .nm{color:var(--ok)}
+.picker-empty{padding:34px 16px;text-align:center;color:var(--tx3);font-size:.85rem}
+.picker-foot{padding:12px 20px;border-top:1px solid var(--bd);text-align:right}
+
+/* ── Opciones (radio en tarjeta) ──────────────────────────────────── */
+.opts{display:flex;flex-direction:column;gap:10px}
+.opt{display:flex;gap:12px;align-items:flex-start;background:var(--bg2);
+  border:1.5px solid var(--bd);border-radius:var(--r-md);padding:14px 16px;cursor:pointer;
+  transition:border-color .15s,background .15s;position:relative}
 .opt:hover{border-color:var(--bd2)}
 .opt.on{border-color:var(--ac);background:var(--sel-bg)}
+.opt.on::after{content:'✓';position:absolute;top:50%;right:14px;transform:translateY(-50%);
+  width:20px;height:20px;border-radius:50%;background:var(--ac);color:#fff;
+  display:grid;place-items:center;font-size:.66rem;font-weight:800}
 .opt.dis{opacity:.5;cursor:not-allowed}
+.opt.dis:hover{border-color:var(--bd)}
 .opt input{margin-top:3px;accent-color:var(--ac);flex-shrink:0}
-.opt .ot{font-size:.89em;font-weight:550}
-.opt .od{font-size:.78em;color:var(--tx2);margin-top:2px}
+.opt .ot{font-size:.9rem;font-weight:700;padding-right:26px}
+.opt .od{font-size:.78rem;color:var(--tx2);margin-top:3px;line-height:1.5;padding-right:26px}
+.checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:9px}
+.chk{display:flex;gap:10px;align-items:flex-start;background:var(--bg2);
+  border:1.5px solid var(--bd);border-radius:12px;padding:11px 13px;cursor:pointer;
+  transition:border-color .15s,background .15s;user-select:none}
+.chk:hover{border-color:var(--bd2)}
+.chk.on{border-color:var(--ac);background:var(--sel-bg)}
+.chk.dis{opacity:.45;cursor:not-allowed}
+.chk.dis:hover{border-color:var(--bd)}
+.chk input{margin-top:2px;accent-color:var(--ac);flex-shrink:0}
+.chk .ct{font-size:.83rem;font-weight:600;line-height:1.35}
+.chk .cd{font-size:.72rem;color:var(--tx2);margin-top:3px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px;margin-top:6px}
 
-/* ── Calidad (slider + %) ─────────────────────────────────────────── */
-.quality-row{display:flex;align-items:center;gap:14px}
-.quality-row input[type=range]{flex:1;accent-color:var(--ac);height:6px;cursor:pointer}
-.quality-pct{font-weight:600;font-variant-numeric:tabular-nums;min-width:3.2em;text-align:right}
+/* ── Calidad ──────────────────────────────────────────────────────── */
+.preset-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.preset-cargando{grid-column:1/-1;color:var(--mut);font-size:.9rem;padding:8px 0}
+.preset-card{display:flex;flex-direction:column;gap:4px;text-align:left;cursor:pointer;
+  padding:12px;border:1.5px solid var(--bd);border-radius:10px;background:var(--pnl);
+  color:inherit;font:inherit;transition:border-color .12s,background .12s}
+.preset-card:hover{border-color:var(--ac)}
+.preset-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.preset-card.sel{border-color:var(--ac);background:color-mix(in srgb,var(--ac) 10%,var(--pnl))}
+.preset-card .pc-titulo{font-weight:800}
+.preset-card .pc-tiempo{font-weight:700;font-variant-numeric:tabular-nums;color:var(--ac)}
+.preset-card .pc-para{font-size:.82rem;color:var(--mut);line-height:1.35}
+.preset-card .pc-res{font-size:.78rem;color:var(--mut)}
 
-/* ── Avisos ────────────────────────────────────────────────────────── */
-.note{border-radius:9px;padding:13px 15px;font-size:.84em;display:flex;gap:11px;align-items:flex-start;
-  margin-top:14px;line-height:1.55}
-.note .ni{flex-shrink:0;font-size:1.05em;line-height:1.3}
-.note.info{background:var(--note-info-bg);border:1px solid var(--note-info-bd);color:var(--note-info-tx)}
-.note.warn{background:var(--note-warn-bg);border:1px solid var(--note-warn-bd);color:var(--note-warn-tx)}
-.note.err{background:var(--note-err-bg);border:1px solid var(--note-err-bd);color:var(--note-err-tx)}
-.note.ok{background:var(--note-ok-bg);border:1px solid var(--note-ok-bd);color:var(--note-ok-tx)}
-.note ul{margin:5px 0 0 16px}
-.note li{margin-bottom:4px}
+/* ── Avisos ───────────────────────────────────────────────────────── */
+.note{border-radius:12px;padding:13px 15px;font-size:.83rem;display:flex;gap:11px;align-items:flex-start;
+  margin-top:14px;line-height:1.55;border:1px solid transparent;border-left-width:3px}
+.note .ni{flex-shrink:0;width:1.3em;height:1.3em;margin-top:2px;display:grid;place-items:center}
+.note .ni .ic{width:1.2em;height:1.2em}
+.note.info{background:var(--note-info-bg);border-color:var(--note-info-bd);border-left-color:var(--ac);color:var(--note-info-tx)}
+.note.warn{background:var(--note-warn-bg);border-color:var(--note-warn-bd);border-left-color:var(--warn);color:var(--note-warn-tx)}
+.note.err{background:var(--note-err-bg);border-color:var(--note-err-bd);border-left-color:var(--err);color:var(--note-err-tx)}
+.note.ok{background:var(--note-ok-bg);border-color:var(--note-ok-bd);border-left-color:var(--ok);color:var(--note-ok-tx)}
 
-/* ── Lista de misiones ─────────────────────────────────────────────── */
-.mission{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:14px 16px;
-  background:var(--bg3);border:1px solid var(--bd);border-radius:10px;margin-bottom:9px}
-.mission .nm{font-weight:600;font-size:.94em;display:flex;align-items:center;gap:8px}
-.mission .tg{font-size:.77em;color:var(--tx3);margin-top:3px}
-.badge{font-size:.68em;padding:2px 8px;border-radius:20px;font-weight:600;letter-spacing:.02em}
-.badge.run{background:var(--note-ok-bg);color:var(--ok);border:1px solid var(--note-ok-bd)}
-.badge.fail{background:var(--note-err-bg);color:var(--err);border:1px solid var(--note-err-bd)}
-.empty{text-align:center;padding:34px 20px;color:var(--tx3);font-size:.87em}
-.empty .ic{font-size:2.4em;display:block;margin-bottom:10px;opacity:.45}
-
-.up{margin-top:14px}
-.up .ut{display:flex;justify-content:space-between;font-size:.8em;color:var(--tx2);margin-bottom:6px;
+/* ── Barra de subida ──────────────────────────────────────────────── */
+.up{margin-top:22px}
+.up .ut{display:flex;justify-content:space-between;font-size:.78rem;color:var(--tx2);margin-bottom:8px;
   font-variant-numeric:tabular-nums}
-.small{font-size:.79em;color:var(--tx3)}
+.bar{height:6px;background:var(--bg3);border-radius:999px;overflow:hidden}
+.bar i{display:block;height:100%;width:0;border-radius:999px;
+  background:linear-gradient(90deg,var(--ac),var(--ac2));
+  transition:width .25s ease;position:relative}
+.bar i::after{content:'';position:absolute;inset:0;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.35),transparent);
+  animation:shimmer 1.4s linear infinite}
+@keyframes shimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+
+/* ── Resumen lateral fijo ─────────────────────────────────────────── */
+.rail{position:sticky;top:84px;display:none}
+@media (min-width:1024px){.rail{display:block}}
+.rail .panel{padding:22px}
+.rail-title{font-size:.68rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ac);display:flex;align-items:center;gap:8px;margin-bottom:16px}
+.rail-title .ic{width:1em;height:1em}
+.rail-name{font-weight:700;font-size:1rem;word-break:break-word;margin-bottom:16px;
+  padding-bottom:14px;border-bottom:1px dashed var(--bd2);color:var(--tx)}
+.rail-block{margin-bottom:16px}
+.rail-block:last-child{margin-bottom:0}
+.rail-block .bl{font-size:.66rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--tx3);margin-bottom:8px}
+.rail-block .chips{margin-top:0}
+.rail-list{list-style:none;display:flex;flex-direction:column;gap:7px}
+.rail-list li{font-size:.8rem;color:var(--tx2);display:flex;gap:8px;align-items:flex-start;line-height:1.4}
+.rail-list li .ic{width:.9em;height:.9em;color:var(--ok);margin-top:2px}
+.rail-line{font-size:.8rem;color:var(--tx2);display:flex;gap:8px;align-items:flex-start;line-height:1.45}
+.rail-line .ic{width:.9em;height:.9em;color:var(--ac);margin-top:2px}
+
+/* ── Modal de confirmación (reemplaza confirm() nativo) ───────────── */
+.confirm-overlay{display:none;position:fixed;inset:0;background:rgba(9,22,18,.5);z-index:1100;
+  align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px)}
+.confirm-overlay.open{display:flex;animation:fade-in .16s ease both}
+.confirm{background:var(--bg2);border-radius:var(--r-lg);max-width:430px;width:100%;
+  box-shadow:var(--shadow-md);border:1px solid var(--bd);animation:rise-in .2s ease both;overflow:hidden}
+.confirm-head{display:flex;align-items:center;gap:10px;padding:16px 20px;border-bottom:1px solid var(--bd)}
+.confirm-head .pt{font-weight:700;flex:1;font-size:.95rem;display:flex;align-items:center;gap:9px}
+.confirm-head .pt .ic{color:var(--err)}
+.confirm-body{padding:20px;font-size:.87rem;color:var(--tx2);line-height:1.6}
+.confirm-body b{color:var(--tx)}
+.confirm-foot{display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;
+  border-top:1px solid var(--bd);background:var(--bg3)}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
+    transition-duration:.01ms!important}
+  html{scroll-behavior:auto}
+}
 </style>
 </head>
 <body>
+<a class="skip-link" href="#main">Saltar al contenido</a>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14zM10 11v6M14 11v6"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+    <symbol id="i-warn" viewBox="0 0 24 24"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+    <symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 2 10 5-10 5L2 7zM2 17l10 5 10-5M2 12l10 5 10-5"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-map" viewBox="0 0 24 24"><path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4zM8 2v16M16 6v16"/></symbol>
+    <symbol id="i-package" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16zM3.27 6.96 12 12.01l8.73-5.05M12 22.08V12"/></symbol>
+    <symbol id="i-chev-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+    <symbol id="i-drone" viewBox="0 0 24 24"><path d="M7 5 4.5 2.5M17 5l2.5-2.5M7 19l-2.5 2.5M17 19l2.5 2.5"/><circle cx="4.5" cy="2.5" r="2"/><circle cx="19.5" cy="2.5" r="2"/><circle cx="4.5" cy="21.5" r="2"/><circle cx="19.5" cy="21.5" r="2"/><rect x="6" y="8" width="12" height="8" rx="2.5"/></symbol>
+    <symbol id="i-mountain" viewBox="0 0 24 24"><path d="m8 3 4 8 5-5 5 15H2L8 3z"/></symbol>
+  </defs>
+</svg>
+
 <header>
-  <button id="btn-back" class="hidden" onclick="goBack()" title="Volver">←</button>
+  <button id="btn-back" class="hidden" onclick="goBack()" title="Volver" aria-label="Volver a las misiones">
+    <svg class="ic" aria-hidden="true"><use href="#i-back"/></svg>
+  </button>
   <svg class="logo" viewBox="0 0 100 100" aria-hidden="true">
     <g fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round">
       <path d="M35 38 L18 20"/><path d="M65 38 L82 20"/>
@@ -217,199 +432,358 @@ select.in{cursor:pointer}
     <rect x="32" y="38" width="36" height="24" rx="7" fill="currentColor"/>
   </svg>
   <div class="title-block">
-    <h1>Pipeline UAV de respuesta rápida</h1>
-    <div class="sub">Ortomosaicos RGB · térmicos · multiespectrales — DJI H20T / M3T / M3M</div>
+    <h1>Raptor</h1>
+    <div class="sub">Pipeline UAV de respuesta rápida · RGB / térmico / multiespectral</div>
   </div>
   <span style="flex:1"></span>
-  <button id="btn-theme" onclick="toggleTheme()" title="Cambiar entre modo claro y oscuro">
-    <span id="theme-ic">🌙</span></button>
+  <button id="btn-theme" onclick="toggleTheme()" title="Cambiar entre modo claro y oscuro" aria-label="Cambiar tema">
+    <span id="theme-ic">
+      <svg class="ic ic-sun" aria-hidden="true"><use href="#i-sun"/></svg>
+      <svg class="ic ic-moon" aria-hidden="true"><use href="#i-moon"/></svg>
+    </span>
+  </button>
 </header>
-<main>
+<main id="main">
 
 <!-- ═══ LANDING ═══ -->
 <section id="v-landing" class="hidden">
-  <div class="card">
-    <div class="row spread" style="margin-bottom:16px">
-      <div>
-        <h2 style="margin:0">Misiones</h2>
-        <div class="card-sub" style="margin:0">Vuelos procesados en este contenedor</div>
-      </div>
-      <button class="btn primary" onclick="openSetup()">+ Nueva misión</button>
+  <header class="hero">
+    <div>
+      <p class="eyebrow">Centro de operaciones</p>
+      <h1>Misiones</h1>
+      <p class="hero-sub">Ortomosaicos RGB, térmicos y multiespectrales de vuelos DJI: procesá, revisá y entregá desde un solo lugar.</p>
     </div>
-    <div id="mlist"></div>
-  </div>
+    <button class="btn primary hero-cta" onclick="openSetup()">
+      <svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg> Nueva misión
+    </button>
+  </header>
+  <div class="mlist-head"><span id="mcount"></span></div>
+  <div id="mlist"></div>
 </section>
 
 <!-- ═══ SETUP (nueva misión / corregir y reintentar) ═══ -->
 <section id="v-setup" class="hidden">
-  <div class="card">
-    <h2 id="setup-title">Nueva misión</h2>
-    <div class="card-sub">Elige qué vuelos vas a procesar. Puedes cargar uno solo o los dos.</div>
+  <div class="setup-wrap">
 
-    <div class="section-label">Nombre de la misión</div>
-    <input type="text" id="mname" placeholder="p. ej. Barbosa_2026-07-24" autocomplete="off">
+    <div class="setup-col">
+      <div class="panel">
+        <h2 class="panel-title" id="setup-title">Nueva misión</h2>
+        <p class="panel-sub">Elegí las fotos del vuelo y los productos a generar. El servidor valida todo antes de arrancar.</p>
 
-    <div class="section-label">¿Qué vuelos tienes?</div>
-    <div class="sensors">
-      <div class="sensor" id="s-rt" onclick="toggleSensor('rt')">
-        <div class="st"><span class="tick">✔</span><span class="nm">DJI M3T / H20T</span></div>
-        <div class="dsc">Cámara RGB + sensor térmico radiométrico</div>
-      </div>
-      <div class="sensor" id="s-ms" onclick="toggleSensor('ms')">
-        <div class="st"><span class="tick">✔</span><span class="nm">DJI M3M</span></div>
-        <div class="dsc">4 bandas multiespectrales (G/R/RE/NIR) + cámara D</div>
-      </div>
-    </div>
-
-    <!-- Bloque RGB/térmico -->
-    <div id="blk-rt" class="hidden">
-      <div class="section-label">Fotos del vuelo M3T / H20T</div>
-      <div class="dz" id="dz-rt" onclick="document.getElementById('in-rt').click()">
-        <input type="file" id="in-rt" webkitdirectory multiple>
-        <span class="ic">📁</span>
-        <div class="t">Elige la carpeta completa del vuelo</div>
-        <div class="h">Busca <code>*_V.JPG</code> · <code>*_W.JPG</code> · <code>*_T.JPG</code> en subcarpetas</div>
-        <div class="chips" id="ch-rt"></div>
-      </div>
-      <div class="stored hidden" id="st-rt"></div>
-
-      <div class="section-label">Productos a generar</div>
-      <div class="opts">
-        <label class="opt" id="o-rt-both">
-          <input type="radio" name="prod" value="rgb+thermal" checked onchange="refreshUI()">
-          <div><div class="ot">Ortomosaico RGB + térmico</div>
-            <div class="od">Ambos mosaicos, más máscara de confianza y detección de hotspots</div></div>
-        </label>
-        <label class="opt" id="o-rt-rgb">
-          <input type="radio" name="prod" value="rgb" onchange="refreshUI()">
-          <div><div class="ot">Solo ortomosaico RGB</div>
-            <div class="od">Salta todo el procesamiento térmico (más rápido)</div></div>
-        </label>
-      </div>
-    </div>
-
-    <!-- Bloque multiespectral -->
-    <div id="blk-ms" class="hidden">
-      <div class="section-label">Bandas del vuelo M3M</div>
-      <div class="dz" id="dz-ms" onclick="document.getElementById('in-ms').click()">
-        <input type="file" id="in-ms" webkitdirectory multiple>
-        <span class="ic">📁</span>
-        <div class="t">Elige la carpeta completa del vuelo</div>
-        <div class="h">Busca <code>*_MS_G/R/RE/NIR.TIF</code> y <code>*_D.JPG</code></div>
-        <div class="chips" id="ch-ms"></div>
-      </div>
-      <div class="stored hidden" id="st-ms"></div>
-    </div>
-
-    <!-- Procesamiento previo detectado -->
-    <div id="blk-reuse" class="hidden">
-      <div class="section-label">Procesamiento previo detectado</div>
-      <div class="note info" style="margin-top:0">
-        <span class="ni">♻️</span>
-        <div>Esta misión ya tiene reconstrucciones 3D de ODM: <b id="reuse-list"></b>.
-          Reusarlas salta la parte más lenta del pipeline (SfM + nube de puntos).</div>
-      </div>
-      <div class="opts" style="margin-top:10px">
-        <label class="opt on" id="o-reuse-y">
-          <input type="radio" name="reuse" value="1" checked onchange="refreshUI()">
-          <div><div class="ot">Reusar lo ya reconstruido</div>
-            <div class="od">Rehace solo recortes, índices, tiles y exportación — minutos en vez de horas</div></div>
-        </label>
-        <label class="opt" id="o-reuse-n">
-          <input type="radio" name="reuse" value="0" onchange="refreshUI()">
-          <div><div class="ot">Empezar de cero</div>
-            <div class="od">Reconstruye todo otra vez. Usalo si cambiaste o agregaste fotos del vuelo</div></div>
-        </label>
-      </div>
-    </div>
-
-    <!-- Calidad: detalle del modelo 3D + techo de resolución vs. tiempo -->
-    <div class="section-label">Calidad</div>
-    <div class="quality-row">
-      <input type="range" id="quality-slider" min="0" max="100" step="5" value="75"
-             oninput="onQualityInput()" onchange="refreshQualityEstimate()">
-      <span class="quality-pct" id="quality-pct">75%</span>
-    </div>
-    <div class="note info" style="margin-top:10px" id="quality-note">
-      <span class="ni">🎚️</span><div id="quality-note-t">Calculando…</div>
-    </div>
-
-    <!-- Entrega: dónde, qué, en qué formato y en qué CRS -->
-    <div class="section-label">Entrega de los productos</div>
-    <div class="opts">
-      <label class="opt on" id="o-exp-y">
-        <input type="radio" name="doexport" value="1" checked onchange="refreshUI()">
-        <div><div class="ot">Exportar a una carpeta</div>
-          <div class="od" id="o-exp-y-d">Copia los productos elegidos en el formato y el sistema de referencia que necesites</div></div>
-      </label>
-      <label class="opt" id="o-exp-n">
-        <input type="radio" name="doexport" value="0" onchange="refreshUI()">
-        <div><div class="ot">No exportar</div>
-          <div class="od">Los productos quedan solo en la misión, en la UTM que eligió ODM</div></div>
-      </label>
-    </div>
-
-    <div id="blk-export">
-      <div class="section-label">Carpeta de destino</div>
-      <input class="in" id="exp-dir" placeholder="/ruta/de/entregas/&lt;misión&gt;">
-      <div class="hint" id="exp-dir-h">Ruta <b>en tu disco</b>, dentro de la carpeta de entregas
-        con la que arrancaste.</div>
-
-      <div class="section-label">Qué exportar</div>
-      <div class="checks" id="exp-products"></div>
-
-      <div class="grid2">
-        <div>
-          <div class="section-label">Sistema de referencia</div>
-          <select class="in" id="exp-epsg" onchange="onEpsgChange()">
-            <option value="9377" selected>EPSG:9377 — MAGNA-SIRGAS / Origen-Nacional (recomendado)</option>
-            <option value="source">La de la misión — UTM WGS84 (sin reproyectar)</option>
-            <option value="4326">EPSG:4326 — WGS84 lat/lon</option>
-            <option value="custom">Otro código EPSG…</option>
-          </select>
-          <input class="in hidden" id="exp-epsg-custom" placeholder="p. ej. 32618"
-                 style="margin-top:8px" oninput="checkExport()">
-          <div class="hint" id="exp-epsg-h">Sistema único nacional de Colombia (IGAC). Es el que
-            esperan las entidades para cartografía oficial.</div>
+        <div class="form-section">
+          <div class="section-label">
+            <svg class="ic" aria-hidden="true"><use href="#i-drone"/></svg> Nombre de la misión
+          </div>
+          <div class="name-wrap">
+            <input type="text" id="mname" placeholder="p. ej. Barbosa_2026-07-24" autocomplete="off">
+            <div class="name-msg" id="mname-msg"></div>
+          </div>
+          <div class="name-hint">Se usará como nombre de carpeta para fotos, reconstrucción y productos.</div>
         </div>
-        <div>
-          <div class="section-label">Formatos</div>
-          <select class="in" id="exp-rfmt">
-            <option value="cog" selected>Ráster: GeoTIFF cloud-optimized (COG)</option>
-            <option value="gtiff">Ráster: GeoTIFF clásico</option>
-          </select>
-          <select class="in" id="exp-vfmt" style="margin-top:8px">
-            <option value="geojson" selected>Vectorial: GeoJSON</option>
-            <option value="gpkg">Vectorial: GeoPackage (.gpkg)</option>
-            <option value="shp">Vectorial: Shapefile</option>
-            <option value="kml">Vectorial: KML (siempre en WGS84)</option>
-          </select>
+
+        <div class="form-section">
+          <div class="section-label">
+            <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg> Fotos de la misión
+          </div>
+          <p class="panel-sub" style="margin-bottom:0">Agregá la(s) carpeta(s) del vuelo: RGB/térmico (M3T/H20T) y/o multiespectral (M3M), una o las dos. Se detecta automáticamente qué trae cada una.</p>
+          <!-- Elegir carpeta en el disco del servidor (symlink, cero copia) — esto
+               se muestra siempre que el contenedor arrancó con ./raptor webapp
+               --import DIR. openFolderPicker() ya no pide de antemano si es RGB/
+               térmico o multiespectral: se detecta solo por el contenido de la
+               carpeta elegida (ver el hint de /api/import/browse). -->
+          <div id="pick-add" class="hidden">
+            <div class="imported-list" id="il-add"></div>
+            <button class="btn sm pick-btn" onclick="openFolderPicker()">
+              <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg> Elegir carpeta…
+            </button>
+          </div>
+          <!-- Subida por el navegador — solo si NO hay --import: sin carpeta
+               montada no hay otra forma de traer las fotos. Un solo cuadro para
+               los dos vuelos: se arrastra o se elige, y se clasifica cada archivo
+               por su nombre (mismo criterio que classify()) — no hace falta
+               declarar antes qué sensor es. -->
+          <div class="dz" id="dz-add" onclick="document.getElementById('in-add').click()">
+            <input type="file" id="in-add" webkitdirectory multiple>
+            <svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg>
+            <div class="t">Arrastrá la carpeta acá, o hacé clic para elegirla</div>
+            <div class="h">RGB/térmico (<code>*_V.JPG</code> · <code>*_W.JPG</code> · <code>*_T.JPG</code>) y multiespectral
+              (<code>*_MS_*.TIF</code> · <code>*_D.JPG</code>), una carpeta por vez.</div>
+          </div>
+          <div class="chips" id="ch-add"></div>
+          <div class="stored hidden" id="st-add"></div>
+        </div>
+
+        <!-- Bloque RGB/térmico — aparece solo cuando se detectan fotos de ese vuelo -->
+        <div id="blk-rt" class="hidden">
+          <div class="form-section">
+            <div class="section-label">
+              <svg class="ic" aria-hidden="true"><use href="#i-layers"/></svg> Productos a generar (RGB / térmico)
+            </div>
+            <div class="opts">
+              <label class="opt" id="o-rt-both">
+                <input type="radio" name="prod" value="rgb+thermal" checked onchange="refreshUI()">
+                <div><div class="ot">Ortomosaico RGB + térmico</div>
+                  <div class="od">Ambos mosaicos, más máscara de confianza y detección de hotspots</div></div>
+              </label>
+              <label class="opt" id="o-rt-rgb">
+                <input type="radio" name="prod" value="rgb" onchange="refreshUI()">
+                <div><div class="ot">Solo ortomosaico RGB</div>
+                  <div class="od">Salta todo el procesamiento térmico (más rápido)</div></div>
+              </label>
+              <label class="opt" id="o-rt-thermal">
+                <input type="radio" name="prod" value="thermal" onchange="refreshUI()">
+                <div><div class="ot">Solo ortomosaico térmico</div>
+                  <div class="od">Salta la reconstrucción RGB (más rápido, sin modelo de superficie)</div></div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bloque multiespectral — aparece solo cuando se detectan bandas M3M -->
+        <div id="blk-ms" class="hidden">
+          <div class="form-section">
+            <div class="section-label">
+              <svg class="ic" aria-hidden="true"><use href="#i-camera"/></svg> Multiespectral (M3M)
+            </div>
+            <label class="chk" id="o-dband" style="margin-top:0">
+              <input type="checkbox" id="in-dband" onchange="refreshUI()">
+              <div><div class="ct">También el mosaico visible (banda D)</div>
+                <div class="cd">Procesamiento aparte, independiente de las 4 bandas: la cámara RGB propia del M3M, para una vista visual rápida</div></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Procesamiento previo detectado -->
+        <div id="blk-reuse" class="hidden">
+          <div class="form-section">
+            <div class="section-label">
+              <svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg> Procesamiento previo detectado
+            </div>
+            <div class="note info" style="margin-top:0">
+              <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg></span>
+              <div>Esta misión ya tiene reconstrucciones 3D de ODM: <b id="reuse-list"></b>.
+                Reusarlas salta la parte más lenta del pipeline (SfM + nube de puntos).</div>
+            </div>
+            <div class="opts" style="margin-top:12px">
+              <label class="opt on" id="o-reuse-y">
+                <input type="radio" name="reuse" value="1" checked onchange="refreshUI()">
+                <div><div class="ot">Reusar lo ya reconstruido</div>
+                  <div class="od">Rehace solo recortes, índices, tiles y exportación: minutos en vez de horas</div></div>
+              </label>
+              <label class="opt" id="o-reuse-n">
+                <input type="radio" name="reuse" value="0" onchange="refreshUI()">
+                <div><div class="ot">Empezar de cero</div>
+                  <div class="od">Reconstruye todo otra vez. Usalo si cambiaste o agregaste fotos del vuelo</div></div>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Terreno: decide el algoritmo de reconstrucción (sfm_algorithm),
+             no solo la calidad. Bug real, encontrado en vivo: "vistazo" y
+             "rápido" alinean las fotos por homografías (reconstrucción
+             planar) — válido solo si el terreno es efectivamente plano. En
+             terreno con relieve fuerte eso descartó el 76-81% de las fotos
+             SIN avisar (el pipeline terminó "bien", con un ortomosaico
+             recortado muy por debajo del área real volada). "Escarpado"
+             fuerza reconstrucción incremental incluso en los presets
+             rápidos — más lenta que planar, pero no pierde cobertura. -->
+        <div class="form-section">
+          <div class="section-label">
+            <svg class="ic" aria-hidden="true"><use href="#i-mountain"/></svg> Terreno
+          </div>
+          <div class="opts">
+            <label class="opt on" id="o-terr-plano">
+              <input type="radio" name="terreno" value="plano" checked onchange="refreshUI()">
+              <div><div class="ot">Plano</div>
+                <div class="od">Terreno chato o con relieve suave. Vistazo/rápido reconstruyen por homografías — mucho más veloz</div></div>
+            </label>
+            <label class="opt" id="o-terr-escarpado">
+              <input type="radio" name="terreno" value="escarpado" onchange="refreshUI()">
+              <div><div class="ot">Escarpado</div>
+                <div class="od">Montaña, cañón, terreno rocoso. Fuerza reconstrucción completa en todos los presets — evita perder fotos en silencio</div></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Calidad: se elige por USO Y TIEMPO, no por un número abstracto.
+             Antes era un slider de 0 a 100 que no respondía ni cuánto iba a
+             tardar ni para qué servía cada tramo (y donde 71 y 89 daban
+             exactamente lo mismo). Las tarjetas se arman solas desde
+             /quality-estimate, que devuelve los cinco presets con su tiempo
+             estimado para ESTAS fotos y ESTE hardware. -->
+        <div class="form-section">
+          <div class="section-label">
+            <svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg> Calidad y tiempo
+          </div>
+          <div class="preset-grid" id="preset-grid" role="radiogroup"
+               aria-label="Preset de calidad">
+            <div class="preset-cargando">Calculando tiempos para tu vuelo…</div>
+          </div>
+          <div class="note info" style="margin-top:12px" id="quality-note">
+            <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg></span>
+            <div id="quality-note-t">Calculando…</div>
+          </div>
+        </div>
+
+        <!-- Entrega: dónde, qué, en qué formato y en qué CRS -->
+        <div class="form-section">
+          <div class="section-label">
+            <svg class="ic" aria-hidden="true"><use href="#i-package"/></svg> Entrega de los productos
+          </div>
+          <div class="opts">
+            <label class="opt on" id="o-exp-y">
+              <input type="radio" name="doexport" value="1" checked onchange="refreshUI()">
+              <div><div class="ot">Exportar a una carpeta</div>
+                <div class="od" id="o-exp-y-d">Copia los productos elegidos en el formato y el sistema de referencia que necesites</div></div>
+            </label>
+            <label class="opt" id="o-exp-n">
+              <input type="radio" name="doexport" value="0" onchange="refreshUI()">
+              <div><div class="ot">No exportar</div>
+                <div class="od">Los productos quedan solo en la misión, en la UTM que eligió ODM</div></div>
+            </label>
+          </div>
+
+          <div id="blk-export">
+            <div class="section-label" style="margin-top:20px">Carpeta de destino</div>
+            <input class="in" id="exp-dir" placeholder="/ruta/de/entregas/&lt;misión&gt;">
+            <div class="hint" id="exp-dir-h">Ruta <b>en tu disco</b>, dentro de la carpeta de entregas
+              con la que arrancaste.</div>
+
+            <div class="section-label" style="margin-top:20px">Qué exportar</div>
+            <div class="checks" id="exp-products"></div>
+
+            <div class="grid2">
+              <div>
+                <div class="section-label">Sistema de referencia</div>
+                <select class="in" id="exp-epsg" onchange="onEpsgChange()">
+                  <option value="9377" selected>EPSG:9377 · MAGNA-SIRGAS / Origen-Nacional (recomendado)</option>
+                  <option value="source">La de la misión: UTM WGS84 (sin reproyectar)</option>
+                  <option value="4326">EPSG:4326 · WGS84 lat/lon</option>
+                  <option value="custom">Otro código EPSG…</option>
+                </select>
+                <input class="in hidden" id="exp-epsg-custom" placeholder="p. ej. 32618"
+                       style="margin-top:8px" oninput="checkExport()">
+                <div class="hint" id="exp-epsg-h">Sistema único nacional de Colombia (IGAC). Es el que
+                  esperan las entidades para cartografía oficial.</div>
+              </div>
+              <div>
+                <div class="section-label">Formatos</div>
+                <select class="in" id="exp-rfmt">
+                  <option value="cog" selected>Ráster: GeoTIFF cloud-optimized (COG)</option>
+                  <option value="gtiff">Ráster: GeoTIFF clásico</option>
+                </select>
+                <select class="in" id="exp-vfmt" style="margin-top:8px">
+                  <option value="geojson" selected>Vectorial: GeoJSON</option>
+                  <option value="gpkg">Vectorial: GeoPackage (.gpkg)</option>
+                  <option value="shp">Vectorial: Shapefile</option>
+                  <option value="kml">Vectorial: KML (siempre en WGS84)</option>
+                </select>
+              </div>
+            </div>
+            <div id="exp-note" class="note hidden" style="margin-top:12px">
+              <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg></span>
+              <div id="exp-note-t"></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="setup-err" class="note err hidden">
+          <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-warn"/></svg></span>
+          <div id="setup-err-t"></div>
+        </div>
+
+        <div class="up hidden" id="upbox">
+          <div class="ut"><span id="uplabel">Subiendo…</span><span id="uppct">0%</span></div>
+          <div class="bar"><i id="upbar"></i></div>
+        </div>
+
+        <div class="row" style="margin-top:24px">
+          <button class="btn primary" id="btn-start" onclick="uploadAndStart()">
+            <svg class="ic" aria-hidden="true"><use href="#i-drone"/></svg> Iniciar procesamiento
+          </button>
+          <button class="btn ghost" onclick="showLanding()">Cancelar</button>
         </div>
       </div>
-      <div id="exp-note" class="note hidden" style="margin-top:12px"><span class="ni">📁</span><div id="exp-note-t"></div></div>
     </div>
 
-    <div id="setup-err" class="note err hidden"><span class="ni">⚠️</span><div id="setup-err-t"></div></div>
+    <!-- Resumen en vivo de la misión — lo que ya se eligió, de un vistazo,
+         sin volver a recorrer el formulario. Se rellena en renderRail(). -->
+    <aside class="rail" id="rail" aria-label="Resumen de la misión">
+      <div class="panel">
+        <div class="rail-title"><svg class="ic" aria-hidden="true"><use href="#i-layers"/></svg> Resumen de la misión</div>
+        <div class="rail-name" id="rail-name"></div>
+        <div class="rail-block">
+          <div class="bl">Fotos detectadas</div>
+          <div class="chips" id="ch-rail"></div>
+        </div>
+        <div class="rail-block">
+          <div class="bl">Productos</div>
+          <ul class="rail-list" id="rail-products"></ul>
+        </div>
+        <div class="rail-block">
+          <div class="bl">Reconstrucción</div>
+          <div class="rail-line" id="rail-reuse"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg><span></span></div>
+        </div>
+        <div class="rail-block">
+          <div class="bl">Entrega</div>
+          <div class="rail-line" id="rail-export"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg><span></span></div>
+        </div>
+      </div>
+    </aside>
 
-    <div class="up hidden" id="upbox">
-      <div class="ut"><span id="uplabel">Subiendo…</span><span id="uppct">0%</span></div>
-      <div class="bar"><i id="upbar"></i></div>
-    </div>
-
-    <div class="row" style="margin-top:20px">
-      <button class="btn primary" id="btn-start" onclick="uploadAndStart()">Iniciar procesamiento</button>
-      <button class="btn ghost" onclick="showLanding()">Cancelar</button>
-    </div>
   </div>
 </section>
 
 </main>
 
+<!-- Explorador de carpetas del servidor — reemplaza escribir una ruta a
+     mano. Ningún navegador expone la ruta real de una carpeta elegida con
+     <input webkitdirectory> ni arrastrada desde el escritorio (restricción
+     de seguridad del propio navegador), así que "elegir visualmente sin
+     escribir nada" solo puede vivir del lado del servidor, listando lo que
+     ya está montado en IMPORT_MOUNT — ver /api/import/browse. -->
+<div class="picker-overlay" id="picker-overlay" onclick="if(event.target===this)closeFolderPicker()">
+  <div class="picker">
+    <div class="picker-head">
+      <span class="pt" id="picker-title">Elegir carpeta</span>
+      <span class="x" onclick="closeFolderPicker()" title="Cerrar">
+        <svg class="ic" aria-hidden="true"><use href="#i-x"/></svg>
+      </span>
+    </div>
+    <div class="picker-crumbs" id="picker-crumbs"></div>
+    <div class="picker-list" id="picker-list"></div>
+    <div class="picker-foot"><button class="btn sm" onclick="closeFolderPicker()">Listo</button></div>
+  </div>
+</div>
+
+<!-- Confirmación de borrado (reemplaza el confirm() nativo del navegador) -->
+<div class="confirm-overlay" id="confirm-overlay" onclick="if(event.target===this)closeConfirm()">
+  <div class="confirm" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <div class="confirm-head">
+      <span class="pt" id="confirm-title">
+        <svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg> Eliminar misión
+      </span>
+      <span class="x" onclick="closeConfirm()" title="Cerrar">
+        <svg class="ic" aria-hidden="true"><use href="#i-x"/></svg>
+      </span>
+    </div>
+    <div class="confirm-body" id="confirm-body"></div>
+    <div class="confirm-foot">
+      <button class="btn" onclick="closeConfirm()">Cancelar</button>
+      <button class="btn danger" id="confirm-ok" onclick="confirmDelete()">Eliminar</button>
+    </div>
+  </div>
+</div>
+
 <script>
+
 // ═══════════════════════════════════════════════════════════════════
 // Estado
 // ═══════════════════════════════════════════════════════════════════
-let sensors = {rt:true, ms:false};   // qué vuelos declaró el usuario
+// Ya no lo declara el usuario — refreshUI() lo deriva de lo agregado
+// (subido o importado) de cada tipo, ver totalFor()/fileKind().
+let sensors = {rt:false, ms:false};
 let stored  = {rgb_thermal:null, multispectral:null};  // ya subido al server
 let odmPrev = {};                    // reconstrucciones ODM existentes
 
@@ -431,11 +805,12 @@ function goBack(){
 
 // ── Tema claro / oscuro ──────────────────────────────────────────────
 // Mismo mecanismo y misma clave que el geovisor, para que la preferencia
-// valga en las dos pantallas y no haya que elegirla dos veces.
+// valga en las dos pantallas y no haya que elegirla dos veces. Los dos
+// iconos (sol/luna) viven en el botón; el CSS decide cuál se ve según
+// data-theme — no hace falta tocar el DOM en applyTheme().
 const THEME_KEY='raptor-geovisor-theme';
 function applyTheme(t){
   document.documentElement.setAttribute('data-theme',t);
-  $('theme-ic').textContent = t==='light' ? '☀️' : '🌙';
   try{ localStorage.setItem(THEME_KEY,t); }catch(e){}
 }
 function toggleTheme(){
@@ -477,15 +852,46 @@ function renderChips(el, c, expect){
   if(c.dband)   p.push(`<span class="chip rgb"><i class="dot"></i>${c.dband} banda D</span>`);
   if(c.otros)   p.push(`<span class="chip other"><i class="dot"></i>${c.otros} otros</span>`);
   for(const e of (expect||[])){
-    if(!c[e.k]) p.push(`<span class="chip warn">⚠ sin ${e.n}</span>`);
+    if(!c[e.k]) p.push(`<span class="chip warn"><svg class="ci" aria-hidden="true"><use href="#i-warn"/></svg> sin ${e.n}</span>`);
   }
   el.innerHTML = p.join('');
 }
 
-// suma de lo ya subido al server + lo recién elegido en el input
-function totalFor(kind, inputId){
+// A qué balde (rt=RGB/térmico, ms=multiespectral) pertenece un archivo por
+// su patrón de nombre — mismo criterio que classify(), pero por archivo:
+// hace falta para repartir UN solo cuadro de subida entre los dos sensores
+// sin que el usuario tenga que declarar antes cuál es cuál.
+function fileKind(name){
+  const u = name.toUpperCase();
+  if(u.endsWith('_V.JPG') || u.endsWith('_W.JPG') || u.endsWith('_T.JPG')) return 'rt';
+  if((u.includes('_MS_') && u.endsWith('.TIF')) || u.endsWith('_D.JPG')) return 'ms';
+  return null; // sidecar/otros — no se sube (el servidor tampoco los usa)
+}
+
+// Acumulado entre varias subidas/drops — a diferencia de un <input>, cuyo
+// .files se REEMPLAZA en cada selección nueva, esto se SUMA: se puede
+// arrastrar primero la carpeta RGB/térmico y después la M3M por separado
+// (o varias carpetas del mismo tipo) y ninguna pisa a la anterior.
+let addedFiles = [];
+
+function addFilesToForm(files){
+  const seen = new Set(addedFiles.map(f=>f.name+'|'+f.size));
+  for(const f of files){
+    const key = f.name+'|'+f.size;
+    if(!seen.has(key)){ addedFiles.push(f); seen.add(key); }
+  }
+  refreshUI();
+}
+
+function filesForKind(kind){
+  const want = kind==='rgb_thermal' ? 'rt' : 'ms';
+  return addedFiles.filter(f=>fileKind(f.name)===want);
+}
+
+// suma de lo ya subido al server + lo recién agregado en este cuadro
+function totalFor(kind){
   const s = stored[kind] || {};
-  const l = classify($(inputId).files);
+  const l = classify(filesForKind(kind));
   const out = {};
   for(const k of ['rgb','thermal','ms','dband','otros','total'])
     out[k] = (s[k]||0) + (l[k]||0);
@@ -502,40 +908,79 @@ async function loadMissions(){
   box.innerHTML = '<div class="empty">Cargando…</div>';
   try{
     const d = await (await fetch('/api/missions')).json();
+    $('mcount').textContent = d.missions.length ? d.missions.length + ' misión(es)' : '';
     if(!d.missions.length){
-      box.innerHTML = `<div class="empty"><span class="ic">🛩️</span>
-        Todavía no procesaste ninguna misión.<br>Empieza con «+ Nueva misión».</div>`;
+      box.innerHTML = `<div class="empty"><svg class="ic" aria-hidden="true"><use href="#i-drone"/></svg>
+        Todavía no procesaste ninguna misión.<br>
+        <span class="go">Empieza con «Nueva misión»</span> y agregá la carpeta del vuelo y elegí qué productos generar.</div>`;
       return;
     }
     box.innerHTML = d.missions.map(m=>{
       const running = d.active === m.name;
-      const failed  = !running && d.last_run && d.last_run.name===m.name && !d.last_run.ok;
+      // m.ok sale de outputs/run_summary.json en disco (webapp/main.py::
+      // _run_ok_from_disk), no de d.last_run (memoria del proceso — se
+      // pierde en cada redeploy, así que una misión que falló justo antes
+      // de reconstruir la imagen volvía a mostrarse como si nunca hubiera
+      // corrido). m.ok===false es "corrió y falló"; undefined/null es
+      // "nunca corrió", que no es lo mismo.
+      const failed  = !running && m.ok === false;
       const tags = [ m.has_tiles?'tiles listos':(m.has_outputs?'productos generados':'sin productos'),
                      m.has_processing?'reconstrucción ODM guardada':null ].filter(Boolean).join(' · ');
       // El geovisor integrado es el mismo destino esté procesándose (con su
       // HUD de progreso en vivo) o ya terminada (solo el mapa) — no hace
       // falta una pantalla de progreso aparte acá, ver geovisor/app.js.
       let btn = '';
+      // "falló" primero, aunque ya tenga tiles: publish_partial() los va
+      // publicando A MEDIDA que corre, así que una corrida que se cayó
+      // sobre el final (p.ej. en post-procesamiento, después de que ODM ya
+      // escribió capas parciales) igual puede tener has_tiles=true — sin
+      // este chequeo el botón mandaba al geovisor (mapa estático, sin forma
+      // de reintentar) en vez de a la pantalla donde vive "Reusar lo ya
+      // reconstruido". Bug real, reportado en vivo.
       if(running)          btn = `<button class="btn sm primary" onclick="location.href='/view/${encodeURIComponent(m.name)}'">Ver en vivo</button>`;
+      else if(failed)      btn = `<button class="btn sm" onclick="openSetup('${m.name}')">Corregir y reintentar</button>`;
       else if(m.has_tiles) btn = `<button class="btn sm primary" onclick="location.href='/view/${encodeURIComponent(m.name)}'">Geovisor</button>`;
       else                 btn = `<button class="btn sm" onclick="openSetup('${m.name}')">Continuar</button>`;
       // Sin borrar mientras corre: activate_mission() la tiene symlinkeada a
       // processing/outputs/tiles — borrar el directorio debajo la dejaría
       // escribiendo a la nada.
       const delBtn = running ? '' :
-        `<button class="btn sm ghost" onclick="deleteMission('${m.name}')" title="Eliminar misión">🗑️</button>`;
+        `<button class="btn sm ghost" onclick="deleteMission('${m.name}')" title="Eliminar misión" aria-label="Eliminar misión ${m.name}"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg></button>`;
       return `<div class="mission">
         <div><div class="nm">${m.name}
-          ${running?'<span class="badge run">● procesando</span>':''}
+          ${running?'<span class="badge run">procesando</span>':''}
           ${failed ?'<span class="badge fail">falló</span>':''}</div>
-          <div class="tg">${tags}</div></div>
+          <div class="tg"><svg class="ic" aria-hidden="true"><use href="#i-map"/></svg>${tags}</div></div>
         <div class="row">${btn}${delBtn}</div></div>`;
     }).join('');
   }catch(e){ box.innerHTML = '<div class="empty">No se pudo cargar la lista.</div>'; }
 }
 
-async function deleteMission(name){
-  if(!confirm(`¿Eliminar la misión "${name}"? Esto borra las fotos subidas, la reconstrucción y todos los productos generados. No se puede deshacer.`))return;
+// ── Borrado con modal de confirmación (en vez del confirm() nativo) ────
+let pendingDelete = null;
+function deleteMission(name){
+  pendingDelete = name;
+  $('confirm-body').innerHTML = `¿Eliminar la misión «<b>${name}</b>»? Esto borra las fotos subidas, ` +
+    `la reconstrucción y todos los productos generados. No se puede deshacer.`;
+  $('confirm-overlay').classList.add('open');
+  // El foco va al botón destructivo: Enter elimina, Esc cancela (como el
+  // confirm() nativo que reemplaza este modal).
+  setTimeout(()=>$('confirm-ok').focus(), 30);
+}
+function closeConfirm(){
+  $('confirm-overlay').classList.remove('open');
+  pendingDelete = null;
+}
+// Esc cierra lo que esté abierto: el modal de borrado o el explorador de
+// carpetas — mismo comportamiento que daba el confirm() nativo de gratis.
+document.addEventListener('keydown', e=>{
+  if(e.key !== 'Escape') return;
+  if($('confirm-overlay').classList.contains('open')) closeConfirm();
+  else if($('picker-overlay').classList.contains('open')) closeFolderPicker();
+});
+async function confirmDelete(){
+  const name = pendingDelete;
+  if(!name) return;
   try{
     const r = await fetch(`/api/missions/${encodeURIComponent(name)}`, {method:'DELETE'});
     if(!r.ok){
@@ -543,9 +988,10 @@ async function deleteMission(name){
       try{ msg = (await r.json()).detail || msg; }catch(e){}
       throw new Error(msg);
     }
+    closeConfirm();
     loadMissions();
   }catch(e){
-    alert('Error al eliminar la misión: ' + e.message);
+    $('confirm-body').innerHTML = `<span style="color:var(--err)">No se pudo eliminar: ${e.message}</span>`;
   }
 }
 
@@ -556,12 +1002,12 @@ async function openSetup(name){
   show('v-setup');
   $('setup-err').classList.add('hidden');
   $('upbox').classList.add('hidden');
-  $('in-rt').value = ''; $('in-ms').value = '';
+  $('in-add').value = ''; addedFiles = []; $('in-dband').checked = false;
   stored = {rgb_thermal:null, multispectral:null}; odmPrev = {};
   // La carpeta de entrega vuelve a seguir al nombre de la misión hasta que el
   // usuario la escriba a mano (ver expDirTouched).
   expDirTouched = false;
-  expChecked = new Set(EXPORT_CATALOG.map(p=>p.k));
+  expChecked = new Set(EXPORT_CATALOG.filter(p=>!EXPORT_DEFAULT_OFF.has(p.k)).map(p=>p.k));
 
   if(name){
     $('setup-title').textContent = 'Misión: ' + name;
@@ -569,7 +1015,6 @@ async function openSetup(name){
   }else{
     $('setup-title').textContent = 'Nueva misión';
     $('mname').value = 'mision_' + new Date().toISOString().slice(0,10);
-    sensors = {rt:true, ms:false};
   }
   // También para una misión NUEVA: /status no depende de que la misión exista
   // (no crea nada) y es de donde sale si la exportación está disponible, que
@@ -601,9 +1046,12 @@ async function loadStatus(name){
     expEnabled = !!s.export_enabled;
     expHostRoot = s.export_host_root || '';
     if(!expDirTouched && s.default_export_dir) $('exp-dir').value = s.default_export_dir;
-    // Preseleccionar los sensores según lo que la misión YA tiene subido.
-    if(s.uploads.rgb_thermal.total) sensors.rt = true;
-    if(s.uploads.multispectral.total) sensors.ms = true;
+    impEnabled = !!s.import_enabled;
+    impHostRoot = s.import_host_root || '';
+    imported = s.imported || {rgb_thermal:[], multispectral:[]};
+    // sensors.rt/ms se recalculan solos en refreshUI() (totalFor() ya suma
+    // stored[kind]) — acá solo queda la preselección de "solo RGB" si esta
+    // misión ya tiene fotos pero ninguna térmica.
     if(s.uploads.rgb_thermal.total && !s.uploads.rgb_thermal.thermal)
       document.querySelector('input[name=prod][value=rgb]').checked = true;
   }catch(e){
@@ -611,45 +1059,79 @@ async function loadStatus(name){
     // disponible: se asume que no, en vez de dejar un valor viejo.
     stored={rgb_thermal:null,multispectral:null}; odmPrev={};
     expEnabled = false; expHostRoot = '';
+    impEnabled = false; impHostRoot = '';
+    imported = {rgb_thermal:[], multispectral:[]};
   }
 }
 
-function toggleSensor(k){ sensors[k] = !sensors[k]; refreshUI(); }
-
 function refreshUI(){
-  $('s-rt').classList.toggle('on', sensors.rt);
-  $('s-ms').classList.toggle('on', sensors.ms);
+  // Ya no se declara el sensor de antemano — se DERIVA de lo que trae lo
+  // agregado (subido o importado): apenas hay contenido reconocido de un
+  // tipo, ese bloque aparece solo. sensors.rt/ms se sigue leyendo en un
+  // montón de lugares (selectedMode(), EXPORT_CATALOG, uploadAndStart()...)
+  // así que se recalculan acá en vez de tocar cada uno de esos sitios.
+  const cRT = totalFor('rgb_thermal');
+  const cMS = totalFor('multispectral');
+  sensors.rt = cRT.total > 0;
+  sensors.ms = cMS.total > 0;
+
   $('blk-rt').classList.toggle('hidden', !sensors.rt);
   $('blk-ms').classList.toggle('hidden', !sensors.ms);
 
-  const cRT = totalFor('rgb_thermal','in-rt');
-  const cMS = totalFor('multispectral','in-ms');
-  renderChips($('ch-rt'), cRT, sensors.rt ? [{k:'rgb',n:'fotos RGB'}] : []);
-  renderChips($('ch-ms'), cMS, sensors.ms ? [{k:'ms',n:'bandas MS'}] : []);
+  renderChips($('ch-add'), {rgb:cRT.rgb, thermal:cRT.thermal, ms:cMS.ms, dband:cMS.dband,
+    otros:cRT.otros+cMS.otros, total:cRT.total+cMS.total}, []);
+
+  // Banda D: solo se ofrece si de verdad hay *_D.JPG entre lo subido/
+  // importado — sin eso no hay nada que procesar, y dejar el checkbox
+  // tildado de una misión anterior sin banda D en esta enviaría dband=true
+  // sin fotos detrás (docker/entrypoint.sh simplemente lo ignora, pero es
+  // confuso ofrecerlo sin datos).
+  const hayDband = cMS.dband > 0;
+  $('o-dband').classList.toggle('hidden', !hayDband);
+  if(!hayDband) $('in-dband').checked = false;
+  $('o-dband').classList.toggle('on', $('in-dband').checked);
+
+  // Elegir carpeta en el servidor (symlink) vs. subir por el navegador:
+  // la primera solo existe si se arrancó con ./raptor webapp --import DIR
+  // (mismo criterio que la exportación) — sin eso no hay ninguna ruta del
+  // host que el contenedor pueda leer, y subir por HTTP es la única forma
+  // que queda. Un solo cuadro, no uno por sensor: ya no hace falta declarar
+  // antes qué se va a agregar.
+  $('pick-add').classList.toggle('hidden', !impEnabled);
+  $('dz-add').classList.toggle('hidden', impEnabled);
+  if(impEnabled) renderImportedList('il-add');
 
   // "ya guardado en el servidor" — deja claro qué NO hace falta volver a subir
-  for(const [kind,id] of [['rgb_thermal','st-rt'],['multispectral','st-ms']]){
-    const s = stored[kind];
-    const el = $(id);
-    if(s && s.total){
-      el.classList.remove('hidden');
-      el.innerHTML = `<b>${s.total}</b> archivos ya guardados en el servidor · ` +
-        `<a href="#" onclick="clearUploads('${kind}');return false" style="color:var(--tx2)">vaciar</a>`;
-    }else el.classList.add('hidden');
-  }
+  const guardado = [['rgb_thermal','RGB/térmico'],['multispectral','multiespectral']]
+    .filter(([kind])=>stored[kind] && stored[kind].total);
+  if(guardado.length){
+    $('st-add').classList.remove('hidden');
+    $('st-add').innerHTML = guardado.map(([kind,label])=>
+      `<b>${stored[kind].total}</b> archivo(s) de ${label} ya guardados en el servidor · ` +
+      `<a href="#" onclick="clearUploads('${kind}');return false" style="color:var(--tx2)">vaciar</a>`
+    ).join('<br>');
+  }else $('st-add').classList.add('hidden');
 
-  // "Solo RGB" si no hay térmicas: se deshabilita la opción imposible en vez
-  // de dejar que el pipeline falle 40 min después.
+  // "Ambos"/"Solo térmico" si no hay térmicas, "Ambos"/"Solo RGB" si no hay
+  // RGB: se deshabilita la opción imposible en vez de dejar que el pipeline
+  // falle 40 min después.
   const both = $('o-rt-both'), noTher = cRT.total>0 && cRT.thermal===0;
   both.classList.toggle('dis', noTher);
   both.querySelector('input').disabled = noTher;
   if(noTher) document.querySelector('input[name=prod][value=rgb]').checked = true;
+  const thOpt = $('o-rt-thermal'), noRgb = cRT.total>0 && cRT.rgb===0;
+  thOpt.classList.toggle('dis', noRgb || noTher);
+  thOpt.querySelector('input').disabled = noRgb || noTher;
+  if(noRgb && !noTher) document.querySelector('input[name=prod][value=rgb+thermal]').checked = true;
   document.querySelectorAll('.opt input[name=prod]').forEach(i=>
+    i.closest('.opt').classList.toggle('on', i.checked));
+
+  document.querySelectorAll('.opt input[name=terreno]').forEach(i=>
     i.closest('.opt').classList.toggle('on', i.checked));
 
   // Reusar ODM previo (reemplaza el viejo checkbox SKIP_ODM)
   const prev = Object.entries(odmPrev||{}).filter(([,v])=>v).map(([k])=>
-    ({rgb:'RGB', thermal:'térmico', multispectral:'multiespectral'}[k]||k));
+    ({rgb:'RGB', thermal:'térmico', multispectral:'multiespectral', dband:'banda D'}[k]||k));
   $('blk-reuse').classList.toggle('hidden', !prev.length);
   if(prev.length) $('reuse-list').textContent = prev.join(', ');
   document.querySelectorAll('.opt input[name=reuse]').forEach(i=>
@@ -681,6 +1163,40 @@ function refreshUI(){
   // sensores están activos, así que se recalcula con cualquier cambio del
   // formulario, no solo cuando se mueve el slider.
   refreshQualityEstimate();
+  renderRail();
+}
+
+// ── Resumen lateral: lo que ya se eligió, de un vistazo ────────────────
+function renderRail(){
+  const name = $('mname').value.trim();
+  $('rail-name').textContent = name || 'Sin nombre todavía';
+
+  const cRT = totalFor('rgb_thermal'), cMS = totalFor('multispectral');
+  renderChips($('ch-rail'), {rgb:cRT.rgb, thermal:cRT.thermal, ms:cMS.ms, dband:cMS.dband,
+    otros:cRT.otros+cMS.otros, total:cRT.total+cMS.total}, []);
+
+  const items = [];
+  const mode = selectedMode();
+  if(mode==='rgb+thermal') items.push('Ortomosaico RGB + térmico');
+  else if(mode==='rgb')    items.push('Ortomosaico RGB');
+  else if(mode==='thermal')items.push('Ortomosaico térmico');
+  if(sensors.ms) items.push('Multiespectral (4 bandas)' + ($('in-dband').checked ? ' + banda D' : ''));
+  if(!items.length) items.push('Sin sensores detectados todavía');
+  $('rail-products').innerHTML = items.map(i=>
+    `<li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>${i}</li>`).join('');
+
+  const prev = Object.entries(odmPrev||{}).filter(([,v])=>v).length;
+  const reuseEl = document.querySelector('input[name=reuse]:checked');
+  const reuse = (!$('blk-reuse').classList.contains('hidden') && reuseEl && reuseEl.value==='1');
+  $('rail-reuse').innerHTML =
+    `<svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg><span>` +
+    (prev ? (reuse ? 'Reusar reconstrucción previa' : 'Reconstruir desde cero')
+          : 'Sin reconstrucción previa') + `</span>`;
+
+  const exp = exporting()
+    ? `${selectedExportProducts().length} producto(s) → ${$('exp-dir').value.trim() || 'sin carpeta'}`
+    : 'Sin exportar (solo queda en la misión)';
+  $('rail-export').innerHTML = `<svg class="ic" aria-hidden="true"><use href="#i-package"/></svg><span>${exp}</span>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -690,8 +1206,29 @@ function refreshUI(){
 // usa docker/entrypoint.sh, para que este mensaje no pueda desincronizarse
 // de lo que corre después.
 // ═══════════════════════════════════════════════════════════════════
-function onQualityInput(){
-  $('quality-pct').textContent = $('quality-slider').value + '%';
+// Preset elegido. Cambia al tocar una tarjeta; el default lo marca el
+// servidor (PRESET_DEFAULT en scripts/hardware.py), no una copia acá.
+let presetElegido = 'estandar';
+
+function pintarPresets(opciones){
+  const grid = $('preset-grid');
+  grid.innerHTML = '';
+  for(const o of opciones){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'preset-card' + (o.nombre === presetElegido ? ' sel' : '');
+    b.setAttribute('role','radio');
+    b.setAttribute('aria-checked', o.nombre === presetElegido ? 'true' : 'false');
+    b.innerHTML = `<span class="pc-titulo">${o.titulo}</span>`
+                + `<span class="pc-tiempo">${o.tiempo_texto}</span>`
+                + `<span class="pc-para">${o.para_que}</span>`
+                + `<span class="pc-res">hasta ${o.res_cm} cm/px</span>`;
+    b.addEventListener('click', ()=>{
+      presetElegido = o.nombre;
+      refreshQualityEstimate();
+    });
+    grid.appendChild(b);
+  }
 }
 
 let qualityTimer = null;
@@ -702,9 +1239,27 @@ function refreshQualityEstimate(){
     const note = $('quality-note'), noteT = $('quality-note-t');
     if(!name){ noteT.textContent = 'Elige un nombre de misión para estimar tiempo y resolución.'; return; }
     try{
-      const q = $('quality-slider').value;
-      const params = new URLSearchParams({quality:q, mode:selectedMode(), has_multispectral:sensors.ms});
+      const mode = selectedMode();
+      // n_photos sale de acá, no del servidor: el navegador ya sabe cuántas
+      // fotos hay apenas se elige la carpeta (totalFor() suma lo ya subido +
+      // lo recién elegido, sin tocar la red) — contar desde disco daba
+      // "0 fotos" mientras la subida seguía en curso, porque el archivo
+      // recién llega a raw/ cuando termina de subirse, no cuando se elige.
+      const rt = totalFor('rgb_thermal'), ms = totalFor('multispectral');
+      let n_photos = 0;
+      if(mode !== 'none'){
+        if(mode !== 'thermal') n_photos += rt.rgb;
+        if(mode === 'rgb+thermal' || mode === 'thermal') n_photos += rt.thermal;
+      }
+      if(sensors.ms) n_photos += ms.ms;
+      const params = new URLSearchParams({preset:presetElegido, mode,
+                                          terreno:selectedTerreno(),
+                                          has_multispectral:sensors.ms, n_photos});
       const m = await (await fetch(`/api/missions/${encodeURIComponent(name)}/quality-estimate?${params}`)).json();
+      // El servidor devuelve los CINCO presets con su tiempo para este
+      // vuelo: se repintan todos, no solo el elegido, así la comparación
+      // está a la vista en el momento de decidir.
+      if(m.opciones) pintarPresets(m.opciones);
       noteT.innerHTML = `${m.modelo_texto}<br><br>${m.resolucion_texto}<br><br>${m.tiempo_texto}`;
     }catch(e){
       noteT.textContent = 'No se pudo estimar (¿la misión ya tiene nombre?).';
@@ -712,16 +1267,54 @@ function refreshQualityEstimate(){
   }, 350);
 }
 
-['in-rt','in-ms'].forEach(id=>$(id).addEventListener('change', refreshUI));
+$('in-add').addEventListener('change', ()=>{
+  addFilesToForm(Array.from($('in-add').files));
+  $('in-add').value = ''; // permite volver a elegir la MISMA carpeta si hace falta sumar algo más
+});
 
-// Drag & drop sobre las dropzones
-for(const [dz,inp] of [['dz-rt','in-rt'],['dz-ms','in-ms']]){
-  const el = $(dz);
+// Recorre recursivamente lo arrastrado (carpetas incluidas). Un <input
+// webkitdirectory> ya da la lista plana de una carpeta entera con un solo
+// clic, pero un DROP de carpeta es distinto: dataTransfer.files viene VACÍO
+// para carpetas — solo DataTransferItemList.webkitGetAsEntry() + su
+// FileSystemDirectoryReader bajan a los archivos de adentro. Sin esto,
+// arrastrar una carpeta entera no traía nada (el motivo real de por qué el
+// drag & drop "no andaba": nunca estuvo roto para archivos sueltos, pero
+// una carpeta de la SD del dron es justo el caso de uso real acá).
+function _leerEntry(entry){
+  return new Promise(resolve=>{
+    if(entry.isFile){
+      entry.file(f=>resolve([f]), ()=>resolve([]));
+    }else if(entry.isDirectory){
+      const reader = entry.createReader();
+      const all = [];
+      const leerLote = ()=>reader.readEntries(async lote=>{
+        if(!lote.length){ resolve(all); return; }
+        for(const e of lote) all.push(...await _leerEntry(e));
+        leerLote(); // readEntries() no garantiza traer todo en una sola llamada
+      }, ()=>resolve(all));
+      leerLote();
+    }else resolve([]);
+  });
+}
+async function filesFromDataTransfer(dataTransfer){
+  const items = dataTransfer.items;
+  if(items && items.length && items[0].webkitGetAsEntry){
+    const entries = Array.from(items).map(it=>it.webkitGetAsEntry()).filter(Boolean);
+    const grupos = await Promise.all(entries.map(_leerEntry));
+    return grupos.flat();
+  }
+  return Array.from(dataTransfer.files || []); // navegador sin soporte de entries
+}
+
+// Drag & drop sobre el cuadro único de subida
+{
+  const el = $('dz-add');
   el.addEventListener('dragover', e=>{e.preventDefault(); el.classList.add('drag');});
   el.addEventListener('dragleave', ()=>el.classList.remove('drag'));
-  el.addEventListener('drop', e=>{
+  el.addEventListener('drop', async e=>{
     e.preventDefault(); el.classList.remove('drag');
-    if(e.dataTransfer.files.length){ $(inp).files = e.dataTransfer.files; refreshUI(); }
+    const files = await filesFromDataTransfer(e.dataTransfer);
+    if(files.length) addFilesToForm(files);
   });
 }
 
@@ -737,6 +1330,10 @@ function selectedMode(){
   return document.querySelector('input[name=prod]:checked').value;
 }
 
+function selectedTerreno(){
+  return document.querySelector('input[name=terreno]:checked').value;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // Entrega: qué productos, dónde, en qué formato y CRS
 // ═══════════════════════════════════════════════════════════════════
@@ -744,20 +1341,36 @@ function selectedMode(){
 // Los que no, se muestran deshabilitados en vez de ocultarse: así queda claro
 // qué habría que activar para obtenerlos, en vez de que desaparezcan sin
 // explicación. Las claves son las mismas de CATALOG en export_products.py.
+// confidence (máscara RGB ∩ térmico) NO está acá a propósito: es un producto
+// interno del pipeline (recorta hotspot/severidad), no algo que un usuario
+// final entregue — sigue existiendo en outputs/, solo se sacó de la lista
+// exportable.
+// esModoTermico(): 'rgb+thermal' y 'thermal' generan el ortomosaico térmico
+// por igual — la diferencia entre ambos es solo si se reconstruye o no el
+// RGB, no si hay térmico.
+const esModoTermico = ()=>selectedMode()==='rgb+thermal'||selectedMode()==='thermal';
 const EXPORT_CATALOG = [
-  {k:'rgb',           t:'Ortomosaico RGB',        d:'rgb_orthomosaic.tif',    avail:()=>sensors.rt},
-  {k:'thermal',       t:'Ortomosaico térmico',    d:'temperaturas en °C',     avail:()=>selectedMode()==='rgb+thermal'},
-  {k:'dsm',           t:'Modelo de superficie',   d:'dsm.tif',                avail:()=>true},
+  {k:'rgb',           t:'Ortomosaico RGB',        d:'rgb_orthomosaic.tif',    avail:()=>sensors.rt&&selectedMode()!=='thermal'},
+  {k:'thermal',       t:'Ortomosaico térmico',    d:'temperaturas en °C',     avail:esModoTermico},
+  // Modo solo térmico sin multiespectral: ningún proyecto de la misión pide
+  // --dsm (ver el comentario en docker/entrypoint.sh) — no hay modelo de
+  // superficie que ofrecer.
+  {k:'dsm',           t:'Modelo de superficie',   d:'dsm.tif',                avail:()=>!(selectedMode()==='thermal'&&!sensors.ms)},
   {k:'multispectral', t:'Ortomosaico multiespectral', d:'4 bandas + alpha',   avail:()=>sensors.ms},
   {k:'indices',       t:'Índices de vegetación',  d:'NDVI, GNDVI, NDRE, MSAVI2', avail:()=>sensors.ms},
-  {k:'classes',       t:'Severidad y hotspots',   d:'rásters de clases',      avail:()=>sensors.ms&&selectedMode()==='rgb+thermal'},
-  {k:'area',          t:'Área afectada',          d:'polígono vectorial',     avail:()=>sensors.ms&&selectedMode()==='rgb+thermal'},
-  {k:'confidence',    t:'Máscara de confianza',   d:'RGB ∩ térmico',          avail:()=>selectedMode()==='rgb+thermal'},
-  {k:'situation',     t:'Resumen de situación',   d:'situation.json',         avail:()=>sensors.ms&&selectedMode()==='rgb+thermal'},
+  {k:'classes',       t:'Severidad y hotspots',   d:'rásters de clases',      avail:()=>sensors.ms&&esModoTermico()},
+  {k:'area',          t:'Área afectada',          d:'polígono vectorial',     avail:()=>sensors.ms&&esModoTermico()},
+  {k:'situation',     t:'Resumen de situación',   d:'situation.json',         avail:()=>sensors.ms&&esModoTermico()},
   {k:'flight_path',   t:'Ruta de vuelo',          d:'recorrido + capturas',   avail:()=>true},
   {k:'pointclouds',   t:'Nubes de puntos',        d:'COPC (.copc.laz)',       avail:()=>true},
 ];
-let expChecked = new Set(EXPORT_CATALOG.map(p=>p.k));   // todo marcado por defecto
+// Marcados por defecto solo los productos de decisión directa (ortomosaicos,
+// índices, severidad, área afectada) — dsm/flight_path/pointclouds/situation
+// siguen ofrecidos (el usuario los tilda si los quiere) pero no vienen
+// tildados de entrada: son insumos técnicos, no lo primero que alguien busca
+// en una entrega.
+const EXPORT_DEFAULT_OFF = new Set(['dsm', 'flight_path', 'pointclouds', 'situation']);
+let expChecked = new Set(EXPORT_CATALOG.filter(p=>!EXPORT_DEFAULT_OFF.has(p.k)).map(p=>p.k));
 
 function exporting(){
   if(!expEnabled) return false;
@@ -834,6 +1447,7 @@ function checkExport(){
         note.classList.add('err');
         noteT.innerHTML = d.errors.join(' ');
       }
+      renderRail();
     }catch(e){ note.classList.add('hidden'); }
   }, 450);
 }
@@ -842,6 +1456,149 @@ let expEnabled = false;     // ¿se arrancó con una carpeta del host montada?
 let expHostRoot = '';       // qué carpeta del host es esa
 $('exp-dir').addEventListener('input', ()=>{ expDirTouched = true; checkExport(); });
 $('exp-epsg-custom').addEventListener('input', checkExport);
+
+// ── Importar carpetas ya presentes en el disco del servidor (mismo equipo:
+// sin esto habría que subirlas por el navegador para volver a escribirlas
+// en el mismo disco) — ver IMPORT_MOUNT/IMPORT_HOST_DIR en webapp/main.py.
+// Elegir la carpeta es SIEMPRE por el explorador (picker-overlay más abajo):
+// ningún navegador expone la ruta real de una carpeta a JS, así que
+// "escribirla a mano" era la única alternativa posible antes de esto — y
+// confundía con la subida por HTTP, que es una cosa completamente distinta
+// (copia real) que ya no se ofrece cuando --import está disponible. ──
+let impEnabled = false, impHostRoot = '';
+let imported = {rgb_thermal:[], multispectral:[]};   // carpetas ya agregadas, por kind
+
+// Une las carpetas ya importadas de los DOS baldes en una sola lista — el
+// usuario agrega carpetas sin declarar antes cuál es cuál, así que tampoco
+// tiene sentido mostrárselas separadas por sensor acá.
+function renderImportedList(elId){
+  const el = $(elId);
+  const KIND_LABEL = {rgb_thermal:'RGB/térmico', multispectral:'multiespectral'};
+  const list = [
+    ...(imported.rgb_thermal||[]).map(f=>({...f, kind:'rgb_thermal'})),
+    ...(imported.multispectral||[]).map(f=>({...f, kind:'multispectral'})),
+  ];
+  if(!list.length){ el.innerHTML = ''; return; }
+  el.innerHTML = list.map(f => `<div class="imported-item">
+    <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><span class="p" title="${f.host_path}">${f.host_path}</span>
+    <span class="tag">${KIND_LABEL[f.kind]}</span>
+    <span class="rm" onclick="removeImported('${f.kind}','${f.name.replace(/'/g,"\\'")}')" title="Sacar esta carpeta">
+      <svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></span>
+  </div>`).join('');
+}
+
+async function removeImported(kind, name){
+  const mission = $('mname').value.trim(); if(!mission) return;
+  const fd = new FormData(); fd.append('kind', kind); fd.append('name', name);
+  await fetch(`/api/missions/${encodeURIComponent(mission)}/import-remove`, {method:'POST', body:fd});
+  await loadStatus(mission); refreshUI();
+}
+
+// Dónde está parado el explorador — se resetea cada vez que se abre. Ya no
+// hay un "pickerKind" fijo de antemano: cada carpeta que se lista trae su
+// propio hint (rgb/thermal/ms/dband) y de ahí sale a qué balde va cuando se
+// aprieta "+ Usar esta" (ver kindFromHint()).
+let pickerPath = '';
+
+function openFolderPicker(){
+  const mission = $('mname').value.trim();
+  if(!mission){ flashNameMsg('Poné un nombre para la misión primero.'); return; }
+  pickerPath = '';
+  $('picker-overlay').classList.add('open');
+  browseTo('');
+}
+
+function flashNameMsg(msg){
+  const el = $('mname-msg');
+  el.textContent = msg;
+  el.classList.add('show');
+  $('mname').focus();
+  clearTimeout(flashNameMsg._t);
+  flashNameMsg._t = setTimeout(()=>el.classList.remove('show'), 3200);
+}
+
+function closeFolderPicker(){
+  $('picker-overlay').classList.remove('open');
+}
+
+// A qué balde va una carpeta según lo que el hint del servidor encontró
+// adentro — mismo criterio que fileKind() pero a nivel carpeta, no archivo.
+// null = no se reconoció nada (ni RGB/térmico ni MS): no se puede agregar
+// sin saber dónde ponerla.
+function kindFromHint(h){
+  if(h.ms > 0 || h.dband > 0) return 'multispectral';
+  if(h.rgb > 0 || h.thermal > 0) return 'rgb_thermal';
+  return null;
+}
+
+async function browseTo(path){
+  const list = $('picker-list');
+  list.innerHTML = '<div class="picker-empty">Cargando…</div>';
+  try{
+    const r = await fetch(`/api/import/browse?path=${encodeURIComponent(path)}`);
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || 'no se pudo leer esa carpeta');
+    pickerPath = d.host_path;
+    renderPicker(d);
+  }catch(e){
+    list.innerHTML = `<div class="picker-empty">${e.message}</div>`;
+  }
+}
+
+function renderPicker(d){
+  // Migas de pan: solo raíz → acá (no hace falta la cadena completa para
+  // orientarse, y evita rearmar el árbol entero del lado del cliente).
+  const crumbs = [];
+  if(d.parent !== null) crumbs.push(`<a onclick="browseTo('${d.parent.replace(/'/g,"\\'")}')"><svg class="ic" style="width:.85em;height:.85em" aria-hidden="true"><use href="#i-chev-up"/></svg> Subir</a>`);
+  crumbs.push(`<span>${d.host_path}</span>`);
+  $('picker-crumbs').innerHTML = crumbs.join('<span style="color:var(--tx3)"> · </span>');
+
+  const list = $('picker-list');
+  if(!d.entries.length){
+    list.innerHTML = '<div class="picker-empty">No hay subcarpetas acá.</div>';
+    return;
+  }
+  const yaAgregadas = new Set([
+    ...(imported.rgb_thermal||[]).map(f=>f.host_path),
+    ...(imported.multispectral||[]).map(f=>f.host_path),
+  ]);
+  list.innerHTML = d.entries.map(e=>{
+    const h = e.hint;
+    const hintTxt = h.total ? `${h.rgb?h.rgb+' RGB ':''}${h.thermal?h.thermal+' térm. ':''}${h.ms?h.ms+' MS ':''}${h.dband?h.dband+' banda D ':''}${!h.rgb&&!h.thermal&&!h.ms&&!h.dband?h.total+' archivos':''}`.trim()
+                             : 'vacía';
+    const added = yaAgregadas.has(e.host_path);
+    const kind = kindFromHint(h);
+    const hp = e.host_path.replace(/'/g,"\\'");
+    // Sin RGB/térmico ni MS reconocibles no hay a qué balde mandarla —
+    // se deja entrar igual (puede ser una carpeta intermedia con
+    // subcarpetas adentro) pero no se puede "usar" directamente.
+    const btn = added ? `<button class="btn sm add" disabled>✓ agregada</button>`
+      : kind ? `<button class="btn sm add" onclick="addFolder('${hp}','${kind}')">+ Usar esta</button>`
+      : `<button class="btn sm add" disabled title="No se reconoce contenido de vuelo acá">+ Usar esta</button>`;
+    return `<div class="picker-row ${added?'added':''}">
+      <svg class="ic" onclick="browseTo('${hp}')" aria-hidden="true"><use href="#i-folder"/></svg>
+      <span class="nm" onclick="browseTo('${hp}')" title="Entrar a ${e.name}">${e.name}</span>
+      <span class="hint">${hintTxt}</span>
+      ${btn}
+    </div>`;
+  }).join('');
+}
+
+async function addFolder(hostPath, kind){
+  const mission = $('mname').value.trim();
+  const fd = new FormData();
+  fd.append('kind', kind); fd.append('host_path', hostPath);
+  try{
+    const r = await fetch(`/api/missions/${encodeURIComponent(mission)}/import-local`, {method:'POST', body:fd});
+    const j = await r.json();
+    if(!r.ok) throw new Error(j.detail || 'no se pudo agregar esa carpeta');
+    await loadStatus(mission); refreshUI();
+    await browseTo(pickerPath);   // re-renderiza esta misma carpeta con el estado "✓ agregada" al día
+  }catch(e){
+    // Error INLINE dentro del explorador (reemplaza el alert() nativo)
+    $('picker-list').innerHTML = `<div class="picker-empty" style="color:var(--err)">No se pudo agregar esa carpeta: ${e.message}</div>`;
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // Subida + arranque
@@ -865,7 +1622,7 @@ async function uploadFiles(mission, kind, fileList, cb){
 function setUpload(label, done, total){
   $('upbox').classList.remove('hidden');
   const pct = total ? Math.round(done/total*100) : 0;
-  $('uplabel').textContent = `${label} — ${done}/${total} archivos`;
+  $('uplabel').textContent = `${label} · ${done}/${total} archivos`;
   $('uppct').textContent = pct + '%';
   $('upbar').style.width = pct + '%';
 }
@@ -883,19 +1640,19 @@ async function uploadAndStart(){
   const hasMS = sensors.ms;
   if(!mission) return setupError('Pon un nombre para la misión.');
 
-  const fRT = sensors.rt ? $('in-rt').files : [];
-  const fMS = sensors.ms ? $('in-ms').files : [];
-  const cRT = totalFor('rgb_thermal','in-rt'), cMS = totalFor('multispectral','in-ms');
+  const fRT = filesForKind('rgb_thermal');
+  const fMS = filesForKind('multispectral');
+  const cRT = totalFor('rgb_thermal'), cMS = totalFor('multispectral');
   // Chequeos locales (instantáneos, antes de subir un solo byte)
   if(sensors.rt && !cRT.rgb)
-    return setupError('El vuelo M3T/H20T no tiene fotos RGB (<code>*_V.JPG</code> / <code>*_W.JPG</code>). '
-      + 'Elige la carpeta correcta, o desmarca ese sensor si solo vas a procesar el multiespectral.');
-  if(mode === 'rgb+thermal' && !cRT.thermal)
-    return setupError('Elegiste RGB + térmico pero no hay fotos térmicas (<code>*_T.JPG</code>). '
+    return setupError('La carpeta agregada del vuelo M3T/H20T no tiene fotos RGB (<code>*_V.JPG</code> / <code>*_W.JPG</code>). '
+      + 'Revisá que sea la carpeta correcta.');
+  if((mode === 'rgb+thermal' || mode === 'thermal') && !cRT.thermal)
+    return setupError('Elegiste un producto con térmico pero no hay fotos térmicas (<code>*_T.JPG</code>). '
       + 'Agrega la carpeta con las térmicas, o cambia el producto a «Solo ortomosaico RGB».');
   if(sensors.ms && !cMS.ms)
-    return setupError('El vuelo M3M no tiene bandas multiespectrales (<code>*_MS_*.TIF</code>). '
-      + 'Elige la carpeta correcta, o desmarca ese sensor.');
+    return setupError('La carpeta agregada del vuelo M3M no tiene bandas multiespectrales (<code>*_MS_*.TIF</code>). '
+      + 'Revisá que sea la carpeta correcta.');
   if(exporting()){
     if(!$('exp-dir').value.trim())
       return setupError('Elegiste exportar pero no indicaste la carpeta de destino. '
@@ -919,8 +1676,10 @@ async function uploadAndStart(){
     const fd = new FormData();
     fd.append('mode', mode);
     fd.append('has_multispectral', hasMS ? 'true':'false');
+    fd.append('dband', (hasMS && !$('o-dband').classList.contains('hidden') && $('in-dband').checked) ? 'true':'false');
     fd.append('reuse_odm', reuse === '1' ? 'true':'false');
-    fd.append('quality', $('quality-slider').value);
+    fd.append('preset', presetElegido);
+    fd.append('terreno', selectedTerreno());
     if(exporting()){
       fd.append('export_dir', $('exp-dir').value.trim());
       fd.append('export_products', selectedExportProducts().join(','));
@@ -958,12 +1717,14 @@ async function uploadAndStart(){
   if(!mision) { showLanding(); return; }
   openSetup(mision).then(()=>{
     if(p.get('addms') === '1'){
-      sensors.ms = true;
-      refreshUI();
-      document.getElementById('dz-ms')?.scrollIntoView({behavior:'smooth', block:'center'});
+      // blk-ms ahora aparece solo cuando YA hay contenido MS detectado —
+      // acá todavía no lo hay (es justo lo que se está por agregar), así
+      // que apunta al cuadro único de subida en vez de a un bloque vacío.
+      document.getElementById('dz-add')?.scrollIntoView({behavior:'smooth', block:'center'});
     }
   });
 })();
+
 </script>
 </body>
 </html>

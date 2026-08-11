@@ -81,7 +81,13 @@ class TestEntrypointNoLoLlamaConMultiespectral:
     def test_solo_se_invoca_cuando_DO_MS_es_0(self):
         src = open(os.path.join(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))), "docker", "entrypoint.sh"), encoding="utf-8").read()
-        ini = src.index('if [[ "$DO_THERMAL" -eq 1 ]]; then')
-        bloque = src[ini:src.index("fi\n", ini) + 3]
+        # Se ancla al comentario de "Calidad del LEVANTAMIENTO", único en el
+        # archivo — es el bloque real de flight-quality/hotspot/situation-
+        # summary (hoy corre en un subshell de fondo, parte del análisis
+        # cruzado en paralelo). El `fi` de cierre buscado es el que arranca
+        # en columna 0 (el `if $DO_MS -eq 0` interno cierra con 4 espacios
+        # de indentación, no en columna 0).
+        ini = src.index('if [[ "$DO_THERMAL" -eq 1 ]]; then\n  # Calidad del LEVANTAMIENTO')
+        bloque = src[ini:src.index("\nfi\n", ini) + 4]
         assert "compute-thermal-hotspot" in bloque
         assert 'if [[ "$DO_MS" -eq 0 ]]; then' in bloque

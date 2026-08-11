@@ -7,10 +7,29 @@ radiométricos en formato float32 crudo, y los envuelve en GeoTIFF.
 """
 
 import os, sys, subprocess, glob, tempfile, time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np
 from osgeo import gdal
 
 gdal.UseExceptions()
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from hardware import safe_concurrency  # noqa: E402
+
+# Cada imagen es una llamada a dji_irp + exiftool sobre su propio archivo
+# temporal (tempfile.NamedTemporaryFile ya genera un nombre único por
+# llamada) y escribe a su propio .tif — no hay estado compartido entre
+# conversiones, así que paralelizar es directo. dji_irp es liviano por
+# imagen (0.33 MP el sensor térmico) comparado con el band alignment de ODM,
+# así que safe_concurrency(0.33) en la práctica no acota mucho más que los
+# núcleos reales — pero usa la MISMA cuenta memory-aware que el resto del
+# pipeline (no cpu_count() a secas) para que MAX_CONCURRENCY sea una sola
+# perilla consistente en todos lados, y para que docker/entrypoint.sh pueda
+# repartir un presupuesto compartido cuando esto corre EN PARALELO con
+# prepare-multispectral (ver la preparación en paralelo más abajo) sin que
+# cada stream pida lo suyo sin saber del otro.
+_override = os.environ.get("MAX_CONCURRENCY")
+NPROCS = safe_concurrency(0.33, override=int(_override) if _override else None)
 
 # ── Configuración ──────────────────────────────────────────────────
 _BASE = os.path.dirname(os.path.abspath(__file__))
@@ -59,13 +78,24 @@ def convert_one(src_jpg: str, dst_tif: str) -> bool:
         # lo que comprime el rango dinámico (subestima extremos calientes/fríos).
         # 25m sigue siendo la cota dura del sensor, pero es lo mismo que se usó
         # para la entrega a Agisoft → comparación justa.
-        result = subprocess.run(
-            [DJI_IRP, "-s", src_jpg, "-a", "measure",
-             "-o", raw_path, "--measurefmt", "float32", "--distance", "25"],
-            env=env,
-            capture_output=True, text=True,
-            timeout=30
-        )
+        try:
+            result = subprocess.run(
+                [DJI_IRP, "-s", src_jpg, "-a", "measure",
+                 "-o", raw_path, "--measurefmt", "float32", "--distance", "25"],
+                env=env,
+                capture_output=True, text=True,
+                timeout=30
+            )
+        except subprocess.TimeoutExpired:
+            # Bug real, reportado en vivo: sin este catch, un solo dji_irp
+            # colgado (SDK externo, no algo que este script controle)
+            # tumbaba TODA la conversión — la excepción se escapaba sin
+            # atajar hasta fut.result() en main(), que la relanza y aborta
+            # el ThreadPoolExecutor entero en vez de contar esta imagen como
+            # UNA falla más (que es lo que ya hace el resto de esta función
+            # para cualquier otro tipo de error de dji_irp).
+            print(f"  ❌ dji_irp no respondió en 30s para {os.path.basename(src_jpg)} — se salta esta imagen")
+            return False
         if result.returncode != 0:
             print(f"  ❌ dji_irp error: {result.stderr[:200]}")
             return False
@@ -147,34 +177,41 @@ def main():
 
     jw, jh = _jpeg_size(jpgs[0])
     print(f"Convirtiendo {len(jpgs)} R-JPEG → GeoTIFF Float32 "
-          f"(sensor térmico {jw}x{jh}, inferido de las fotos)...")
+          f"(sensor térmico {jw}x{jh}, inferido de las fotos) "
+          f"con {NPROCS} en paralelo...")
     t0 = time.time()
     ok = 0
     skip = 0
     fail = 0
+    done = 0
 
-    for i, jpg in enumerate(jpgs):
+    # Los ya convertidos (skip) se filtran ANTES de mandar nada al pool: no
+    # tiene sentido ocupar un hilo en abrir con GDAL un .tif que ni se va a
+    # tocar.
+    pendientes = []
+    for jpg in jpgs:
         stem = os.path.basename(jpg).replace(".JPG", "")
         dst = os.path.join(dst_dir, f"{stem}.tif")
-
-        # Skip if already valid
         if os.path.exists(dst):
             ds = gdal.Open(dst)
             if ds is not None:
                 skip += 1
                 ds = None
                 continue
-            # Corrupt file — regenerate
-            os.remove(dst)
+            os.remove(dst)  # corrupto: se regenera
+        pendientes.append((jpg, dst))
 
-        if convert_one(jpg, dst):
-            ok += 1
-        else:
-            fail += 1
-
-        if (i + 1) % 100 == 0:
-            elapsed = time.time() - t0
-            print(f"  {i+1}/{len(jpgs)} ({ok} ok, {skip} skip, {fail} fail) — {elapsed:.0f}s")
+    with ThreadPoolExecutor(max_workers=NPROCS) as pool:
+        futuros = {pool.submit(convert_one, jpg, dst): jpg for jpg, dst in pendientes}
+        for fut in as_completed(futuros):
+            done += 1
+            if fut.result():
+                ok += 1
+            else:
+                fail += 1
+            if done % 100 == 0:
+                elapsed = time.time() - t0
+                print(f"  {done}/{len(pendientes)} ({ok} ok, {fail} fail) — {elapsed:.0f}s")
 
     elapsed = time.time() - t0
     print(f"\n✅ {ok} convertidos, {skip} existentes, {fail} fallidos")

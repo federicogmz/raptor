@@ -57,7 +57,7 @@ CATALOG = {
     "flight_path":   ("Ruta de vuelo", "vector", [f"{OUTPUTS}/flight_path.geojson"]),
     "situation":     ("Resumen de situación (JSON)", "copia", [f"{OUTPUTS}/situation.json"]),
     "pointclouds":   ("Nubes de puntos", "nube",
-                      [f"{OUTPUTS}/point_cloud_{n}.copc.laz" for n in ("rgb", "thermal", "multispectral")]),
+                      [f"{OUTPUTS}/point_cloud_{n}.copc.laz" for n in ("rgb", "thermal", "multispectral", "dband")]),
 }
 
 RASTER_FORMATS = {
