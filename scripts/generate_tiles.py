@@ -21,6 +21,11 @@ def _first(*paths):
 
 RGB_IN      = _first("outputs/rgb_orthomosaic.tif",
                      "processing/rgb_odm/odm_orthophoto/odm_orthophoto.tif")
+# Banda D del M3M (mosaico visible rápido, opt-in — ver DBAND en
+# docker/entrypoint.sh): mismo tratamiento que RGB_IN, ruta y proyecto ODM
+# propios para no pisarse con el RGB real del M3T/H20T si ambos existen.
+DBAND_IN    = _first("outputs/dband_orthomosaic.tif",
+                     "processing/dband_odm/odm_orthophoto/odm_orthophoto.tif")
 DSM_IN      = _first("outputs/dsm.tif",
                      "processing/rgb_odm/odm_dem/dsm.tif",
                      "processing/multispectral_odm/odm_dem/dsm.tif")
@@ -61,23 +66,52 @@ else:
 MS_BAND_LAYER_IDS = {"Red": "ms_red", "Green": "ms_green", "NIR": "ms_nir", "RedEdge": "ms_rededge"}
 
 
+# Techo de píxeles a leer para calcular un percentil de color. Los rangos de
+# leyenda salen de percentiles (1-99 / 0.5-99.9), y un percentil sobre una
+# submuestra uniforme de 4 Mpx no se distingue del mismo percentil sobre los
+# 103 Mpx del ortomosaico multiespectral — pero leerlo entero son ~414 MB por
+# banda, y hay 4 bandas más 4 índices, en un script que el entrypoint invoca
+# ~6 veces por corrida (publish_partial). GDAL decima al vuelo con
+# buf_xsize/buf_ysize, así que ni siquiera se materializa el array completo.
+MAX_PX_MUESTRA = 4_000_000
+
+
+def _tamano_muestra(ds):
+    """(buf_xsize, buf_ysize) para leer como mucho MAX_PX_MUESTRA píxeles,
+    conservando la relación de aspecto. Devuelve el tamaño nativo si ya
+    entra."""
+    w, h = ds.RasterXSize, ds.RasterYSize
+    total = w * h
+    if total <= MAX_PX_MUESTRA:
+        return w, h
+    f = (MAX_PX_MUESTRA / total) ** 0.5
+    return max(1, int(w * f)), max(1, int(h * f))
+
+
+def _muestra_valida(path, band_idx, alpha_idx=None):
+    """Valores válidos de una banda, submuestreados. `alpha_idx` (si el ráster
+    lo tiene) es la única señal confiable de "fuera de cobertura": ODM rellena
+    el área sin datos con un valor arbitrario en la banda de dato (no
+    necesariamente NaN — se vio literalmente 2**32 en una corrida real), pero
+    SÍ marca alpha=0 ahí. isfinite() sola no alcanza para excluirlo."""
+    ds = gdal.Open(path)
+    bx, by = _tamano_muestra(ds)
+    a = ds.GetRasterBand(band_idx).ReadAsArray(buf_xsize=bx, buf_ysize=by)
+    mask = np.isfinite(a)
+    if alpha_idx is not None and ds.RasterCount >= alpha_idx:
+        alpha = ds.GetRasterBand(alpha_idx).ReadAsArray(buf_xsize=bx, buf_ysize=by)
+        mask &= alpha > 0
+    ds = None
+    return a[mask]
+
+
 def _index_clip_range(path):
     """Rango de color para un índice de vegetación (NDVI/GNDVI/NDRE): la
     fórmula (a-b)/(a+b) está matemáticamente acotada a [-1,1], pero
     reflectancias ruidosas (a+b≈0) pueden producir artefactos fuera de ese
     rango — se usa percentil 1-99 del dato real (mismo criterio que el
     térmico, ver _thermal_clip_range) recortado siempre a [-1,1]."""
-    ds = gdal.Open(path)
-    a = ds.GetRasterBand(1).ReadAsArray()
-    mask = np.isfinite(a)
-    if ds.RasterCount >= 2:
-        # Banda 2 = alpha: ODM rellena el área fuera de cobertura con un
-        # valor arbitrario en la banda de dato (no necesariamente NaN — se
-        # vio literalmente 2**32 en una corrida real), pero SÍ marca alpha=0
-        # ahí de forma confiable. isfinite() sola no alcanza para excluirlo.
-        mask &= ds.GetRasterBand(2).ReadAsArray() > 0
-    ds = None
-    valid = a[mask]
+    valid = _muestra_valida(path, 1, alpha_idx=2)
     if valid.size == 0:
         return (-1.0, 1.0)
     lo, hi = np.percentile(valid, [1, 99])
@@ -94,13 +128,9 @@ def _band_clip_range(path, band_idx):
     criterio percentil que _index_clip_range, sin el clamp específico de
     índice."""
     ds = gdal.Open(path)
-    a = ds.GetRasterBand(band_idx).ReadAsArray()
-    mask = np.isfinite(a)
-    if ds.RasterCount >= 2:
-        alpha_band = ds.RasterCount
-        mask &= ds.GetRasterBand(alpha_band).ReadAsArray() > 0
+    n = ds.RasterCount
     ds = None
-    valid = a[mask]
+    valid = _muestra_valida(path, band_idx, alpha_idx=n if n >= 2 else None)
     if valid.size == 0:
         return (0.0, 1.0)
     lo, hi = np.percentile(valid, [1, 99])
@@ -127,16 +157,7 @@ def _thermal_clip_range():
     repartida entre 33°C y 45°C, todo ese rango colapsaría a un único tono."""
     if not os.path.exists(THERMAL_IN):
         return (15.0, 55.0)
-    ds = gdal.Open(THERMAL_IN)
-    a = ds.GetRasterBand(1).ReadAsArray()
-    mask = np.isfinite(a)
-    if ds.RasterCount >= 2:
-        # Ver misma nota en _index_clip_range: el relleno fuera de cobertura
-        # de ODM no siempre es NaN (visto: 2**32 exacto), alpha=0 es la
-        # única señal de validez confiable.
-        mask &= ds.GetRasterBand(2).ReadAsArray() > 0
-    ds = None
-    valid = a[mask]
+    valid = _muestra_valida(THERMAL_IN, 1, alpha_idx=2)
     if valid.size == 0:
         return (15.0, 55.0)
     lo, hi = np.percentile(valid, [0.5, 99.9])
@@ -146,10 +167,53 @@ def _thermal_clip_range():
     return (float(lo), float(hi))
 
 
-THERMAL_CLIP = _thermal_clip_range()
-print(f"Rango de color térmico (percentil 1-99 del dato real): {THERMAL_CLIP[0]:.1f}-{THERMAL_CLIP[1]:.1f}°C")
-
 os.makedirs(TILES_DIR, exist_ok=True)
+
+# ── Caché de rangos de color ────────────────────────────────────────────
+# bounds.json necesita el rango de CADA capa aunque esta pasada no la haya
+# re-teselado, y el entrypoint invoca este script ~6 veces por corrida
+# (publish_partial). Sin caché, cada pasada recalculaba todos los percentiles
+# —incluidos los de las capas que después reportaba como "ya al día,
+# omitiendo"— releyendo el ortomosaico multiespectral entero, banda por
+# banda. Se cachea contra el mtime del ráster fuente, el mismo criterio que
+# ya usa up_to_date() para los tiles.
+RANGES_CACHE = os.path.join(TILES_DIR, ".ranges.json")
+
+
+def _cargar_cache():
+    try:
+        with open(RANGES_CACHE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+_RANGOS = _cargar_cache()
+
+
+def rango_cacheado(clave, src_ref, calcular):
+    """(lo, hi) para `clave`, recalculado solo si `src_ref` cambió."""
+    try:
+        mtime = os.path.getmtime(src_ref)
+    except OSError:
+        return calcular()
+    guardado = _RANGOS.get(clave)
+    if (guardado and abs(guardado.get("mtime", -1) - mtime) < 1e-6
+            and os.environ.get("FORCE_TILES") != "1"):
+        return tuple(guardado["rango"])
+    lo, hi = calcular()
+    _RANGOS[clave] = {"mtime": mtime, "rango": [lo, hi]}
+    try:
+        with open(RANGES_CACHE, "w") as f:
+            json.dump(_RANGOS, f)
+    except OSError:
+        pass
+    return (lo, hi)
+
+
+THERMAL_CLIP = rango_cacheado("thermal", THERMAL_IN, _thermal_clip_range)
+print(f"Rango de color térmico (percentil 0.5-99.9 del dato real): "
+      f"{THERMAL_CLIP[0]:.1f}-{THERMAL_CLIP[1]:.1f}°C")
 
 if shutil.which("gdal2tiles.py") is None:
     print("❌ gdal2tiles.py no encontrado en el PATH.")
@@ -177,29 +241,61 @@ def to_8bit(src, dst, bands=3, clip_range=None):
             out.GetRasterBand(4).SetColorInterpretation(gdal.GCI_AlphaBand)
         out = None
     else:
-        a = ds.GetRasterBand(1).ReadAsArray()
-        # Máscara de validez real: alpha=0 (si existe banda 2) es la única
-        # señal confiable de "fuera de cobertura" — el relleno de ODM en la
-        # banda de dato no siempre es NaN (visto: 2**32 exacto en una
-        # corrida real), así que isfinite() sola deja pasar basura.
-        invalid = ~np.isfinite(a)
-        if ds.RasterCount >= 2:
-            invalid |= (ds.GetRasterBand(2).ReadAsArray() <= 0)
+        ds = None
+        _banda_a_8bit(src, dst, 1, clip_range)
+        return
+    ds = None
+    print(f"  8-bit: {dst} ({os.path.getsize(dst)/(1024*1024):.0f} MB)")
+
+
+# Filas por bloque al convertir a 8 bits. El ortomosaico multiespectral de una
+# misión real es 11128×9294 float32: leer una banda entera son ~414 MB, y con
+# la máscara de alpha y el resultado en vuelo el pico se iba a más de 1 GB por
+# capa. Por franjas el pico es proporcional a esto y no al alto del ráster.
+FILAS_POR_BLOQUE = 2048
+
+
+def _banda_a_8bit(src, dst, band_idx, clip_range):
+    """Escribe la banda `band_idx` de `src` como GeoTIFF Byte, por franjas.
+
+    Máscara de validez real: alpha=0 (si el ráster tiene banda alpha) es la
+    única señal confiable de "fuera de cobertura" — el relleno de ODM en la
+    banda de dato no siempre es NaN (visto: 2**32 exacto en una corrida
+    real), así que isfinite() sola deja pasar basura.
+    """
+    ds = gdal.Open(src)
+    w, h = ds.RasterXSize, ds.RasterYSize
+    banda = ds.GetRasterBand(band_idx)
+    # La alpha es la ÚLTIMA banda: en el ortomosaico MS de 5 bandas la 2 es
+    # Green, no la transparencia.
+    alpha = ds.GetRasterBand(ds.RasterCount) if ds.RasterCount >= 2 else None
+
+    drv = gdal.GetDriverByName("GTiff")
+    out = drv.Create(dst, w, h, 1, gdal.GDT_Byte,
+                     ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_SAFER"])
+    out.SetGeoTransform(ds.GetGeoTransform())
+    out.SetProjection(ds.GetProjection())
+    out_banda = out.GetRasterBand(1)
+
+    for y0 in range(0, h, FILAS_POR_BLOQUE):
+        alto = min(FILAS_POR_BLOQUE, h - y0)
+        a = banda.ReadAsArray(0, y0, w, alto)
+        invalido = ~np.isfinite(a)
+        if alpha is not None:
+            invalido |= (alpha.ReadAsArray(0, y0, w, alto) <= 0)
         a = np.nan_to_num(a, nan=0.0)
         if clip_range:
-            a = np.clip(a, clip_range[0], clip_range[1])
-            a = ((a - clip_range[0]) / (clip_range[1] - clip_range[0]) * 255).astype(np.uint8)
+            lo, hi = clip_range
+            a = np.clip(a, lo, hi)
+            a = ((a - lo) / (hi - lo) * 255).astype(np.uint8)
         else:
             a = np.clip(a, 0, 255).astype(np.uint8)
-        a[invalid] = 0
-        drv = gdal.GetDriverByName("GTiff")
-        out = drv.Create(dst, ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Byte,
-                         ["COMPRESS=LZW", "TILED=YES"])
-        out.SetGeoTransform(ds.GetGeoTransform())
-        out.SetProjection(ds.GetProjection())
-        out.GetRasterBand(1).WriteArray(a)
-        out.GetRasterBand(1).SetNoDataValue(0)
-        out = None
+        a[invalido] = 0
+        out_banda.WriteArray(a, 0, y0)
+
+    out_banda.SetNoDataValue(0)
+    out_banda = None
+    out = None
     ds = None
     print(f"  8-bit: {dst} ({os.path.getsize(dst)/(1024*1024):.0f} MB)")
 
@@ -209,24 +305,7 @@ def band_to_8bit(src, dst, band_idx, clip_range):
     raster MULTIbanda (p.ej. una banda espectral individual del ortomosaico
     MS de 5 bandas: Red/Green/NIR/RedEdge/alpha) — to_8bit() solo sabía leer
     la banda 1."""
-    ds = gdal.Open(src)
-    a = ds.GetRasterBand(band_idx).ReadAsArray()
-    invalid = ~np.isfinite(a)
-    if ds.RasterCount >= 2:
-        invalid |= (ds.GetRasterBand(ds.RasterCount).ReadAsArray() <= 0)
-    a = np.nan_to_num(a, nan=0.0)
-    a = np.clip(a, clip_range[0], clip_range[1])
-    a = ((a - clip_range[0]) / (clip_range[1] - clip_range[0]) * 255).astype(np.uint8)
-    a[invalid] = 0
-    drv = gdal.GetDriverByName("GTiff")
-    out = drv.Create(dst, ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Byte,
-                     ["COMPRESS=LZW", "TILED=YES"])
-    out.SetGeoTransform(ds.GetGeoTransform())
-    out.SetProjection(ds.GetProjection())
-    out.GetRasterBand(1).WriteArray(a)
-    out.GetRasterBand(1).SetNoDataValue(0)
-    out = None; ds = None
-    print(f"  8-bit: {dst} ({os.path.getsize(dst)/(1024*1024):.0f} MB)")
+    _banda_a_8bit(src, dst, band_idx, clip_range)
 
 
 def zoom_range(src):
@@ -394,6 +473,15 @@ if os.path.exists(RGB_IN):
 else:
     print(f"  ⚠ {RGB_IN} no existe, omitiendo")
 
+# Banda D (mosaico visible rápido del M3M, opt-in)
+print("\n=== Banda D Tiles ===")
+if os.path.exists(DBAND_IN):
+    tile_layer(DBAND_IN, os.path.join(TILES_DIR, "dband"),
+               lambda t: to_8bit(DBAND_IN, t, bands=3))
+    capas_disponibles.append("dband")
+else:
+    print(f"  ⚠ {DBAND_IN} no existe, omitiendo")
+
 # Thermal
 print("\n=== Thermal Tiles ===")
 if os.path.exists(THERMAL_IN):
@@ -420,11 +508,13 @@ for name in INDEX_NAMES:
     if not os.path.exists(idx_in):
         print(f"  ⚠ {idx_in} no existe, omitiendo")
         continue
-    clip = _index_clip_range(idx_in)
+    clip = rango_cacheado(f"index:{name}", idx_in,
+                          lambda p=idx_in: _index_clip_range(p))
     index_ranges[name] = clip
     print(f"  {name.upper()} rango de color: {clip[0]:.2f}..{clip[1]:.2f}")
     tile_layer(idx_in, os.path.join(TILES_DIR, name),
                lambda t, p=idx_in, c=clip: to_8bit(p, t, bands=1, clip_range=c))
+    capas_disponibles.append(name)
 
 # Bandas espectrales individuales del multiespectral (Red/Green/NIR/RedEdge)
 # — se sirven CRUDAS, sin componer, para que el geovisor arme composites RGB
@@ -441,11 +531,13 @@ if os.path.exists(MS_IN):
     ds = None
     for band_idx, desc in band_desc.items():
         layer_id = MS_BAND_LAYER_IDS.get(desc, f"ms_band{band_idx}")
-        clip = _band_clip_range(MS_IN, band_idx)
+        clip = rango_cacheado(f"ms:{layer_id}", MS_IN,
+                              lambda b=band_idx: _band_clip_range(MS_IN, b))
         ms_band_ranges[layer_id] = clip
         print(f"  {desc} ({layer_id}) rango: {clip[0]:.3f}..{clip[1]:.3f}")
         tile_layer(MS_IN, os.path.join(TILES_DIR, layer_id),
                    lambda t, b=band_idx, c=clip: band_to_8bit(MS_IN, t, b, c))
+        capas_disponibles.append(layer_id)
 else:
     print(f"  ⚠ {MS_IN} no existe, omitiendo")
 
@@ -473,7 +565,7 @@ for name, path in [("severidad", "outputs/severidad_class.tif"),
 # La cadena de respaldo importa: una misión puede NO tener vuelo RGB/térmico
 # (solo multiespectral M3M) — sin bounds.json el geovisor no abre en ningún
 # lado, así que se toma el centro del primer producto que exista.
-src_for_center = next((p for p in (RGB_IN, THERMAL_IN, MS_IN, DSM_IN)
+src_for_center = next((p for p in (RGB_IN, THERMAL_IN, MS_IN, DBAND_IN, DSM_IN)
                         if os.path.exists(p)), RGB_IN)
 if os.path.exists(src_for_center):
     ds = gdal.Open(src_for_center)
@@ -492,7 +584,8 @@ if os.path.exists(src_for_center):
     # ninguna misión concreta.
     resoluciones = {}
     for clave, ruta in (("rgb", RGB_IN), ("thermal", THERMAL_IN),
-                        ("dsm", DSM_IN), ("multispectral", MS_IN)):
+                        ("dsm", DSM_IN), ("multispectral", MS_IN),
+                        ("dband", DBAND_IN)):
         if os.path.exists(ruta):
             d = gdal.Open(ruta)
             resoluciones[clave] = round(abs(d.GetGeoTransform()[1]) * 100, 1)

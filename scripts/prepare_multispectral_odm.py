@@ -3,130 +3,78 @@
 Prepara las bandas multiespectrales (DJI M3M) para ODM.
 
 A diferencia del térmico, las 4 bandas MS ya traen GPS EXIF nativo (RTK) —
-no hace falta inyectar nada, solo copiar y generar geo.txt como fallback
-(igual que generate_geo.py hace para RGB, generalizado a las 4 bandas).
+no hace falta inyectar nada, solo dejarlas en images/ y generar geo.txt como
+fallback. El trabajo real lo hace scripts/odm_staging.py, compartido con
+prepare_dband_odm.py (mismo sensor, mismo tratamiento).
 
 Produce:
-  1. processing/multispectral_odm/images/*_MS_{G,R,RE,NIR}.TIF (copia)
+  1. processing/multispectral_odm/images/*_MS_{G,R,RE,NIR}.TIF
+     (hardlink a data/, ver odm_staging — no una copia: son ~23 GB en una
+     misión mediana y ODM solo los lee)
   2. processing/multispectral_odm/geo.txt (fallback para ODM)
 
 Uso:
   python3 scripts/prepare_multispectral_odm.py
 """
 
-import os, sys, glob, json, shutil, subprocess
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from hardware import safe_concurrency  # noqa: E402
+from odm_staging import escribir_geo_txt, poblar_images  # noqa: E402
+
+# Cada enlace/lectura de exiftool es independiente (sin estado compartido) y
+# confirmado en vivo como el cuello de botella real de esta etapa: un vuelo
+# M3M mediano son miles de TIFF (2340 en la corrida donde se encontró esto)
+# uno por uno, con CPU/RAM/GPU del resto de la máquina ociosos mientras
+# tanto. PERO: la primera versión de este fix usaba cpu_count() a secas
+# (todos los núcleos) y coincidió con un CRASH POR MEMORIA de toda la PC del
+# usuario en la corrida donde se probó en vivo — no hay certeza de que haya
+# sido la causa única, pero es exactamente el mismo patrón de riesgo que
+# entrypoint.sh ya documenta para el band alignment de ODM sobre este MISMO
+# sensor (M3M, bandas de 5 MP: "~2.5 GB por hilo... con el kernel matando el
+# proceso sin dejar ninguna traza", ver safe_concurrency() en
+# entrypoint.sh/hardware.py). Se reusa la misma función memory-aware en vez
+# de cpu_count() a secas — más conservador de lo que enlazar/leer metadata
+# necesitarían en teoría, pero es la cautela correcta después de lo que pasó.
+# MAX_CONCURRENCY (mismo nombre que usa ODM) es la vía de escape manual.
+_override = os.environ.get("MAX_CONCURRENCY")
+NPROCS = safe_concurrency(5, override=int(_override) if _override else None)
 
 MS_TIF_DIR  = "data/multiespectral_mosaico"
 OUTPUT_DIR  = "processing/multispectral_odm"
 IMAGES_DIR  = os.path.join(OUTPUT_DIR, "images")
 GEO_TXT     = os.path.join(OUTPUT_DIR, "geo.txt")
-BAND_SUFFIXES = ["_MS_G.TIF", "_MS_R.TIF", "_MS_RE.TIF", "_MS_NIR.TIF"]
+BAND_SUFFIXES = ("_MS_G.TIF", "_MS_R.TIF", "_MS_RE.TIF", "_MS_NIR.TIF")
 
-if not os.path.isdir(MS_TIF_DIR):
-    print(f"❌ ERROR: Directorio fuente no encontrado: {MS_TIF_DIR}")
-    sys.exit(1)
 
-os.makedirs(IMAGES_DIR, exist_ok=True)
+def main():
+    if not os.path.isdir(MS_TIF_DIR):
+        print(f"❌ ERROR: Directorio fuente no encontrado: {MS_TIF_DIR}")
+        sys.exit(1)
 
-print("=" * 60)
-print("  Preparación de bandas multiespectrales para ODM")
-print("=" * 60)
-print()
+    print("=" * 60)
+    print("  Preparación de bandas multiespectrales para ODM")
+    print("=" * 60)
+    print()
 
-ms_files = sorted(
-    f for f in os.listdir(MS_TIF_DIR)
-    if any(f.upper().endswith(suf) for suf in BAND_SUFFIXES)
-)
-if not ms_files:
-    print(f"❌ No se encontraron bandas *_MS_*.TIF en {MS_TIF_DIR}")
-    sys.exit(1)
+    nombres = poblar_images(MS_TIF_DIR, IMAGES_DIR, BAND_SUFFIXES, NPROCS,
+                            etiqueta="bandas")
+    if not nombres:
+        print(f"❌ No se encontraron bandas *_MS_*.TIF en {MS_TIF_DIR}")
+        sys.exit(1)
+    print(f"  Bandas encontradas: {len(nombres)}")
 
-print(f"  Bandas encontradas: {len(ms_files)}")
+    # geo.txt necesita una fila POR ARCHIVO, no por captura: van las 4 bandas.
+    rutas = [os.path.join(IMAGES_DIR, f) for f in nombres]
+    con_gps, _ = escribir_geo_txt(rutas, GEO_TXT, NPROCS, etiqueta="bandas")
 
-# ── Copiar imágenes (limpiar copias previas primero) ───────────────
-old = [f for f in os.listdir(IMAGES_DIR) if any(f.upper().endswith(s) for s in BAND_SUFFIXES)]
-if old:
-    print(f"🧹 Limpiando {len(old)} copias anteriores …")
-    for f in old:
-        os.remove(os.path.join(IMAGES_DIR, f))
+    print(f"\n✅ {con_gps}/{len(nombres)} bandas con GPS")
+    print(f"   Directorio ODM: {OUTPUT_DIR}/")
+    print(f"   geo.txt: {GEO_TXT}")
+    print("\nSiguiente paso: ODM multiespectral (invocado por docker/entrypoint.sh)")
 
-print(f"📋 Copiando {len(ms_files)} bandas …")
-for fname in ms_files:
-    shutil.copy2(os.path.join(MS_TIF_DIR, fname), os.path.join(IMAGES_DIR, fname))
 
-# ── geo.txt: GPS EXIF nativo (RTK), ya viene en las bandas ─────────
-# Se agregan las columnas opcionales 8-9 de ODM (horizontal_accuracy,
-# vertical_accuracy, ver opendm/geo.py) desde los tags RtkStdLon/Lat/Hgt del
-# propio EXIF. Sin esto, ODM (opendm/photo.py update_with_geo_entry) pisa con
-# None la precision RTK que el mismo ODM sabe auto-detectar del EXIF cuando
-# NO hay geo.txt, forzando un DOP generico (~metros) en el bundle adjustment
-# en vez de confiar en la precision RTK real (~1-3cm) - mismo bug
-# diagnosticado y corregido para el termico esta sesion.
-print(f"🔍 Extrayendo GPS de {len(ms_files)} bandas con exiftool …")
-paths = [os.path.join(IMAGES_DIR, f) for f in ms_files]
-# La lista de archivos va por STDIN (`-@ -`), no como argumentos: un vuelo M3M
-# son 4 archivos por captura, así que una misión mediana ya pasa el millar y la
-# línea de comandos tiene un tope duro (ARG_MAX). Mismo patrón que
-# export_flight_path.py.
-result = subprocess.run(
-    ["exiftool", "-j", "-n",
-     "-GPSLatitude", "-GPSLongitude", "-GPSAltitude",
-     "-GimbalYawDegree", "-GimbalPitchDegree", "-GimbalRollDegree",
-     "-RtkStdLon", "-RtkStdLat", "-RtkStdHgt", "-@", "-"],
-    input="\n".join(paths),
-    capture_output=True, text=True, timeout=180
-)
-if result.returncode != 0:
-    print(f"❌ ERROR: exiftool falló:\n{result.stderr}")
-    sys.exit(1)
-
-try:
-    all_data = json.loads(result.stdout)
-except json.JSONDecodeError:
-    print("❌ ERROR: no se pudo decodificar la salida de exiftool")
-    sys.exit(1)
-
-geo_lines = ["EPSG:4326"]
-missing = 0
-n_rtk = 0
-for exif in all_data:
-    # El nombre sale de SourceFile —que exiftool incluye en cada registro—, no
-    # de emparejar por posición con la lista de entrada: ligar la fila i de la
-    # salida al archivo i de la entrada da por sentado un orden y un conteo
-    # exactos, y si alguna vez no se cumplen, geo.txt queda con coordenadas
-    # asignadas al archivo equivocado. Eso no falla: produce una reconstrucción
-    # mal georreferenciada.
-    fname = os.path.basename(exif.get("SourceFile", ""))
-    if not fname:
-        missing += 1
-        continue
-    lat = exif.get("GPSLatitude")
-    lon = exif.get("GPSLongitude")
-    if lat is None or lon is None:
-        missing += 1
-        continue
-    alt = exif.get("GPSAltitude", 0)
-    yaw = exif.get("GimbalYawDegree", 0)
-    pitch = exif.get("GimbalPitchDegree", 0)
-    roll = exif.get("GimbalRollDegree", 0)
-    std_lon, std_lat, std_hgt = exif.get("RtkStdLon"), exif.get("RtkStdLat"), exif.get("RtkStdHgt")
-    if std_lon is not None and std_lat is not None:
-        # mismo margen de seguridad x2 que ODM aplica internamente al auto-detectar estos tags
-        h_acc = max(std_lon, std_lat) * 2.0
-        v_acc = (std_hgt if std_hgt is not None else std_lon) * 2.0
-        n_rtk += 1
-    else:
-        h_acc, v_acc = 3.0, 5.0  # fallback conservador si esta captura puntual no tiene fix RTK
-    geo_lines.append(f"{fname}\t{lon}\t{lat}\t{alt}\t{yaw}\t{pitch}\t{roll}\t{h_acc:.5f}\t{v_acc:.5f}")
-
-if missing:
-    print(f"  ⚠ {missing} bandas sin GPS (omitidas de geo.txt)")
-print(f"  precision RTK disponible: {n_rtk}/{len(ms_files)-missing} bandas")
-
-with open(GEO_TXT, "w") as f:
-    f.write("\n".join(geo_lines) + "\n")
-
-print(f"\n✅ {len(geo_lines)-1}/{len(ms_files)} bandas con GPS")
-print(f"   Directorio ODM: {OUTPUT_DIR}/")
-print(f"   geo.txt: {GEO_TXT}")
-print(f"\nSiguiente paso: ODM multiespectral (invocado por docker/entrypoint.sh)")
+if __name__ == "__main__":
+    main()

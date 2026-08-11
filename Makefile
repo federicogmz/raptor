@@ -96,19 +96,37 @@ endef
 # que preserva la posicion igual y ademas la identidad de la camara. Verificado
 # con opendm.photo.ODM_Photo sobre las 3 variantes: make/model/focal_ratio
 # vuelven a los valores de la foto cruda y gps_xy_stddev sigue en 0.0235 m.
+# A diferencia de multiespectral y banda D (ver scripts/odm_staging.py), acá
+# NO se puede enlazar en vez de copiar: el exiftool de abajo corre con
+# -overwrite_original sobre los archivos de images/, y con un hardlink eso
+# modificaría también el original de data/. Se usa --reflink=auto, que en un
+# filesystem con copy-on-write (btrfs, XFS, overlay2 sobre ellos) cuesta
+# prácticamente cero y en el resto cae a una copia normal sin decir nada.
+#
+# La lista va por stdin (`-@ -`) y no como glob de shell: un vuelo de varios
+# cientos de fotos con rutas largas se acerca al tope duro de ARG_MAX, y
+# cuando lo pasa el error no dice nada útil. Mismo patrón que ya usan
+# scripts/odm_staging.py y scripts/export_flight_path.py.
 prepare-rgb:
 	@python3 scripts/progress.py stage-header "Preparación imágenes RGB" 1 1
 	@mkdir -p $(RGB_PROC)/images
 	@rm -f $(RGB_PROC)/images/*_V.JPG $(RGB_PROC)/images/*_W.JPG
-	@cp $(DATA_RGB)/*_V.JPG $(RGB_PROC)/images/ 2>/dev/null || true
-	@cp $(DATA_RGB)/*_W.JPG $(RGB_PROC)/images/ 2>/dev/null || true
-	@exiftool -api Compact=Shorthand -all= -tagsfromfile @ -exif:all -xmp-drone-dji:all -overwrite_original -q $(RGB_PROC)/images/*_V.JPG $(RGB_PROC)/images/*_W.JPG 2>/dev/null || true
+	@find $(DATA_RGB) -maxdepth 1 -type f \( -name '*_V.JPG' -o -name '*_W.JPG' \) \
+		-exec cp --reflink=auto -t $(RGB_PROC)/images/ {} + 2>/dev/null || true
+	@find $(RGB_PROC)/images -maxdepth 1 -type f \( -name '*_V.JPG' -o -name '*_W.JPG' \) \
+		| exiftool -api Compact=Shorthand -all= -tagsfromfile @ -exif:all \
+		  -xmp-drone-dji:all -overwrite_original -q -@ - 2>/dev/null || true
 	@python3 scripts/progress.py done "Imágenes RGB listas"
 
 prepare-multispectral:
 	@python3 scripts/progress.py stage-header "Preparación bandas multiespectrales" 1 1
 	$(call run_quiet,python3 scripts/prepare_multispectral_odm.py,prepare-multispectral)
 	@python3 scripts/progress.py done "Bandas multiespectrales listas"
+
+prepare-dband:
+	@python3 scripts/progress.py stage-header "Preparación banda D (RGB, M3M)" 1 1
+	$(call run_quiet,python3 scripts/prepare_dband_odm.py,prepare-dband)
+	@python3 scripts/progress.py done "Banda D lista"
 
 # ── 3. ODM ─────────────────────────────────────────────────────────
 # El SfM/MVS de ODM (RGB y térmico) lo invoca directamente el entrypoint
@@ -171,6 +189,15 @@ trim-edges-multispectral:
 	@python3 scripts/progress.py stage-header "Recorte de bordes multiespectrales" 1 1
 	$(call run_quiet,python3 -c "from scripts.trim_low_overlap_edges import trim_multispectral; trim_multispectral()",trim-edges-multispectral)
 	@python3 scripts/progress.py done "Bordes multiespectrales recortados"
+
+# Reusa trim_rgb() apuntado a su propio proyecto ODM (banda D, no el M3T/
+# H20T) vía las mismas variables de entorno que ya usa el caso "DSM sin
+# vuelo RGB" (ver dsm_clean.py/clean-dsm) — el principio físico de recorte
+# por solape de cámaras no depende de qué sensor produjo la reconstrucción.
+trim-edges-dband:
+	@python3 scripts/progress.py stage-header "Recorte de bordes banda D" 1 1
+	$(call run_quiet,RGB_PATH=outputs/dband_orthomosaic.tif ODM_RGB_DIR=processing/dband_odm python3 -c "from scripts.trim_low_overlap_edges import trim_rgb; trim_rgb()",trim-edges-dband)
+	@python3 scripts/progress.py done "Bordes de la banda D recortados"
 
 # El multiespectral va incluido: quedaba afuera y `make trim-edges` recortaba
 # tres de los cuatro productos sin decir nada. El target es idempotente y

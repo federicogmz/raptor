@@ -141,12 +141,15 @@ class TestBotonAgregarMultiespectral:
 
     def test_la_webapp_reconoce_el_parametro_addms(self):
         """El botón linkea a /?mission=X&addms=1 — la webapp tiene que leerlo
-        y marcar el sensor multiespectral solo, no dejar que el usuario tenga
-        que descubrir el checkbox por su cuenta."""
+        y llevar al usuario derecho a dónde agregar la carpeta multiespectral,
+        no dejar que la tenga que encontrar por su cuenta. Ya no existe un
+        checkbox de sensor que marcar (el formulario detecta el sensor solo
+        por el contenido agregado) — lo que corresponde acá es apuntar al
+        cuadro único de subida/importación."""
         html = open(INDEX_HTML, encoding="utf-8").read()
         js = re.search(r"<script>(.*?)</script>", html, re.S).group(1)
         assert "addms" in js
-        assert "sensors.ms = true" in js
+        assert "dz-add" in js
 
 
 class TestCajaAgregarMsNoSeDuplica:
@@ -202,7 +205,7 @@ class TestReusarOdmNoSaltaUnSensorNuevo:
         assert 'odm_prev["multispectral"]' in bloque
         assert 'odm_prev["rgb"]' in bloque
         assert 'odm_prev["thermal"]' in bloque
-        assert "errors += _validate_reuse_odm(mission_dir, mode, has_multispectral, reuse_odm)" in src
+        assert "errors += _validate_reuse_odm(mission_dir, mode, has_multispectral, reuse_odm, dband)" in src
 
 
 class TestHotspotDefaultOnSinSeveridad:

@@ -19,9 +19,19 @@ iterativo por mediana+MAD de siempre (picos puntuales de reconstrucción).
 """
 import gc
 import os
+import sys
 import numpy as np
 from osgeo import gdal
 from scipy import ndimage
+
+# Mediana rápida (ver fast_median.py): las 6 pasadas de mediana 9×9 sobre
+# un DSM real de 65 Mpx (misión barbosa-chorrera, etapa clean-dsm ~54 min)
+# son el grueso del tiempo. median_filter_fast reparte el array en bloques de
+# filas entre hilos (scipy libera el GIL): mismo resultado bit a bit, ~64 s
+# por pasada en vez de ~700 s. No usa OpenCV — cv2.medianBlur exige 8 bits
+# para ventanas mayores a 5×5 y acá son float32 con ventana 9×9.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from fast_median import median_filter_fast  # noqa: E402
 
 gdal.UseExceptions()
 
@@ -109,17 +119,33 @@ print(f"  válidos reales: {100*m.mean():.1f}%")
 # Para el rechazo de outliers necesitamos números en todo el array (no NaN);
 # se usa el vecino válido más cercano SOLO para esta estadística local — el
 # resultado final igual queda NaN donde m es False (no se inventa altura).
-# return_indices=True sobre la imagen COMPLETA es el array más pesado del
-# script (shape (2,H,W) int64 = ~5.2GB para este DSM) — se libera apenas se
-# usa, no se necesita de nuevo.
-_, idx = ndimage.distance_transform_edt(~m, return_indices=True)
-work = np.where(m, z, z[tuple(idx)])
-del idx
+#
+# El array de índices (shape (2,H,W) intp = 16 B/px, ~1.6 GB en el DSM de
+# barbosa-picodegallo y ~5.2 GB en uno de 17000x19000) es el más pesado del
+# script y no hay forma exacta de evitarlo: la EDT es global, no se puede
+# partir en bloques sin cambiar el resultado. Lo que sí se evita son los dos
+# arrays de tamaño completo que lo acompañaban:
+#   · return_distances=False — las distancias en sí no se usan para nada, y
+#     scipy las devuelve en float64 (8 B/px) si no se le dice que no.
+#   · el gather se hace SOLO sobre los huecos, en vez de construir el
+#     z[tuple(idx)] completo (4 B/px) para después descartar con np.where
+#     todo lo que ya era válido.
+# Son ~12 B/px menos de pico sobre los ~28 B/px que usaba este paso.
+huecos = ~m
+idx = ndimage.distance_transform_edt(huecos, return_distances=False,
+                                     return_indices=True)
+work = z.copy()
+work[huecos] = z[idx[0][huecos], idx[1][huecos]]
+del idx, huecos
 gc.collect()
 
 for it in range(3):
-    med = ndimage.median_filter(work, size=9, mode="nearest")
-    mad = ndimage.median_filter(np.abs(work - med), size=9, mode="nearest") + 1e-3
+    # median_filter_fast: mismísima ventana y padding que el scipy que
+    # reemplaza (mediana de 9×9 con borde por réplica), pero sin los ~500
+    # s/pasada de ndimage.median_filter sobre un DSM de 65 Mpx (ver
+    # scripts/fast_median.py).
+    med = median_filter_fast(work, 9)
+    mad = median_filter_fast(np.abs(work - med), 9) + 1e-3
     outlier = m & (np.abs(work - med) > np.maximum(4.0 * mad, 3.0))
     work[outlier] = med[outlier]
     print(f"  iter {it+1}: {int(outlier.sum()):,} outliers reemplazados")

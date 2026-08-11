@@ -5,8 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Situación del incendio</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='none' stroke='%230f172a' stroke-width='7' stroke-linecap='round'%3E%3Cpath d='M35 38 L18 20'/%3E%3Cpath d='M65 38 L82 20'/%3E%3Cpath d='M35 62 L18 80'/%3E%3Cpath d='M65 62 L82 80'/%3E%3C/g%3E%3Ccircle cx='18' cy='20' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='82' cy='20' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='18' cy='80' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='82' cy='80' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Crect x='32' y='38' width='36' height='24' rx='7' fill='%230f172a'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Leaflet SERVIDO DESDE LA IMAGEN, no desde unpkg.com. Esto es una
+     herramienta de respuesta a incendios: se usa en campo, donde no hay
+     conexión. Con el <script> apuntando a un CDN el geovisor no abría —
+     ni el mapa, ni el panel, ni los productos ya procesados que están en
+     el disco de al lado. Son 160 KB en la imagen. Ver geovisor/vendor/. -->
+<link rel="stylesheet" href="vendor/leaflet.css" />
+<script src="vendor/leaflet.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -128,20 +133,6 @@
       <div id="area-edit-status"></div>
     </div>
 
-    <!-- HUD de progreso: la misión activa procesándose se ve acá mismo, sin
-         pantalla aparte — wireProgressHud()/connectLiveMission() (app.js). -->
-    <div id="progress-hud" class="hud-frame">
-      <div class="ph-top">
-        <span class="ph-dot"></span>
-        <span class="ph-stage" id="ph-stage">Iniciando…</span>
-        <span class="ph-time" id="ph-time">00:00</span>
-      </div>
-      <div class="ph-bar"><div class="ph-bar-fill" id="ph-bar-fill"></div></div>
-      <div class="ph-actions" id="ph-actions"></div>
-      <button class="ph-log-toggle" id="ph-log-toggle" onclick="toggleProgressLog()">▾ Ver log</button>
-      <div class="ph-log" id="ph-log"></div>
-    </div>
-
     <button class="panel-toggle reset" id="panel-toggle" aria-label="Mostrar panel de situación">☰</button>
   </section>
 
@@ -216,6 +207,25 @@
         <div id="footer-addms-cta-advanced"></div>
         <a class="link-advanced reset" href="#" id="link-simple">← Volver al modo simple</a>
       </div>
+    </div>
+
+    <!-- HUD de progreso: embebido al pie del sidebar (fuera de los tabs
+         simple/avanzado — visible en los dos), no flotando sobre el mapa.
+         Antes era un overlay centrado sin ningún control para ocultarlo
+         mientras la misión seguía procesando — bloqueaba navegar el mapa.
+         Acá se esconde/muestra con el mismo botón de siempre del sidebar
+         (panel-toggle/panel-close), y el mapa queda libre. -->
+    <div id="progress-hud" class="hud-frame">
+      <div class="ph-top">
+        <span class="ph-dot"></span>
+        <span class="ph-stage" id="ph-stage">Iniciando…</span>
+        <span class="ph-time" id="ph-time">00:00</span>
+      </div>
+      <div class="ph-bar"><div class="ph-bar-fill" id="ph-bar-fill"></div></div>
+      <ol class="ph-phases" id="ph-phases"></ol>
+      <div class="ph-actions" id="ph-actions"></div>
+      <button class="ph-log-toggle" id="ph-log-toggle" onclick="toggleProgressLog()">▾ Ver log</button>
+      <div class="ph-log" id="ph-log"></div>
     </div>
   </aside>
 </main>

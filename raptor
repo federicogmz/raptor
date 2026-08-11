@@ -30,14 +30,25 @@ AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 C_INPUT=/input
 C_INPUT_MS=/input_ms
 C_EXPORT=/export
+C_IMPORT=/import
 C_RUNS=/app/runs
 
 morir() { echo "❌ $*" >&2; exit 2; }
 
-abs() {  # ruta absoluta sin exigir que exista
+abs() {  # ruta absoluta NORMALIZADA (sin ./ ni ..), sin exigir que exista.
+  # Antes solo anteponía $PWD, así que "./entregas" quedaba literalmente
+  # como ".../raptor/./entregas" — EXPORT_HOST_DIR/IMPORT_HOST_DIR se
+  # guardaban con ese "./" adentro, pero el lado de la webapp que compara
+  # una ruta contra esa (host_a_contenedor()/import_host_a_contenedor() en
+  # webapp/main.py) SÍ normaliza con os.path.normpath() antes de comparar
+  # — el "./" nunca desaparecía del lado de EXPORT_HOST_DIR, así que la
+  # comparación de prefijo fallaba SIEMPRE, incluso para una ruta
+  # correcta, con el mensaje "está fuera de la carpeta montada" apuntando
+  # a la carpeta correcta. realpath -m normaliza sin pedir que la carpeta
+  # ya exista (esto corre ANTES del mkdir -p que la crea).
   local p="$1"
   [[ "$p" = /* ]] || p="$PWD/$p"
-  printf '%s\n' "$p"
+  realpath -m "$p"
 }
 
 gpu_args() {
@@ -59,11 +70,25 @@ Entrada (al menos una):
 
 Procesamiento:
   --mode MODO              rgb+thermal (default) | rgb | none
-  --quality N              0-100 (default 75). Detalle del modelo de
-                           superficie y techo de resolución del ortomosaico/
-                           DSM — nunca más fino que el GSD real del vuelo.
-                           Antes de arrancar se muestra a qué resolución y en
-                           cuánto tiempo se espera que salga, según tu hardware.
+  --preset NOMBRE          Qué tan fino y cuánto tarda. Default: estandar.
+                             vistazo   ver algo utilizable en minutos
+                             rapido    respuesta operativa el mismo día
+                             estandar  la entrega normal de una misión
+                             alta      análisis fino y medición sobre el DSM
+                             maxima    archivo y peritaje
+                           Cada preset fija el detalle del modelo de
+                           superficie, el techo de resolución del ortomosaico/
+                           DSM (nunca más fino que el GSD real del vuelo), los
+                           features por foto y el algoritmo de SfM. Antes de
+                           arrancar se muestran los cinco con su tiempo
+                           estimado para TUS fotos y TU hardware.
+  --quality N              (heredado) 0-100; se mapea al preset equivalente.
+  --terreno TIPO           plano (default) | escarpado
+                           «escarpado» fuerza reconstrucción incremental
+                           incluso en vistazo/rápido (que por defecto usan
+                           planar, más rápida pero solo válida en terreno
+                           chato) — en relieve fuerte, planar puede descartar
+                           la mayoría de las fotos SIN avisar.
   --reuse-odm              Reusar reconstrucciones ODM previas de --runs
   --max-concurrency N      Hilos de ODM (default: según la RAM disponible;
                            se detecta y se reparte solo por sensor/etapa)
@@ -98,7 +123,7 @@ cmd_build() {
 
 cmd_run() {
   local input="" input_ms="" export_dir="" runs="$PWD/runs"
-  local mode="rgb+thermal" quality=75 reuse=0 verbose=0 json=0 serve=0 port=8080
+  local mode="rgb+thermal" preset="" quality="" terreno="plano" reuse=0 verbose=0 json=0 serve=0 port=8080
   local products="all" epsg="source" rfmt="cog" vfmt="geojson" concurrency=""
 
   while [[ $# -gt 0 ]]; do
@@ -112,7 +137,9 @@ cmd_run() {
       --export-vector-format)  vfmt="$2"; shift 2 ;;
       --runs)                  runs="$2"; shift 2 ;;
       --mode)                  mode="$2"; shift 2 ;;
+      --preset)                preset="$2"; shift 2 ;;
       --quality)               quality="$2"; shift 2 ;;
+      --terreno)               terreno="$2"; shift 2 ;;
       --max-concurrency)       concurrency="$2"; shift 2 ;;
       --port)                  port="$2"; shift 2 ;;
       --reuse-odm)             reuse=1; shift ;;
@@ -128,9 +155,19 @@ cmd_run() {
   [[ -z "$input" && -z "$input_ms" ]] && morir "hace falta --input y/o --input-ms  (./raptor run --help)"
   case "$mode" in rgb|rgb+thermal|none) ;; *) morir "--mode inválido: $mode (rgb, rgb+thermal o none)" ;; esac
   [[ -z "$input" && "$mode" != "none" ]] && morir "sin --input, --mode tiene que ser 'none' (solo multiespectral)"
-  [[ "$quality" =~ ^[0-9]+$ && "$quality" -le 100 ]] || morir "--quality tiene que ser un entero 0-100 (recibido: $quality)"
+  # --preset gana; --quality N sigue aceptándose (se mapea adentro del
+  # contenedor, ver PRESET en docker/entrypoint.sh). El nombre en sí lo valida
+  # scripts/hardware.py, que es donde vive la tabla — replicar la lista acá
+  # sería una segunda copia para desincronizar.
+  if [[ -n "$quality" ]]; then
+    [[ "$quality" =~ ^[0-9]+$ && "$quality" -le 100 ]] || morir "--quality tiene que ser un entero 0-100 (recibido: $quality)"
+    [[ -n "$preset" ]] && morir "usá --preset o --quality, no los dos"
+    preset="$quality"
+  fi
+  [[ -z "$preset" ]] && preset="estandar"
+  case "$terreno" in plano|escarpado) ;; *) morir "--terreno inválido: $terreno (plano o escarpado)" ;; esac
 
-  local args=(--rm -e "MODE=$mode" -e "SKIP_ODM=$reuse" -e "VERBOSE=$verbose" -e "QUALITY=$quality")
+  local args=(--rm -e "MODE=$mode" -e "SKIP_ODM=$reuse" -e "VERBOSE=$verbose" -e "PRESET=$preset" -e "TERRENO=$terreno")
   [[ -n "$concurrency" ]] && args+=(-e "MAX_CONCURRENCY=$concurrency")
 
   if [[ -n "$input" ]]; then
@@ -175,10 +212,10 @@ cmd_run() {
 
   # Mensaje de "a qué resolución y en cuánto tiempo" antes de la corrida real
   # — mismo cálculo que ve la webapp, mismo comando que se puede correr suelto
-  # (./raptor run ... --quality N sin --input real no aplica; ver docker
+  # (./raptor run ... --preset X sin --input real no aplica; ver docker
   # entrypoint.sh, modo `quality-estimate`). Best-effort: si por lo que sea
   # esto falla, no bloquea el procesamiento real que es lo que importa.
-  local est_args=(--rm -e "QUALITY=$quality" -e "MODE=$mode")
+  local est_args=(--rm -e "PRESET=$preset" -e "MODE=$mode" -e "TERRENO=$terreno")
   [[ -n "$input" ]] && est_args+=(-v "$input:$C_INPUT:ro")
   [[ -n "$input_ms" ]] && est_args+=(-v "$input_ms:$C_INPUT_MS:ro")
   docker run "${est_args[@]}" "$IMAGE" quality-estimate 2>/dev/null || true
@@ -199,14 +236,15 @@ cmd_run() {
 }
 
 cmd_webapp() {
-  local runs="$PWD/runs" export_dir="" port=8080
+  local runs="$PWD/runs" export_dir="" import_dir="" port=8080
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --runs)    runs="$2"; shift 2 ;;
       --export)  export_dir="$2"; shift 2 ;;
+      --import)  import_dir="$2"; shift 2 ;;
       --port)    port="$2"; shift 2 ;;
       --no-gpu)  NO_GPU=1; shift ;;
-      -h|--help) echo "Uso: ./raptor webapp [--runs DIR] [--export DIR] [--port N] [--no-gpu]"; exit 0 ;;
+      -h|--help) echo "Uso: ./raptor webapp [--runs DIR] [--export DIR] [--import DIR] [--port N] [--no-gpu]"; exit 0 ;;
       *) morir "opción desconocida: $1" ;;
     esac
   done
@@ -219,6 +257,16 @@ cmd_webapp() {
     # /export, para que el formulario muestre y pida rutas reales del disco del
     # usuario en vez de rutas internas del contenedor.
     args+=(-v "$export_dir:$C_EXPORT" -e "EXPORT_HOST_DIR=$export_dir")
+  fi
+  if [[ -n "$import_dir" ]]; then
+    import_dir="$(abs "$import_dir")"
+    [[ -d "$import_dir" ]] || morir "--import no existe: $import_dir"
+    # Solo lectura: importar nunca tiene que poder tocar las fotos
+    # originales del usuario. Mismo patrón que EXPORT_HOST_DIR, para que el
+    # formulario ofrezca "copiar desde acá" con rutas reales del disco del
+    # usuario en vez de subir cada foto por el navegador (mismo equipo, no
+    # hace falta pasar por HTTP para duplicar algo que ya está en disco).
+    args+=(-v "$import_dir:$C_IMPORT:ro" -e "IMPORT_HOST_DIR=$import_dir")
   fi
   echo "🌐 http://localhost:${port}"
   # shellcheck disable=SC2046

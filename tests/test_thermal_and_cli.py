@@ -52,6 +52,26 @@ class TestResolucionTermica:
         assert thermal_size(p, 0) is None
 
 
+class TestConvertOneToleraTimeout:
+    """Bug real, reportado en vivo: un solo dji_irp colgado (SDK externo,
+    30s de timeout) tumbaba TODA la conversión con un traceback — la
+    excepción se escapaba sin atajar hasta fut.result() en main(), en vez
+    de contarse como una falla más (que es lo que ya hace el resto de
+    convert_one() para cualquier OTRO tipo de error de dji_irp: SDK
+    devuelve código != 0, no produce salida, tamaño no coincide)."""
+
+    def test_timeout_devuelve_false_en_vez_de_propagar(self, tmp_path, monkeypatch):
+        import convert_thermal_tiff as C
+        src = _jpeg(str(tmp_path / "t.jpg"), 640, 512)
+        dst = str(tmp_path / "t.tif")
+
+        def _timeout(*a, **k):
+            raise subprocess.TimeoutExpired(cmd="dji_irp", timeout=30)
+        monkeypatch.setattr(C.subprocess, "run", _timeout)
+
+        assert C.convert_one(src, dst) is False
+
+
 class TestCLI:
     """Solo los caminos que fallan ANTES de invocar docker — el resto necesita
     un demonio Docker que no hay dentro del contenedor de tests."""

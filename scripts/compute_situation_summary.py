@@ -21,7 +21,7 @@ flight_path.geojson) y agrega dos cómputos que antes NO existían:
      menos confiable: cualquier severidad/hotspot calculado ahí se apoya en
      menos píxeles reales.
 
-DOS MODOS, según qué haya generado el pipeline:
+TRES MODOS, según qué haya generado el pipeline:
   - CON multiespectral+térmico (severidad_class.tif + area_afectada.geojson
     existen): el resumen completo — área afectada, severidad, focos,
     vegetación comprometida, confianza sobre el perímetro detectado.
@@ -31,8 +31,14 @@ DOS MODOS, según qué haya generado el pipeline:
     ubicación, confianza sobre la cobertura térmica completa. área_ha,
     severidad y vegetación quedan en None — pedir esas cifras sin
     multiespectral sería inventarlas.
-  Sin NINGUNO de los dos (ni siquiera hotspot térmico), no hay nada que
-  resumir y se omite el archivo, igual que antes.
+  - CON los dos sensores, pero SIN área/foco detectable (_deteccion_data.npz
+    existe — detect_area_afectada.py SÍ corrió — pero no hay severidad ni
+    hotspot que resumir): resultado válido, no "no llegó a esta etapa".
+    area_ha/severidad/vegetación quedan en None, pero temp_max/promedio
+    sí se reportan (ver _resumen_sin_impacto()).
+  Sin NINGUNO de los tres (ni siquiera el cache de detección), no hay nada
+  que resumir y se omite el archivo — recién ahí es de verdad "la corrida
+  no llegó a esta etapa".
 
 captura (fecha de vuelo) sale de flight_path.geojson en los dos modos: ese
 archivo lo escribe export_flight_path.py del GPS/EXIF de las fotos ANTES de
@@ -44,8 +50,8 @@ Lee: outputs/severidad_class.tif, outputs/termico_hotspot_class.tif,
      outputs/area_afectada.geojson, outputs/_deteccion_data.npz,
      outputs/indices/ndvi_class.tif, outputs/flight_path.geojson,
      outputs/thermal_orthomosaic.tif
-Escribe: outputs/situation.json (omite el archivo si no hay ni
-     severidad+área ni hotspot térmico que resumir)
+Escribe: outputs/situation.json (omite el archivo solo si ni siquiera el
+     cache de detección existe — la corrida realmente no llegó a esa etapa)
 """
 import json
 import os
@@ -244,14 +250,58 @@ def _resumen_solo_termico():
     }
 
 
+def _resumen_sin_impacto():
+    """Misión CON multiespectral+térmico que SÍ corrió detect_area_afectada.py
+    (CACHE_PATH existe) pero no encontró ningún píxel que superara el
+    umbral — resultado VÁLIDO (sin anomalía detectable en esta señal), no
+    "la corrida todavía no llegó a esta etapa". Bug real, reportado en
+    vivo: una misión con los dos sensores y la corrida completa mostraba
+    el mismo mensaje que una misión sin ninguno de los dos.
+
+    area_ha/severidad/vegetación quedan en None (no hay perímetro sobre el
+    que calcularlos) pero temp_max/promedio SÍ se pueden reportar: vienen
+    del cache que detect_area_afectada.py ya escribió, sin depender de
+    ningún polígono ni de termico_hotspot_class.tif (que tampoco existe
+    acá — compute-severity nunca llegó a escribirlo, ver su propio
+    early-return)."""
+    c = np.load(CACHE_PATH)
+    temp_abs, valid = c["temp_abs"], c["valid"]
+    n_valid = int(valid.sum())
+    confianza = "alta"
+    cobertura_pct = 100.0
+    if n_valid:
+        valid_frac = 100 * n_valid / valid.size
+        cobertura_pct = round(valid_frac, 0)
+        confianza = "alta" if valid_frac >= 90 else ("media" if valid_frac >= 70 else "baja")
+    temp_max = round(float(temp_abs[valid].max()), 1) if n_valid else None
+    temp_promedio = round(float(temp_abs[valid].mean()), 1) if n_valid else None
+    return {
+        "area_ha": None,
+        "severidad": None,
+        "hotspots_activos": 0,
+        "hotspots": [],
+        "vegetacion_comprometida_pct": None,
+        "confianza": confianza,
+        "cobertura_pct": cobertura_pct,
+        "temp_max": temp_max,
+        "temp_promedio": temp_promedio,
+        "solo_termico": False,
+        "sin_impacto_detectado": True,
+    }
+
+
 def main():
     tiene_area = os.path.isfile(SEV_PATH) and os.path.isfile(AREA_PATH)
     tiene_hotspot_solo = os.path.isfile(HOT_PATH) and os.path.isfile(THERMAL_PATH)
-    if not tiene_area and not tiene_hotspot_solo:
+    if tiene_area:
+        situation = _resumen_completo()
+    elif tiene_hotspot_solo:
+        situation = _resumen_solo_termico()
+    elif os.path.isfile(CACHE_PATH):
+        situation = _resumen_sin_impacto()
+    else:
         print("⚠ no hay severidad/área afectada ni hotspot térmico — omitiendo situation.json")
         return 0
-
-    situation = _resumen_completo() if tiene_area else _resumen_solo_termico()
     situation["captura"] = _captura()
 
     with open(OUT_PATH, "w", encoding="utf-8") as f:
@@ -265,6 +315,9 @@ def main():
     if situation["solo_termico"]:
         print(f"  SOLO térmico (sin multiespectral) | focos activos: "
               f"{situation['hotspots_activos']} | confianza: {situation['confianza']}")
+    elif situation.get("sin_impacto_detectado"):
+        print(f"  sin área/foco detectable | temp. máx: {situation['temp_max']}°C | "
+              f"confianza: {situation['confianza']}")
     else:
         print(f"  área: {situation['area_ha']} ha | severidad dominante: "
               f"{situation['severidad']['dominante']} | focos activos: "

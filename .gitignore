@@ -23,6 +23,16 @@ venv/
 # SDK (descargable, se incluye extraído pero no el zip)
 *.zip
 
+# Entregas exportadas: son productos de una corrida (COG/GeoJSON de cientos
+# de MB), regenerables con `./raptor run --export`. Mismo criterio que
+# outputs/ y runs/: el repo es código y documentación, no datos.
+entregas/
+sessions/
+projects/
+
+# Capturas de pantalla de depuración en la raíz.
+/*.png
+
 # Temporales / sistema
 *.log
 *.aux.xml

@@ -193,7 +193,17 @@ def compute_z_scores():
     th = th_w.GetRasterBand(1).ReadAsArray().astype(np.float32)
     th_alpha = th_w.GetRasterBand(2).ReadAsArray() if th_w.RasterCount >= 2 else np.full_like(th, 255)
 
-    valid = (ms_alpha > 0) & (th_alpha > 0) & np.isfinite(nir) & np.isfinite(th) & (th < 1000)
+    # Mismo piso que compute_vegetation_indices.py (ver su comentario ahí):
+    # reflectancias (camera+sun) rondan 0-0.15 en este sensor — un
+    # denominador (nir+red) apenas distinto de 0 (ruido de calibración, no
+    # "!= 0" exacto) ya dispara NDVI absurdo (verificado EN VIVO en una
+    # misión real: -166 a 486, cuando NDVI está matemáticamente acotado a
+    # [-1,1]). Esta es una fórmula DUPLICADA de la de ese script — el fix
+    # nunca se propagó acá, así que el gate ndvi_ok de más abajo (semilla y
+    # crecimiento por histéresis de detect_polygon()) podía dejar pasar
+    # píxeles de ruido puro como si fueran "ceniza" (ndvi bajo).
+    valid = (ms_alpha > 0) & (th_alpha > 0) & np.isfinite(nir) & np.isfinite(th) & (th < 1000) \
+        & (np.abs(nir + red) > 1e-4)
 
     with np.errstate(invalid="ignore", divide="ignore"):
         ndvi = (nir - red) / (nir + red)
@@ -375,7 +385,17 @@ def main():
     z_severidad, temp_abs, valid, ndvi, gt, proj, W, H = compute_z_scores()
     result = detect_polygon(z_severidad, temp_abs, valid, ndvi, gt, proj, W, H)
     if result is None:
-        sys.exit(1)
+        # No es un error del script — la misión puede legítimamente no
+        # tener ningún píxel que supere el umbral (fuego ya apagado, vuelo
+        # de rutina sin daño, etc.). CACHE_PATH ya quedó escrito arriba
+        # (compute_z_scores), así que compute_severity_classes.py puede
+        # distinguir esto ("corrí pero no encontré nada") de que este
+        # script nunca haya llegado a correr. Salir con éxito para no abortar el
+        # resto del pipeline (tiles, export) por un resultado válido —
+        # bug real: una misión sin área afectada detectable fallaba la
+        # corrida ENTERA acá, después de horas de ODM.
+        print("  (sin polígono que escribir — la misión no tiene área afectada detectable)")
+        return
     out_path, area = result
     print(f"✅ {out_path}: área detectada {area:.0f} m²")
 

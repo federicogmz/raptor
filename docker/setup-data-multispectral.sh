@@ -8,16 +8,31 @@
 #   ./docker/setup-data-multispectral.sh ~/vuelo_ms_2024/
 #
 # Busca recursivamente las 4 bandas *_MS_G.TIF, *_MS_R.TIF, *_MS_RE.TIF,
-# *_MS_NIR.TIF y las copia a data/multiespectral_mosaico/. La banda RGB
-# "D" (cámara aparte del M3M, no coalineada con las 4 lentes MS) NO se
-# copia acá — es un sensor distinto, fuera de alcance de este módulo (se
-# puede reconstruir con el pipeline RGB existente si hace falta).
+# *_MS_NIR.TIF y las copia a data/multiespectral_mosaico/. También organiza
+# la banda "D" (cámara RGB aparte del M3M, no coalineada con las 4 lentes
+# MS) a data/dband_mosaico/, si aparece — es opcional: si no hay *_D.JPG no
+# pasa nada, el resto del módulo multiespectral sigue igual. Se procesa como
+# su propio mosaico visible independiente (scripts/prepare_dband_odm.py +
+# ODM propio), no se mezcla con las 4 bandas espectrales.
 # ═════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 DATA_DIR="$REPO_DIR/data/multiespectral_mosaico"
+DATA_DIR_D="$REPO_DIR/data/dband_mosaico"
+# Confirmado en vivo como cuello de botella real: un vuelo M3M mediano son
+# miles de TIF (2340 en la corrida donde se encontró esto), copiados uno por
+# uno con `cp` secuencial — ~1 seg/archivo, con el resto de la máquina
+# ocioso mientras tanto. PERO: paralelizar esto a lo bruto (todos los
+# núcleos, sin mirar RAM) coincidió con un crash por memoria de toda la PC
+# del usuario en la corrida donde se probó — mismo riesgo que ODM ya conoce
+# para este sensor (M3M, bandas de 5 MP, ver el comentario de
+# safe_concurrency() en entrypoint.sh/scripts/hardware.py: "~2.5 GB por
+# hilo... con el kernel matando el proceso sin dejar ninguna traza"). Se usa
+# la misma cuenta memory-aware en vez de `nproc` a secas (hardware.py ya
+# respeta MAX_CONCURRENCY como vía de escape manual, igual que en ODM).
+NPROCS="$(python3 "$REPO_DIR/scripts/hardware.py" concurrency 5 2>/dev/null || echo 4)"
 
 if [[ $# -lt 1 ]]; then
   echo "Uso: $0 <directorio_fuente>"
@@ -36,8 +51,11 @@ echo ""
 
 mkdir -p "$DATA_DIR"
 
+# find -L: ver el comentario largo en docker/setup-data.sh sobre por qué
+# hace falta (SRC puede ser un symlink de import_local(), y find sin -L
+# no lo sigue cuando es el argumento de partida sin "/" al final).
 echo "Buscando bandas MS (*_MS_G.TIF, *_MS_R.TIF, *_MS_RE.TIF, *_MS_NIR.TIF) ..."
-MS_FILES=$(find "$SRC" -type f \( -iname "*_MS_G.TIF" -o -iname "*_MS_R.TIF" \
+MS_FILES=$(find -L "$SRC" -type f \( -iname "*_MS_G.TIF" -o -iname "*_MS_R.TIF" \
   -o -iname "*_MS_RE.TIF" -o -iname "*_MS_NIR.TIF" \) 2>/dev/null || true)
 MS_COUNT=$(echo "$MS_FILES" | grep -c "TIF" || true)
 
@@ -45,16 +63,54 @@ if [[ "$MS_COUNT" -eq 0 ]]; then
   echo "  ⚠ No se encontraron bandas multiespectrales."
 else
   echo "  Encontradas: $MS_COUNT"
-  COPIED=0
-  while IFS= read -r f; do
+  # Filtra primero lo que YA está (copia incremental en un rerun), y recién
+  # ahí paraleliza la copia de lo que falta — xargs -P, no un `cp` por
+  # iteración de un while secuencial.
+  # `if`, no `[[ ]] && echo`: con set -e, el exit status de un `while` es el
+  # de su ÚLTIMO comando ejecutado — si el último archivo que entrega find
+  # YA existe (típico al reanudar), `[[ ! -f ]]` da falso y ESE exit status
+  # tumba todo el script en el `TO_COPY=$(...)` de abajo, sin ningún mensaje
+  # de error (bug real, ver el mismo fix en docker/setup-data.sh). `if` sin
+  # `else` siempre sale 0.
+  TO_COPY=$(while IFS= read -r f; do
     [[ -z "$f" ]] && continue
     base=$(basename "$f")
     if [[ ! -f "$DATA_DIR/$base" ]]; then
-      cp "$f" "$DATA_DIR/"
-      ((COPIED++)) || true
+      echo "$f"
     fi
-  done <<< "$MS_FILES"
+  done <<< "$MS_FILES")
+  COPIED=$(echo "$TO_COPY" | grep -c . || true)
+  if [[ "$COPIED" -gt 0 ]]; then
+    echo "$TO_COPY" | xargs -P "$NPROCS" -I{} cp {} "$DATA_DIR/"
+  fi
   echo "  ✅ $COPIED copiadas a data/multiespectral_mosaico/"
+fi
+
+# ── Banda D (RGB, opcional) ──────────────────────────────────────────
+# A diferencia de las 4 bandas espectrales, ausente acá NO es un error: no
+# todos los vuelos M3M la usan (o el usuario solo quiere NDVI/severidad, sin
+# el mosaico visible rápido). Ver scripts/prepare_dband_odm.py.
+echo ""
+echo "Buscando banda D (*_D.JPG, cámara RGB del M3M) ..."
+mkdir -p "$DATA_DIR_D"
+D_FILES=$(find -L "$SRC" -type f -iname "*_D.JPG" 2>/dev/null || true)
+D_COUNT=$(echo "$D_FILES" | grep -c "JPG" || true)
+if [[ "$D_COUNT" -eq 0 ]]; then
+  echo "  (sin banda D en esta carpeta — opcional, no es un error)"
+else
+  echo "  Encontradas: $D_COUNT"
+  D_TO_COPY=$(while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    base=$(basename "$f")
+    if [[ ! -f "$DATA_DIR_D/$base" ]]; then
+      echo "$f"
+    fi
+  done <<< "$D_FILES")
+  D_COPIED=$(echo "$D_TO_COPY" | grep -c . || true)
+  if [[ "$D_COPIED" -gt 0 ]]; then
+    echo "$D_TO_COPY" | xargs -P "$NPROCS" -I{} cp {} "$DATA_DIR_D/"
+  fi
+  echo "  ✅ $D_COPIED copiadas a data/dband_mosaico/"
 fi
 
 echo ""
@@ -71,6 +127,7 @@ for b in G R RE NIR; do
   echo "  Banda ${b}: ${n} imágenes"
   [[ "$n" -eq 0 ]] && MISSING="${MISSING} ${b}"
 done
+echo "  Banda D (RGB, opcional): $(find "$DATA_DIR_D" -maxdepth 1 -iname "*_D.JPG" 2>/dev/null | wc -l) imágenes"
 
 if [[ -n "$MISSING" ]]; then
   echo ""

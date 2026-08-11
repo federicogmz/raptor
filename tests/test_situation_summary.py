@@ -128,6 +128,77 @@ class TestSoloTermico:
         assert "omitiendo situation.json" in capsys.readouterr().out
 
 
+class TestSinImpactoDetectado:
+    """Misión CON multiespectral+térmico, la corrida completa (detect_area_
+    afectada.py SÍ corrió — _deteccion_data.npz existe) pero no encontró
+    ningún píxel que superara el umbral. Bug real, reportado en vivo: el
+    geovisor mostraba "esta misión no tiene ni multiespectral+térmico ni
+    térmico solo, o la corrida no llegó a esa etapa" para una misión que
+    tenía LOS DOS sensores y SÍ había terminado — el mensaje era
+    directamente falso."""
+
+    def test_escribe_situation_json_en_vez_de_omitirlo(self, mision):
+        n = 20
+        temp_abs = np.full((n, n), 25.0, np.float32)
+        temp_abs[0, 0] = 45.0
+        valid = np.ones((n, n), bool)
+        np.savez("outputs/_deteccion_data.npz", z_severidad=np.zeros((n, n), np.float32),
+                 temp_abs=temp_abs, valid=valid, ndvi=np.zeros((n, n), np.float32), ref_pop_size=100)
+        _flight_path("outputs/flight_path.geojson", ["2026-08-06T09:00:00"])
+
+        assert _correr() == 0
+        assert os.path.isfile("outputs/situation.json"), \
+            "con el cache de detección presente, situation.json NO debe omitirse aunque no haya área/hotspot"
+        with open("outputs/situation.json") as f:
+            s = json.load(f)
+        assert s["sin_impacto_detectado"] is True
+        assert s["solo_termico"] is False
+        assert s["area_ha"] is None
+        assert s["severidad"] is None
+        assert s["vegetacion_comprometida_pct"] is None
+        assert s["hotspots_activos"] == 0
+        assert s["hotspots"] == []
+        assert s["captura"] == "2026-08-06T09:00:00"
+        # temp_max/promedio SÍ se pueden reportar — vienen del cache, no de
+        # un polígono que no existe.
+        assert s["temp_max"] == 45.0
+        assert s["temp_promedio"] == pytest.approx(25.05, abs=0.1)
+
+    def test_prioriza_area_completa_por_encima_de_este_modo(self, mision):
+        """Si de verdad hay severidad+área, ese modo gana aunque el cache
+        de detección también exista — no tiene sentido degradar un
+        resultado completo a "sin impacto"."""
+        n = 20
+        temp_abs = np.full((n, n), 25.0, np.float32)
+        valid = np.ones((n, n), bool)
+        np.savez("outputs/_deteccion_data.npz", z_severidad=np.zeros((n, n), np.float32),
+                 temp_abs=temp_abs, valid=valid, ndvi=np.zeros((n, n), np.float32), ref_pop_size=100)
+
+        sev = np.ones((n, n), np.uint8)
+        s_ds = gdal.GetDriverByName("GTiff").Create("outputs/severidad_class.tif", n, n, 1, gdal.GDT_Byte)
+        s_ds.SetGeoTransform(GT); s_ds.SetProjection(_wkt())
+        s_ds.GetRasterBand(1).WriteArray(sev); s_ds.GetRasterBand(1).SetNoDataValue(0); s_ds = None
+
+        wgs = osr.SpatialReference(); wgs.ImportFromEPSG(4326)
+        wgs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        from osgeo import ogr
+        v = ogr.GetDriverByName("GeoJSON").CreateDataSource("outputs/area_afectada.geojson")
+        lyr = v.CreateLayer("a", wgs, ogr.wkbPolygon)
+        lyr.CreateField(ogr.FieldDefn("area_m2", ogr.OFTReal))
+        f = ogr.Feature(lyr.GetLayerDefn())
+        f.SetGeometry(ogr.CreateGeometryFromWkt(
+            "POLYGON((-75.5 6.4,-75.4 6.4,-75.4 6.5,-75.5 6.5,-75.5 6.4))"))
+        f.SetField("area_m2", 10000.0)
+        lyr.CreateFeature(f); v = None
+        _flight_path("outputs/flight_path.geojson", ["2026-08-06T09:00:00"])
+
+        assert _correr() == 0
+        with open("outputs/situation.json") as f:
+            s = json.load(f)
+        assert "sin_impacto_detectado" not in s
+        assert s["area_ha"] == 1.0
+
+
 class TestModoCompletoSigueIgual:
     """El modo CON multiespectral no debería haber cambiado de comportamiento
     con el refactor — mismo resultado que antes."""

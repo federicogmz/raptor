@@ -63,8 +63,11 @@ class TestNoRompeSinMultiespectral:
             "el chequeo de solo_termico tiene que preceder al acceso a s.severidad"
 
     def test_buildReportCanvas_no_imprime_null_para_area_ha(self):
+        """Mismo criterio para solo_termico Y sin_impacto_detectado (misión
+        con los dos sensores pero sin área/foco que superara el umbral) —
+        ninguno de los dos tiene area_ha real que mostrar."""
         cuerpo = _cuerpo_de(_js(), "buildReportCanvas")
-        assert "s.solo_termico?" in cuerpo
+        assert "s.solo_termico||s.sin_impacto_detectado" in cuerpo
 
 
 class TestFechaDeCaptura:

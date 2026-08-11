@@ -56,7 +56,14 @@ def _emit_progress(event, **kwargs):
         return
     try:
         with open(_PROGRESS_FILE, "a") as f:
-            parts = [event] + [f"{k}={v}" for k, v in kwargs.items()]
+            # t=epoch en TODOS los eventos, no solo "stage": el HUD del
+            # geovisor lo usa para calcular cuánto duró cada fase (diff entre
+            # el t de una fase y el de la siguiente) — con la hora del
+            # SERVIDOR, no la del navegador, así que sigue siendo correcto
+            # aunque se reconecte o recargue la página a mitad de una corrida
+            # de horas (la SSE reproduce el historial completo desde el
+            # principio en cada conexión nueva, ver /api/missions/{m}/events).
+            parts = [event, f"t={int(time.time())}"] + [f"{k}={v}" for k, v in kwargs.items()]
             f.write("\t".join(str(p) for p in parts) + "\n")
     except Exception:
         pass

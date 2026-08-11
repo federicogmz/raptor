@@ -11,3 +11,14 @@ agisoft/
 *.zip
 __pycache__/
 *.pyc
+
+# Entregas ya generadas (decenas/cientos de MB por misión) y capturas de
+# pantalla sueltas de la raíz: nada de esto lo necesita la imagen, pero
+# `COPY . /app` los mete igual en cada build.
+entregas/
+sessions/
+projects/
+*.png
+.freebuff/
+.pytest_cache/
+.claude/

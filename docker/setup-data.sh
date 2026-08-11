@@ -14,6 +14,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 DATA_DIR="$REPO_DIR/data"
+# Ver el comentario largo en docker/setup-data-multispectral.sh: cp
+# secuencial uno por uno es el cuello de botella real, PERO paralelizarlo a
+# lo bruto con todos los núcleos (sin mirar RAM) coincidió con un crash por
+# memoria de toda la PC del usuario probándolo en vivo. 12.3 MP: mismo perfil
+# que usa ODM para las fotos RGB del H20T/M3T (safe_concurrency en
+# entrypoint.sh) — más conservador de lo que hace falta para las térmicas
+# (mucho más chicas), pero es un solo NPROCS para todo el script y ante la
+# duda gana el número más chico.
+NPROCS="$(python3 "$REPO_DIR/scripts/hardware.py" concurrency 12.3 2>/dev/null || echo 4)"
 
 if [[ $# -lt 1 ]]; then
   echo "Uso: $0 <directorio_fuente>"
@@ -40,46 +49,66 @@ echo ""
 # Crear directorios destino
 mkdir -p "$DATA_DIR/rgb_mosaico" "$DATA_DIR/termica_mosaico"
 
+# find -L (no el default -P): la webapp puede dejar $SRC como un SYMLINK
+# directo a la carpeta del usuario (ver import_local() en webapp/main.py —
+# evita duplicar las fotos). find sin -L NO sigue un symlink que sea el
+# argumento de partida cuando no termina en "/" — lo trata como un
+# archivo suelto de tipo symlink, no como un directorio, así que nunca
+# entra a buscar adentro y devuelve 0 resultados aunque las fotos estén
+# ahí y sean perfectamente legibles con `ls`. Bug real: rompía el primer
+# uso end-to-end de "Usar esta carpeta" con "No se encontraron imágenes".
+#
 # ── RGB ────────────────────────────────────────────────────────────
 echo "Buscando imágenes RGB (*_V.JPG, *_W.JPG) ..."
-RGB_FILES=$(find "$SRC" -type f \( -iname "*_V.JPG" -o -iname "*_W.JPG" \) 2>/dev/null || true)
+RGB_FILES=$(find -L "$SRC" -type f \( -iname "*_V.JPG" -o -iname "*_W.JPG" \) 2>/dev/null || true)
 RGB_COUNT=$(echo "$RGB_FILES" | grep -c "JPG" || true)
 
 if [[ "$RGB_COUNT" -eq 0 ]]; then
   echo "  ⚠ No se encontraron imágenes RGB."
 else
   echo "  Encontradas: $RGB_COUNT"
-  COPIED=0
-  while IFS= read -r f; do
+  # `if`, no `[[ ]] && echo`: con set -e, el exit status de un `while` es el
+  # de su ÚLTIMO comando ejecutado — si el último archivo que entrega find
+  # YA existe (típico al reanudar una misión), `[[ ! -f ]]` da falso y ESE
+  # exit status no-cero tumba todo el script en el `TO_COPY=$(...)` de
+  # abajo. Pasó en vivo: misión con todo ya copiado, orden de find puso un
+  # archivo existente al final → script moría después de "Encontradas: N"
+  # sin ningún mensaje de error. `if` sin `else` siempre sale 0.
+  TO_COPY=$(while IFS= read -r f; do
     [[ -z "$f" ]] && continue
     base=$(basename "$f")
     if [[ ! -f "$DATA_DIR/rgb_mosaico/$base" ]]; then
-      cp "$f" "$DATA_DIR/rgb_mosaico/"
-      ((COPIED++)) || true
+      echo "$f"
     fi
-  done <<< "$RGB_FILES"
+  done <<< "$RGB_FILES")
+  COPIED=$(echo "$TO_COPY" | grep -c . || true)
+  if [[ "$COPIED" -gt 0 ]]; then
+    echo "$TO_COPY" | xargs -P "$NPROCS" -I{} cp {} "$DATA_DIR/rgb_mosaico/"
+  fi
   echo "  ✅ $COPIED copiadas a data/rgb_mosaico/"
 fi
 
 # ── Térmicas ───────────────────────────────────────────────────────
 echo ""
 echo "Buscando imágenes térmicas (*_T.JPG) ..."
-TH_FILES=$(find "$SRC" -type f -iname "*_T.JPG" 2>/dev/null || true)
+TH_FILES=$(find -L "$SRC" -type f -iname "*_T.JPG" 2>/dev/null || true)
 TH_COUNT=$(echo "$TH_FILES" | grep -c "JPG" || true)
 
 if [[ "$TH_COUNT" -eq 0 ]]; then
   echo "  ⚠ No se encontraron imágenes térmicas."
 else
   echo "  Encontradas: $TH_COUNT"
-  COPIED=0
-  while IFS= read -r f; do
+  TO_COPY=$(while IFS= read -r f; do
     [[ -z "$f" ]] && continue
     base=$(basename "$f")
     if [[ ! -f "$DATA_DIR/termica_mosaico/$base" ]]; then
-      cp "$f" "$DATA_DIR/termica_mosaico/"
-      ((COPIED++)) || true
+      echo "$f"
     fi
-  done <<< "$TH_FILES"
+  done <<< "$TH_FILES")
+  COPIED=$(echo "$TO_COPY" | grep -c . || true)
+  if [[ "$COPIED" -gt 0 ]]; then
+    echo "$TO_COPY" | xargs -P "$NPROCS" -I{} cp {} "$DATA_DIR/termica_mosaico/"
+  fi
   echo "  ✅ $COPIED copiadas a data/termica_mosaico/"
 fi
 
