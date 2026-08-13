@@ -32,7 +32,7 @@ def _bloque():
 
 
 def _correr(*, falta_libcuda, skip_odm=0, rgb=1, thermal=0, ms=0,
-            fast_ortho_rgb=0, tmp_path):
+            fast_ortho_rgb=0, fast_ortho_thermal=0, tmp_path):
     # DensifyPointCloud simulado: tiene que existir y ser ejecutable para que
     # el chequeo llegue al ldd.
     falso = tmp_path / "DensifyPointCloud"
@@ -44,6 +44,7 @@ def _correr(*, falta_libcuda, skip_odm=0, rgb=1, thermal=0, ms=0,
 set -uo pipefail
 SKIP_ODM={skip_odm}; RUN_RGB={rgb}; RUN_THERMAL={thermal}; RUN_MULTISPECTRAL={ms}
 FAST_ORTHOPHOTO_RGB={fast_ortho_rgb}
+FAST_ORTHOPHOTO_THERMAL={fast_ortho_thermal}
 ldd() {{ printf '%s\\n' "{salida_ldd}"; }}
 """ + _bloque().replace("_DENSIFY=/code/SuperBuild/install/bin/DensifyPointCloud",
                          f'_DENSIFY={falso}') + '\necho "SIGUIO=ok"\n'
@@ -105,12 +106,28 @@ class TestChequeoDeCuda:
         assert r.returncode != 0
 
     def test_chequea_igual_si_otro_sensor_si_usa_la_etapa_densa(self, tmp_path):
-        """RGB solo no necesita CUDA con fast-orthophoto, pero si además
-        corre térmico (que SIEMPRE pasa por DensifyPointCloud), sigue
-        haciendo falta."""
+        """RGB con fast-orthophoto no necesita CUDA, pero si además corre
+        térmico SIN fast-orthophoto (estandar y superiores), sigue haciendo
+        falta."""
         r = _correr(falta_libcuda=True, rgb=1, thermal=1, ms=0,
-                    fast_ortho_rgb=1, tmp_path=tmp_path)
-        assert r.returncode != 0, "térmico sigue necesitando CUDA"
+                    fast_ortho_rgb=1, fast_ortho_thermal=0, tmp_path=tmp_path)
+        assert r.returncode != 0, "térmico sin fast-orthophoto sigue necesitando CUDA"
+
+    def test_no_chequea_termico_con_fast_orthophoto(self, tmp_path):
+        """El térmico en vistazo/rápido (FAST_ORTHOPHOTO_THERMAL=1) salta
+        DensifyPointCloud igual que RGB — antes el chequeo lo exigía igual,
+        bloqueando una corrida CPU-only de solo térmico que nunca iba a
+        tocar CUDA (confirmado en vivo: la MVS de un sensor de 640×512 se
+        llevó ~3.3 h sin alimentar ningún producto)."""
+        r = _correr(falta_libcuda=True, rgb=0, thermal=1, ms=0,
+                    fast_ortho_thermal=1, tmp_path=tmp_path)
+        assert r.returncode == 0, r.stdout
+        assert "SIGUIO=ok" in r.stdout
+
+    def test_si_chequea_termico_sin_fast_orthophoto(self, tmp_path):
+        r = _correr(falta_libcuda=True, rgb=0, thermal=1, ms=0,
+                    fast_ortho_thermal=0, tmp_path=tmp_path)
+        assert r.returncode != 0
 
 
 class TestDocumentacionCoherente:

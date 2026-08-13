@@ -35,6 +35,7 @@ from pathlib import Path
 from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from osgeo import gdal, osr
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
@@ -595,9 +596,23 @@ def _validate_reuse_odm(mission_dir, mode, has_multispectral, reuse_odm, dband=F
 
 
 # ── Landing + páginas estáticas de la webapp (no confundir con geovisor/) ──
+# index.html es un archivo estático que no cambia durante la vida del
+# proceso: se cachea en memoria contra su mtime (si el archivo se edita en
+# caliente, la próxima request lo recarga — sin invalidación manual).
+_INDEX_CACHE = {"mtime": None, "html": None}
+
+
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    p = STATIC_DIR / "index.html"
+    try:
+        mtime = p.stat().st_mtime
+    except OSError:
+        return "index.html no encontrado"
+    if _INDEX_CACHE["mtime"] != mtime:
+        _INDEX_CACHE["html"] = p.read_text(encoding="utf-8")
+        _INDEX_CACHE["mtime"] = mtime
+    return _INDEX_CACHE["html"]
 
 
 def _run_ok_from_disk(mission_dir):
@@ -629,9 +644,16 @@ def list_missions():
         # termina la corrida y run_summary.py alcanza a escribirlo.
         if _state and _state.done and _state.mission_name == r.name:
             ok = _state.returncode == 0
+        # mtime: fecha de la última actividad de la misión (subida/reconstrucción),
+        # para la línea de tiempo del landing. Barato y sin tests que dependan
+        # del set exacto de claves de este endpoint.
+        try:
+            mtime = r.path.stat().st_mtime
+        except OSError:
+            mtime = None
         out.append({"name": r.name, "has_outputs": r.has_outputs,
                     "has_processing": r.has_processing, "has_tiles": r.has_tiles,
-                    "ok": ok})
+                    "ok": ok, "mtime": mtime})
     running = _running_mission()
     last = None
     if _state and _state.done:
@@ -688,10 +710,23 @@ async def upload(mission: str = Form(...), kind: str = Form(...), file: UploadFi
     dest_dir.mkdir(parents=True, exist_ok=True)
     fname = os.path.basename(file.filename or "archivo")
     dest = dest_dir / fname
-    with open(dest, "wb") as f:
-        while chunk := await file.read(1024 * 1024):
-            f.write(chunk)
-    return {"ok": True, "mission": safe, "file": fname, "size": dest.stat().st_size}
+
+    # La escritura a disco va a un hilo de trabajo (run_in_threadpool): con
+    # cientos de fotos de varios MB, el write sincrónico dentro del handler
+    # async bloqueaba el event loop mientras el SSE del progreso y las demás
+    # subidas esperaban. UploadFile.file es el spooled file subyacente — se
+    # lee directo en el hilo, sin tocar el loop.
+    def _escribir_archivo():
+        with open(dest, "wb") as f:
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+        return dest.stat().st_size
+
+    size = await run_in_threadpool(_escribir_archivo)
+    return {"ok": True, "mission": safe, "file": fname, "size": size}
 
 
 @app.get("/api/import/browse")
@@ -973,7 +1008,7 @@ def check_export(mission: str, export_dir: str = Form(""), export_epsg: str = Fo
 
 @app.get("/api/missions/{mission}/quality-estimate")
 def quality_estimate(mission: str, preset: str = "", quality: int | None = None,
-                     mode: str = "rgb+thermal", terreno: str = "plano",
+                     mode: str = "rgb+thermal", terreno: str = "escarpado",
                      has_multispectral: bool = False, n_photos: int | None = None):
     """A qué resolución van a salir los productos y cuánto se espera que
     tarde — mismo cálculo que ve `./raptor run` antes de arrancar
@@ -995,23 +1030,33 @@ def quality_estimate(mission: str, preset: str = "", quality: int | None = None,
     no cuando se elige. Si no llega (llamada vieja a la API, o sin JS), se
     cae al conteo de lo que ya está en disco como antes."""
     elegido = preset.strip() or (str(quality) if quality is not None else "estandar")
+    por_sensor = None
     if n_photos is None:
         _safe, mission_dir = _mission_dir(mission)
         uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k))
                    for k in UPLOAD_KINDS}
         n_photos = 0
+        rgb = th = ms = 0
         if mode != "none":
             if mode != "thermal":
-                n_photos += uploads["rgb_thermal"]["rgb"]
+                rgb = uploads["rgb_thermal"]["rgb"]
+                n_photos += rgb
             if mode in ("rgb+thermal", "thermal"):
-                n_photos += uploads["rgb_thermal"]["thermal"]
+                th = uploads["rgb_thermal"]["thermal"]
+                n_photos += th
         if has_multispectral:
             # classify_files ya cuenta TIFs individuales (una banda = un
             # archivo), así que esto ya es "4 por captura" sin multiplicar
             # de nuevo.
-            n_photos += uploads["multispectral"]["ms"]
+            ms = uploads["multispectral"]["ms"]
+            n_photos += ms
+        # Desglose por sensor para la estimación (térmico ≈ X, RGB ≈ Y —
+        # costos por foto muy distintos). Solo cuando contamos desde disco;
+        # con n_photos explícito del navegador no hay desglose confiable
+        # todavía (subida en curso) y se cae al número único.
+        por_sensor = {"rgb": rgb, "thermal": th, "multispectral": ms}
     try:
-        return estimate_message(elegido, n_photos, terreno=terreno)
+        return estimate_message(elegido, n_photos, terreno=terreno, por_sensor=por_sensor)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
@@ -1032,7 +1077,8 @@ async def start_mission(mission: str, mode: str = Form(...),
                         dband: bool = Form(False),
                         reuse_odm: bool = Form(False),
                         preset: str = Form("estandar"),
-                        terreno: str = Form("plano"),
+                        terreno: str = Form("escarpado"),
+                        subsample: int = Form(0),
                         export_dir: str = Form(""),
                         export_products: str = Form(""),
                         export_raster_format: str = Form("cog"),
@@ -1059,6 +1105,12 @@ async def start_mission(mission: str, mode: str = Form(...),
         hw_preset(preset, terreno=terreno)
     except ValueError as exc:
         errors.append(str(exc))
+    # Modo urgencia: procesar 1 de cada N fotos (ver scripts/subsample_photos.py).
+    # Solo aplica con reconstrucción — reusar ya saltea ODM.
+    if subsample and not (2 <= subsample <= 10):
+        errors.append(f"Submuestreo inválido: {subsample} (tiene que ser 0, o un entero 2-10).")
+    if subsample and reuse_odm:
+        errors.append("El modo urgencia (submuestreo) no aplica con «Reusar reconstrucciones» — no se reconstruye nada.")
     if errors:
         raise HTTPException(400, " ".join(errors))
 
@@ -1074,6 +1126,7 @@ async def start_mission(mission: str, mode: str = Form(...),
         mode=mode, source_dir=source_dir, ms_source_dir=ms_source_dir,
         skip_odm=reuse_odm, port=8080, progress_file=progress_file,
         export=export_env, preset=preset, dband=dband, terreno=terreno,
+        subsample=subsample, mission_name=safe,
     )
     await run_obj.start()
     _state = RunState(safe, mission_dir, run_obj, mode, has_multispectral, dband)

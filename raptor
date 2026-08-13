@@ -89,6 +89,13 @@ Procesamiento:
                            planar, más rápida pero solo válida en terreno
                            chato) — en relieve fuerte, planar puede descartar
                            la mayoría de las fotos SIN avisar.
+  --subsample N            MODO URGENCIA: procesar 1 de cada N fotos (N>=2,
+                           p. ej. 3). Corta el tiempo del SfM casi a la
+                           tercera parte — la palanca más grande en terreno
+                           escarpado, donde la reconstrucción incremental es
+                           secuencial. El mosaico pierde detalle de solape;
+                           las originales quedan intactas en la fuente y se
+                           restauran solas en la próxima corrida.
   --reuse-odm              Reusar reconstrucciones ODM previas de --runs
   --max-concurrency N      Hilos de ODM (default: según la RAM disponible;
                            se detecta y se reparte solo por sensor/etapa)
@@ -123,7 +130,7 @@ cmd_build() {
 
 cmd_run() {
   local input="" input_ms="" export_dir="" runs="$PWD/runs"
-  local mode="rgb+thermal" preset="" quality="" terreno="plano" reuse=0 verbose=0 json=0 serve=0 port=8080
+  local mode="rgb+thermal" preset="" quality="" terreno="plano" reuse=0 verbose=0 json=0 serve=0 port=8080 subsample=0
   local products="all" epsg="source" rfmt="cog" vfmt="geojson" concurrency=""
 
   while [[ $# -gt 0 ]]; do
@@ -140,6 +147,7 @@ cmd_run() {
       --preset)                preset="$2"; shift 2 ;;
       --quality)               quality="$2"; shift 2 ;;
       --terreno)               terreno="$2"; shift 2 ;;
+      --subsample)             subsample="$2"; shift 2 ;;
       --max-concurrency)       concurrency="$2"; shift 2 ;;
       --port)                  port="$2"; shift 2 ;;
       --reuse-odm)             reuse=1; shift ;;
@@ -166,8 +174,13 @@ cmd_run() {
   fi
   [[ -z "$preset" ]] && preset="estandar"
   case "$terreno" in plano|escarpado) ;; *) morir "--terreno inválido: $terreno (plano o escarpado)" ;; esac
+  if [[ "$subsample" != 0 ]]; then
+    [[ "$subsample" =~ ^[0-9]+$ && "$subsample" -ge 2 ]] \
+      || morir "--subsample tiene que ser un entero >= 2 (recibido: $subsample)"
+    [[ "$reuse" -eq 0 ]] || morir "--subsample no aplica con --reuse-odm (no se reconstruye nada)"
+  fi
 
-  local args=(--rm -e "MODE=$mode" -e "SKIP_ODM=$reuse" -e "VERBOSE=$verbose" -e "PRESET=$preset" -e "TERRENO=$terreno")
+  local args=(--rm -e "MODE=$mode" -e "SKIP_ODM=$reuse" -e "VERBOSE=$verbose" -e "PRESET=$preset" -e "TERRENO=$terreno" -e "SUB_SAMPLE=$subsample")
   [[ -n "$concurrency" ]] && args+=(-e "MAX_CONCURRENCY=$concurrency")
 
   if [[ -n "$input" ]]; then
@@ -215,7 +228,7 @@ cmd_run() {
   # (./raptor run ... --preset X sin --input real no aplica; ver docker
   # entrypoint.sh, modo `quality-estimate`). Best-effort: si por lo que sea
   # esto falla, no bloquea el procesamiento real que es lo que importa.
-  local est_args=(--rm -e "PRESET=$preset" -e "MODE=$mode" -e "TERRENO=$terreno")
+  local est_args=(--rm -e "PRESET=$preset" -e "MODE=$mode" -e "TERRENO=$terreno" -e "SUB_SAMPLE=$subsample")
   [[ -n "$input" ]] && est_args+=(-v "$input:$C_INPUT:ro")
   [[ -n "$input_ms" ]] && est_args+=(-v "$input_ms:$C_INPUT_MS:ro")
   docker run "${est_args[@]}" "$IMAGE" quality-estimate 2>/dev/null || true
