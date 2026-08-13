@@ -1,18 +1,23 @@
 /* ═══════════════════════════════════════════════════════════════════
-   GEOVISOR — situación de incendio para personal SIN experiencia en SIG.
+   RAPTOR · SIG de despliegue — geovisor
+   ─────────────────────────────────────────────────────────────────────
+   Una sola composición (la hoja anterior acumulaba cuatro capas de
+   rediseños que se pisaban entre sí y rompían el tema oscuro: la última
+   forzaba claro siempre). Esta versión es UN sistema de tokens, idéntico
+   al del Centro de misiones (webapp/static/index.html): misma familia
+   teal institucional SIATA, misma Public Sans, mismos radios, mismos
+   colores semánticos claro/oscuro — las dos pantallas son UN producto.
 
-   Identidad calmada y editorial: papel gris-frío (no café/tostado), un
-   único acento institucional (teal, tomado de la propia identidad de
-   SIATA — turquesa #52B7C4 sobre pizarra oscura, extraído de su hoja de
-   estilos pública), Public Sans como única tipografía. El color semántico
-   (rojo=urgencia, ámbar=atención, verde=vegetación, azul=agua/contexto) es
-   EXCLUSIVO de lo que el dato significa en el terreno — nunca decorativo,
-   nunca el acento de la interfaz.
+   Reglas de forma (iguales en la webapp):
+     · tarjetas/paneles ........ 14px de radio
+     · inputs/selects/botones .. 10px
+     · chips/estados/badges .... 999px (píldora)
+   Sombras teñidas del fondo (nunca negro puro), rgba (no color-mix)
+   para que funcione en Chromium viejos de campo.
 
-   Dos modos comparten el mismo motor de mapa: "simple" (por defecto, lo
-   que necesita alguien sin SIG para decidir en segundos) y "operativo"
-   (el gestor de capas técnico completo: buscar, reordenar, opacidad por
-   capa, comparar, medir — sigue existiendo, solo detrás de un toggle).
+   El color semántico (rojo=urgencia, ámbar=atención, verde=vegetación,
+   azul=contexto) es EXCLUSIVO de lo que el dato significa en el terreno —
+   nunca decorativo, nunca el acento de la interfaz.
    ═══════════════════════════════════════════════════════════════════ */
 
 @font-face{font-family:'Public Sans';font-style:normal;font-weight:400;font-display:swap;
@@ -27,72 +32,83 @@
   src:url('fonts/pubsans-800.woff2') format('woff2')}
 
 :root{
-  --font: 'Public Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --paper: #F4F7F8; --surface: #FFFFFF; --surface-2: #EAF1F2; --line: #DBE5E7;
-  --ink: #15262C; --ink-muted: #55696E; --ink-faint: #8B9CA0;
-  --accent: #157A8C; --accent-bright: #4FB6C4; --accent-ink: #FFFFFF;
-  --accent-soft: #DEF0F2; --accent-line: #A9D6DC;
-  --critical: #C1401A; --critical-soft: #FBE7DE; --critical-line:#EFB69C;
-  --warning:  #B9791C; --warning-soft:  #FBF0DB; --warning-line: #E9C97E;
-  --good:     #2E8256; --good-soft:     #DFF0E6; --good-line:    #A0CDB2;
-  --info:     #2F6FA0; --info-soft:     #E1EDF6; --info-line:    #A6C9E3;
-  --shadow: 0 1px 2px rgba(11,26,31,.05), 0 8px 24px rgba(11,26,31,.09);
-  --shadow-lg: 0 12px 40px rgba(11,26,31,.18);
-  --radius: 14px; --radius-sm: 9px;
-  --fs-xs: .75rem; --fs-sm: .8125rem; --fs-base: .9375rem; --fs-md: 1.0625rem;
-  --fs-lg: 1.25rem; --fs-xl: 1.75rem; --fs-2xl: 2.375rem;
-  --text-scale: 1; --sidebar-w: 380px;
-}
-@media (prefers-color-scheme: dark){
-  :root{
-    --paper: #0C1A1F; --surface: #142428; --surface-2: #1A2D31; --line: #2A3F43;
-    --ink: #EAF3F4; --ink-muted: #9CB2B5; --ink-faint: #6E8386;
-    --accent: #5CC2CF; --accent-bright: #7ED4DE; --accent-ink: #072024;
-    --accent-soft: #1B3438; --accent-line: #2F4F54;
-    --critical: #FF9166; --critical-soft: #3A2418; --critical-line: #6B4128;
-    --warning:  #F0BE68; --warning-soft: #3A2E15; --warning-line: #6B5726;
-    --good:     #7FCB9C; --good-soft: #1B3327; --good-line: #365E46;
-    --info:     #8CBEE0; --info-soft: #1B2E3C; --info-line: #35516A;
-    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
-    --shadow-lg: 0 12px 40px rgba(0,0,0,.5);
-  }
-}
-:root[data-theme="light"]{
-  --paper: #F4F7F8; --surface: #FFFFFF; --surface-2: #EAF1F2; --line: #DBE5E7;
-  --ink: #15262C; --ink-muted: #55696E; --ink-faint: #8B9CA0;
-  --accent: #157A8C; --accent-bright: #4FB6C4; --accent-ink: #FFFFFF;
-  --accent-soft: #DEF0F2; --accent-line: #A9D6DC;
-  --critical: #C1401A; --critical-soft: #FBE7DE; --critical-line:#EFB69C;
-  --warning:  #B9791C; --warning-soft:  #FBF0DB; --warning-line: #E9C97E;
-  --good:     #2E8256; --good-soft:     #DFF0E6; --good-line:    #A0CDB2;
-  --info:     #2F6FA0; --info-soft:     #E1EDF6; --info-line:    #A6C9E3;
-  --shadow: 0 1px 2px rgba(11,26,31,.05), 0 8px 24px rgba(11,26,31,.09);
-  --shadow-lg: 0 12px 40px rgba(11,26,31,.18);
+  --font:'Public Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  /* Mismos tokens que webapp/static/index.html — ver la cabecera de allá. */
+  --paper:#F4F7F8; --surface:#FFFFFF; --surface-2:#EAF1F2; --line:#DBE5E7;
+  --ink:#15262C; --ink-muted:#55696E; --ink-faint:#8B9CA0;
+  --accent:#0E7A68; --accent-bright:#2AA389; --accent-ink:#FFFFFF;
+  --accent-soft:#E4F1EC; --accent-line:#A9D6CC;
+  --critical:#C2401F; --critical-soft:#FBE7DE; --critical-line:#EFB69C;
+  --warning:#A9751E; --warning-soft:#FBF0DB; --warning-line:#E9C97E;
+  --good:#2F7D5C; --good-soft:#DFF0E6; --good-line:#A0CDB2;
+  --info:#2F6FA0; --info-soft:#E1EDF6; --info-line:#A6C9E3;
+  --shadow:0 1px 2px rgba(16,44,38,.05),0 8px 24px rgba(16,44,38,.09);
+  --shadow-lg:0 12px 40px rgba(16,44,38,.18);
+  --radius:14px; --radius-sm:10px;
+  --fs-xs:.75rem; --fs-sm:.8125rem; --fs-base:.9375rem; --fs-md:1.0625rem;
+  --fs-lg:1.25rem; --fs-xl:1.75rem; --fs-2xl:2.375rem;
+  --text-scale:1; --summary-w:320px; --sig-w:360px;
 }
 :root[data-theme="dark"]{
-  --paper: #0C1A1F; --surface: #142428; --surface-2: #1A2D31; --line: #2A3F43;
-  --ink: #EAF3F4; --ink-muted: #9CB2B5; --ink-faint: #6E8386;
-  --accent: #5CC2CF; --accent-bright: #7ED4DE; --accent-ink: #072024;
-  --accent-soft: #1B3438; --accent-line: #2F4F54;
-  --critical: #FF9166; --critical-soft: #3A2418; --critical-line: #6B4128;
-  --warning:  #F0BE68; --warning-soft: #3A2E15; --warning-line: #6B5726;
-  --good:     #7FCB9C; --good-soft: #1B3327; --good-line: #365E46;
-  --info:     #8CBEE0; --info-soft: #1B2E3C; --info-line: #35516A;
-  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
-  --shadow-lg: 0 12px 40px rgba(0,0,0,.5);
+  --paper:#0C1412; --surface:#121D1A; --surface-2:#182622; --line:#23332E;
+  --ink:#E8F0EC; --ink-muted:#9DB0A9; --ink-faint:#7E918A;
+  --accent:#4FC2A4; --accent-bright:#7ED9BF; --accent-ink:#06201A;
+  --accent-soft:#14251D; --accent-line:#2E4A3B;
+  --critical:#FF8B6B; --critical-soft:#311B14; --critical-line:#5E3527;
+  --warning:#E7B45C; --warning-soft:#2E2410; --warning-line:#5C4A1F;
+  --good:#7CD4A4; --good-soft:#14251D; --good-line:#2E4A3B;
+  --info:#8CBEE0; --info-soft:#1B2E3C; --info-line:#35516A;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.35);
+  --shadow-lg:0 12px 40px rgba(0,0,0,.5);
+  color-scheme:dark;
 }
 :root[data-contrast="alto"]{
-  --line: color-mix(in srgb, var(--ink) 35%, var(--paper));
-  --ink-muted: color-mix(in srgb, var(--ink) 75%, var(--paper));
-  --shadow: 0 0 0 1.5px var(--ink); --shadow-lg: 0 0 0 2px var(--ink);
+  /* rgba (no color-mix): la app corre en Chromium viejos de campo donde
+     color-mix() no existe — ver el mismo criterio en webapp/static/index.html. */
+  --line:rgba(0,0,0,.35);
+  --ink-muted:rgba(0,0,0,.78);
+  --shadow:0 0 0 1.5px var(--ink); --shadow-lg:0 0 0 2px var(--ink);
+}
+:root[data-theme="dark"][data-contrast="alto"]{
+  --line:rgba(255,255,255,.35);
+  --ink-muted:rgba(255,255,255,.78);
 }
 
 *,*::before,*::after{box-sizing:border-box}
 html{font-size:calc(16px * var(--text-scale))}
 body{margin:0;font-family:var(--font);background:var(--paper);color:var(--ink);
   font-size:var(--fs-base);line-height:1.5;-webkit-font-smoothing:antialiased;
-  height:100vh;overflow:hidden;display:flex;flex-direction:column}
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+  height:100vh;height:100dvh;overflow:hidden;display:flex;flex-direction:column}
 h1,h2,h3,h4{margin:0;font-weight:700}
+/* Iconos SVG inline (sprite en index.html — mismo idioma visual que la
+   webapp: un solo trazo, stroke currentColor, sin emojis que dependan de
+   los glifos de cada plataforma en campo). El fill:none/stroke:currentColor
+   que describe este comentario nunca estaba — sin ninguna regla que lo
+   fije, el fill inicial de SVG (negro sólido, sin importar el tema) se
+   quedaba puesto: en tema claro los íconos se veían por casualidad (negro
+   sobre fondo claro), pero en tema OSCURO —el default de esta app— eran
+   directamente invisibles (negro sobre fondo casi negro): la flecha de
+   volver, el calendario, el chevron de Ayuda, todos los íconos de las
+   tarjetas de capa. Bug real, encontrado en vivo. */
+.ic{width:1.15em;height:1.15em;flex-shrink:0;vertical-align:-.18em;
+  fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+button .ic,label .ic,a .ic{pointer-events:none}
+/* i-dot/i-sun/i-moon son formas SÓLIDAS (bullet, disco de sol, media luna),
+   no trazos — con el fill:none de arriba quedarían como anillos huecos en
+   vez de figuras rellenas. */
+.ic-dot,.ic-sun,.ic-moon{fill:currentColor;stroke:none}
+/* Toggle de tema: sol y luna viven juntos en #theme-ic, el CSS decide cuál
+   se ve según data-theme — mismo mecanismo que webapp/static/index.html. */
+#theme-ic{display:inline-flex;align-items:center;justify-content:center;vertical-align:-.18em}
+#theme-ic .ic{width:15px;height:15px}
+#theme-ic .ic-moon{display:none}
+:root[data-theme="dark"] #theme-ic .ic-sun{display:none}
+:root[data-theme="dark"] #theme-ic .ic-moon{display:block}
+.search-ic{position:absolute;left:10px;font-size:.8em;opacity:.6;pointer-events:none;display:inline-flex}
+.search-ic .ic{width:15px;height:15px}
+.timebar-chev{width:14px;height:14px}
+.area-edit-icon{flex-shrink:0;display:inline-flex}
 /* appearance:none es LO QUE FALTABA — sin esto, el navegador puede aplicar
    el "chrome" nativo del sistema operativo (ButtonFace/ButtonText) en
    hover/focus de un <button>, que no tiene ninguna idea de nuestro tema
@@ -117,48 +133,69 @@ button{font-family:inherit;color:inherit;cursor:pointer;
 .pulse{animation:pulse-ring 2.2s ease-out infinite;transform-origin:center;transform-box:fill-box}
 @keyframes pulse-ring{0%{transform:scale(.7);opacity:.5}70%{transform:scale(1.5);opacity:0}100%{opacity:0}}
 
-/* Panel flotante genérico (medición, área, progreso) — antes tenía un
-   marco de esquinas tipo visor de cámara; en esta identidad calmada es
-   solo una tarjeta más. */
+/* Panel flotante genérico (medición, área, progreso) — una tarjeta más de
+   la identidad: superficie, hairline y radio del sistema. */
 .hud-frame{background:var(--surface);border:1px solid var(--line);
   border-radius:var(--radius);box-shadow:var(--shadow-lg)}
 
+/* ── Rail de identidad: la firma del SIG de despliegue ─────────────── */
+.command-rail{position:fixed;inset:0 auto 0 0;width:76px;background:var(--ink);
+  color:#F4F7F8;z-index:1000;display:flex;flex-direction:column;align-items:center;
+  padding:18px 0 16px}
+:root[data-theme="dark"] .command-rail{background:#0A1418}
+.rail-mark{width:40px;height:40px;display:grid;place-items:center;background:var(--accent);
+  color:var(--accent-ink);font-weight:800;font-size:1.15rem;border-radius:10px}
+.rail-wordmark{font-size:.54rem;letter-spacing:.22em;font-weight:700;writing-mode:vertical-rl;
+  margin-top:22px;color:rgba(244,247,248,.85)}
+.rail-rule{width:1px;flex:1;background:rgba(255,255,255,.18);margin:18px 0}
+.rail-context{font-size:.52rem;letter-spacing:.1em;line-height:1.55;text-align:center;
+  color:rgba(244,247,248,.55)}.rail-context b{display:block;color:#F4F7F8;font-size:.62rem;margin-bottom:5px}
+.rail-footer{font-size:.52rem;letter-spacing:.1em;line-height:1.5;text-align:center;
+  margin-top:16px;color:rgba(244,247,248,.4)}
+
 /* ── Barra superior ───────────────────────────────────────────────── */
-#topbar{display:flex;align-items:center;gap:14px;padding:10px 18px;
-  background:var(--surface);border-bottom:1px solid var(--line);flex-shrink:0;
-  z-index:60;min-height:60px}
-#btn-back{width:32px;height:32px;border-radius:9px;background:var(--surface-2);
+#topbar{position:fixed;top:0;left:76px;right:0;height:64px;min-height:64px;z-index:900;
+  display:flex;align-items:center;gap:12px;padding:0 20px;
+  background:rgba(255,255,255,.92);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--line)}
+:root[data-theme="dark"] #topbar{background:rgba(12,20,18,.92)}
+#btn-back{width:36px;height:36px;border-radius:10px;background:var(--surface-2);
   color:var(--ink);display:grid;place-items:center;font-size:1.05em;flex-shrink:0;
-  transition:background .12s}
-#btn-back:hover{background:var(--accent);color:var(--accent-ink)}
+  border:1px solid var(--line);transition:background .12s,color .12s}
+#btn-back:hover{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+#btn-back:active{transform:scale(.94)}
 .incident-id{display:flex;flex-direction:column;gap:1px;min-width:0}
-.incident-id .name{font-size:var(--fs-md);font-weight:700;white-space:nowrap;
+.incident-id .name{font-size:var(--fs-md);font-weight:700;letter-spacing:-.02em;white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis;max-width:34vw}
-.incident-id .zone{font-size:var(--fs-xs);color:var(--ink-muted)}
-.freshness{display:flex;align-items:center;gap:8px;padding:6px 12px 6px 8px;
-  background:var(--surface-2);border-radius:20px;font-size:var(--fs-xs);
-  color:var(--ink-muted);flex-shrink:0;white-space:nowrap}
+.incident-id .zone{font-size:var(--fs-xs);color:var(--ink-muted);text-transform:uppercase;
+  letter-spacing:.06em}
+.freshness{display:flex;align-items:center;gap:7px;padding:5px 12px 5px 8px;
+  background:var(--good-soft);border:1px solid var(--good-line);border-radius:999px;
+  font-size:var(--fs-xs);color:var(--good);font-weight:600;flex-shrink:0;white-space:nowrap;
+  transition:border-color .15s}
+.freshness:hover{border-color:var(--good)}
 .confidence-ticks{display:flex;gap:2.5px;align-items:flex-end}
-.confidence-ticks i{display:block;width:4px;border-radius:1.5px;background:var(--line)}
+.confidence-ticks i{display:block;width:4px;border-radius:1.5px;background:var(--good-line)}
 .confidence-ticks i:nth-child(1){height:6px}
 .confidence-ticks i:nth-child(2){height:9px}
 .confidence-ticks i:nth-child(3){height:12px}
 .confidence-ticks[data-level="alta"] i{background:var(--good)}
 .confidence-ticks[data-level="media"] i:nth-child(-n+2){background:var(--warning)}
-.confidence-ticks[data-level="media"] i:nth-child(3){background:var(--line)}
+.confidence-ticks[data-level="media"] i:nth-child(3){background:var(--good-line)}
 .confidence-ticks[data-level="baja"] i:nth-child(1){background:var(--critical)}
-.confidence-ticks[data-level="baja"] i:nth-child(n+2){background:var(--line)}
+.confidence-ticks[data-level="baja"] i:nth-child(n+2){background:var(--good-line)}
 #topbar .spacer{flex:1}
-.date-select{display:flex;align-items:center;gap:9px;background:var(--surface-2);
+.date-select{display:flex;align-items:center;gap:9px;background:transparent;
   border:1px solid var(--line);border-radius:10px;padding:7px 13px;
-  font-size:var(--fs-sm);color:var(--ink);flex-shrink:0}
-.date-select:hover{border-color:var(--ink-faint)}
+  font-size:var(--fs-sm);color:var(--ink);flex-shrink:0;transition:background .12s,border-color .12s}
+.date-select:hover{background:var(--surface-2);border-color:var(--ink-faint)}
 .date-select b{font-weight:600}
 .btn{display:inline-flex;align-items:center;gap:7px;padding:9px 16px;border-radius:10px;
   font-size:var(--fs-sm);font-weight:600;border:1px solid transparent;white-space:nowrap;
-  transition:filter .12s,background .12s}
+  transition:background .12s,color .12s,border-color .12s,transform .1s}
+.btn:active{transform:translateY(1px)}
 .btn.primary{background:var(--accent);color:var(--accent-ink)}
-.btn.primary:hover{filter:brightness(1.08)}
+.btn.primary:hover{background:var(--accent-bright)}
 .btn.ghost{background:var(--surface-2);border-color:var(--line);color:var(--ink)}
 .btn.ghost:hover{background:var(--line)}
 .btn.sm{padding:6px 11px;font-size:var(--fs-xs)}
@@ -194,10 +231,22 @@ button{font-family:inherit;color:inherit;cursor:pointer;
 .switch[aria-checked="true"]{background:var(--accent)}
 .switch[aria-checked="true"]::after{transform:translateX(18px)}
 
-/* ── Cuerpo: mapa + panel ─────────────────────────────────────────── */
-main.body{flex:1;display:grid;grid-template-columns:1fr var(--sidebar-w);overflow:hidden;position:relative}
-main.body.panel-collapsed{grid-template-columns:1fr 0}
-.map-area{position:relative;background:var(--surface-2);overflow:hidden}
+/* ── Cuerpo: resumen gerencial (izquierda) + mesa cartográfica (centro) +
+   SIG (derecha). #panel-wrap es transparente al grid en escritorio
+   (display:contents): sus dos <aside> hijos (panel-summary/panel-sig)
+   participan DIRECTO del grid de 3 columnas — cada uno con grid-column
+   explícito (no alcanza el orden del DOM: panel-sig es HERMANO de
+   panel-summary pero tiene que caer del OTRO LADO del mapa, que en el DOM
+   viene después de los dos). En mobile #panel-wrap deja de ser transparente
+   — ver el media query más abajo, donde se convierte en la hoja inferior
+   real y los dos paneles se apilan en orden de DOM (ahí sí alcanza). ── */
+main.body{height:100dvh;margin-left:76px;padding-top:64px;display:grid;
+  grid-template-columns:var(--summary-w) minmax(0,1fr) var(--sig-w);grid-template-rows:1fr;
+  background:var(--paper);overflow:hidden;position:relative}
+#panel-wrap{display:contents}
+#panel-summary{grid-column:1}
+.map-area{position:relative;grid-column:2;grid-row:1;background:var(--surface-2);overflow:hidden}
+#panel-sig{grid-column:3;border-right:none;border-left:1px solid var(--line)}
 #map{width:100%;height:100%;background:var(--paper)}
 
 /* Todo lo que flota SOBRE #map (viewmode, leyenda, ficha de punto, toggle
@@ -210,13 +259,6 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
    Con z-index bajo (20-80, como estaba antes) quedaban VISUALMENTE detrás
    del mapa pese a estar después en el DOM — el bug real detrás de "el
    popup de punto sale oculto". 750+ dejan un margen cómodo por encima. */
-.map-viewmode{position:absolute;top:16px;left:16px;z-index:750;display:flex;
-  background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:3px;
-  box-shadow:var(--shadow)}
-.map-viewmode button{padding:7px 13px;border-radius:7px;font-size:var(--fs-xs);font-weight:600;
-  color:var(--ink-muted)}
-.map-viewmode button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
-
 .leaflet-control-zoom a{background:var(--surface)!important;color:var(--ink)!important;
   border-color:var(--line)!important}
 .leaflet-control-zoom a:hover{background:var(--surface-2)!important;color:var(--accent)!important}
@@ -243,27 +285,6 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
 .coords-control .compass{color:var(--accent);font-weight:700}
 .coords-control .coords-text{font-variant-numeric:tabular-nums}
 
-/* Leyenda contextual flotante — texto a tamaño de lectura real (no "letra
-   chica de leyenda"), porque es lo que alguien lee para decidir qué
-   significa lo que está viendo. Reusa el HTML de LAYER_REGISTRY[id].legend()
-   (mismo que "modo operativo": <p>, .stat-row, .legend-classes) — acá se
-   agranda TODO eso con selectores más específicos, sin duplicar el HTML. */
-.map-legend{position:absolute;left:16px;top:70px;z-index:751;background:var(--surface);
-  border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:var(--radius);
-  box-shadow:var(--shadow-lg);padding:15px 17px;max-width:310px;display:none}
-.map-legend.visible{display:block}
-.map-legend h4{font-size:var(--fs-md);font-weight:700;margin-bottom:10px}
-.map-legend p{font-size:var(--fs-sm);color:var(--ink-muted);line-height:1.6;margin-bottom:10px}
-.map-legend .legend-classes{margin-top:8px;display:flex;flex-direction:column;gap:6px}
-.map-legend .stat-row{font-size:var(--fs-sm);padding:2px 0;color:var(--ink)}
-.map-legend .stat-row .lbl{font-size:1em;color:var(--ink)}
-.map-legend .legend-lbl{font-size:var(--fs-xs)}
-/* El párrafo introductorio de cada capa suele ser la justificación técnica
-   completa (útil en "modo operativo", denso acá) — se muestra solo la
-   PRIMERA oración, agrandada y en negro, como interpretación accionable;
-   el resto de <p> (si hay más de uno) sigue disponible en "Ver detalles". */
-.map-legend p:first-of-type{color:var(--ink);font-weight:500}
-
 /* Tooltips de Leaflet (marcadores de la ruta de vuelo, etc.) — sin esto
    usan el globo blanco+borde negro por defecto del navegador, que
    desentona con el resto de la interfaz. */
@@ -280,7 +301,7 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
 .leaflet-control-attribution{background:rgba(255,255,255,.75)!important;color:var(--ink-muted)!important;
   font-size:.62em!important;padding:2px 7px!important;border-radius:6px 0 0 0!important;
   box-shadow:none!important}
-:root[data-theme="dark"] .leaflet-control-attribution{background:rgba(12,26,31,.75)!important}
+:root[data-theme="dark"] .leaflet-control-attribution{background:rgba(12,20,18,.75)!important}
 .leaflet-control-attribution a{color:var(--ink-muted)!important}
 
 /* Ficha "qué significa este punto" */
@@ -310,99 +331,108 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
 .point-card .meta{padding:11px 16px;border-top:1px solid var(--line);font-size:var(--fs-xs);
   color:var(--ink-muted);display:flex;justify-content:space-between}
 
-/* ── Panel derecho (simple + operativo comparten el contenedor) ────── */
-.panel{background:var(--surface);border-left:1px solid var(--line);display:flex;
-  flex-direction:column;overflow:hidden;transition:width .2s}
-.panel-collapsed .panel{border-left:none}
+/* ── Los dos paneles (resumen gerencial + SIG): clase compartida con el
+   fondo/flex-column común; la COLUMNA de cada uno (1 o 3, con el mapa en
+   el medio) se fija por id — ver #panel-summary/#panel-sig más arriba,
+   junto a main.body. ── */
+.panel{background:var(--surface);border-right:1px solid var(--line);display:flex;
+  flex-direction:column;overflow:hidden;min-width:0}
+main.body.panel-collapsed{grid-template-columns:0 minmax(0,1fr) 0}
+main.body.panel-collapsed .panel{border-right:none;border-left:none}
 .panel-toggle{position:absolute;top:16px;right:16px;z-index:750;width:38px;height:38px;
   border-radius:10px;background:var(--surface);border:1px solid var(--line);
   box-shadow:var(--shadow);color:var(--ink-muted);display:none;align-items:center;
-  justify-content:center;font-size:1.05em}
-.panel-collapsed .panel-toggle{display:flex}
-/* flex:1;min-height:0 en vez de height:100% — con el HUD de progreso como
-   tercer hijo de .panel (ver index.html), height:100% dejaba a estos dos
-   ocupando TODO el alto igual y el HUD quedaba empujado fuera de vista;
-   min-height:0 es necesario además porque un hijo flex por defecto no se
-   encoge más chico que su contenido (overflow:hidden de acá solo, sin
-   esto, no alcanza). */
-#panel-simple,#panel-advanced{display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden}
-/* El atributo [hidden] nativo pierde contra CUALQUIER regla de autor que
-   fije `display` en el mismo elemento (la hoja de estilos del navegador que
-   lo implementa es de menor prioridad que la nuestra, sin importar
-   especificidad) — la regla de arriba fijaba display:flex incondicional en
-   los dos paneles, así que ocultar uno con [hidden] no hacía nada visible:
-   modo simple y modo operativo quedaban superpuestos. Esto gana porque
-   [id][hidden] es más específico que [id] solo. */
-#panel-simple[hidden],#panel-advanced[hidden]{display:none}
-.panel-head{padding:16px 18px 4px;flex-shrink:0}
-.panel-head-row{display:flex;align-items:center;justify-content:space-between}
-.panel-head h2{font-size:var(--fs-md)}
-.panel-close{width:30px;height:30px;border-radius:8px;color:var(--ink-muted)}
-.panel-close:hover{background:var(--surface-2);color:var(--ink)}
-.panel-scroll{flex:1;overflow-y:auto;padding:12px 18px 18px}
-.panel-scroll::-webkit-scrollbar{width:8px}
-.panel-scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
-.panel-footer{padding:14px 18px;border-top:1px solid var(--line);flex-shrink:0}
-.link-advanced{font-size:var(--fs-xs);color:var(--ink-muted);text-decoration:none;
-  display:flex;align-items:center;gap:5px}
-.link-advanced:hover{color:var(--accent)}
+  justify-content:center}
+.panel-toggle:hover{background:var(--surface-2);color:var(--ink)}
+main.body.panel-collapsed .panel-toggle{display:flex}
+.panel-head{padding:22px 24px 12px;flex-shrink:0}
+.panel-head-row{display:flex;align-items:flex-start;justify-content:space-between}
+.panel-kicker{font-size:.64rem;font-weight:800;letter-spacing:.15em;text-transform:uppercase;
+  color:var(--accent);margin:0 0 10px}
+.panel-head h2{font-size:var(--fs-xl);letter-spacing:-.03em;line-height:1.05;max-width:285px}
+.panel-sub{font-size:var(--fs-xs);color:var(--ink-muted);margin:8px 0 0;line-height:1.5;max-width:31ch}
+.panel-head-row .panel-close{width:28px;height:28px;border-radius:8px;color:var(--ink-muted);
+  display:flex;align-items:center;justify-content:center}
+.panel-head-row .panel-close:hover{background:var(--surface-2);color:var(--ink)}
 
-/* Resumen ejecutivo */
-.summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:18px}
-.stat-card{background:var(--surface-2);border-radius:var(--radius-sm);padding:12px 13px}
-.stat-card .l{font-size:var(--fs-xs);color:var(--ink-muted);margin-bottom:5px}
-.stat-card .v{font-size:var(--fs-xl);font-weight:800;line-height:1}
+#report-close{display:inline-flex;align-items:center;justify-content:center;
+  width:28px;height:28px;border-radius:7px}
+#report-close:hover{background:var(--surface-2)}
+.panel-footer{padding:14px 24px;border-top:1px solid var(--line);flex-shrink:0;
+  background:var(--surface-2)}
+.panel-footer[hidden]{display:none}
+
+/* Resumen ejecutivo — instrumento de decisión: un solo número protagonista
+   (focos térmicos), el alcance del evento (área + severidad + vegetación) y
+   al final la procedencia (captura, calidad del levantamiento). Jerarquía
+   por tamaño y por color semántico de dato; divisores finos, no cajas de
+   igual peso apiladas. Ya no vive dentro de .panel-scroll (panel unificado,
+   sin modos): el padding horizontal que antes le daba ese contenedor se
+   fija acá directo. */
+.summary-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 20px;
+  padding:4px 24px 16px;flex-shrink:0;border-bottom:1px solid var(--line)}
+.stat-card{padding:14px 2px;border-bottom:1px solid var(--line);min-width:0}
+.stat-card .l{font-size:.66rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ink-faint);margin-bottom:7px}
+.stat-card .v{font-size:var(--fs-xl);font-weight:800;line-height:1;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;color:var(--ink)}
 .stat-card .v small{font-size:var(--fs-sm);font-weight:600;color:var(--ink-muted)}
-.stat-card .sub{font-size:var(--fs-xs);color:var(--ink-muted);margin-top:4px}
+.stat-card .sub{font-size:var(--fs-xs);color:var(--ink-muted);margin-top:6px;line-height:1.5}
+/* Focos térmicos — la cifra que decide. Única caja del bloque, en el color
+   semántico del dato (rojo = urgencia). Con 0 focos la clase .none (puesta
+   desde renderSummaryCards) la pasa a verde: misma forma, sin alarma. */
+.stat-card.hotspots{grid-column:1/-1;background:var(--critical-soft);
+  border:1px solid var(--critical-line);border-radius:var(--radius-sm);
+  padding:15px 18px;margin-bottom:12px}
+.stat-card.hotspots .l{color:var(--critical)}
+.stat-card.hotspots .v{font-size:var(--fs-2xl);color:var(--critical);margin-top:2px}
+.stat-card.hotspots .sub{color:var(--critical);opacity:.9}
+.stat-card.hotspots.none{background:var(--good-soft);border-color:var(--good-line)}
+.stat-card.hotspots.none .l{color:var(--good)}
+.stat-card.hotspots.none .v{color:var(--good)}
+.stat-card.hotspots.none .sub{color:var(--good);opacity:.9}
+/* Área afectada: el alcance del evento a lo ancho, con la barra de
+   severidad integrada — la proporción leve/moderado/severo ES la decisión. */
+.stat-card.area{grid-column:1/-1}
+.stat-card.area .v{font-size:var(--fs-xl)}
 .stat-card.severidad .v{color:var(--warning)}
-.stat-card.hotspots .v{color:var(--critical)}
-.severity-mini{display:flex;gap:2px;margin-top:7px;height:5px;border-radius:3px;overflow:hidden}
-.severity-mini i{display:block}
+.severity-mini{display:flex;gap:3px;margin-top:9px;height:7px;border-radius:4px;overflow:hidden}
+.severity-mini i{display:block;border-radius:2px}
+/* Recomendación — la frase accionable (buildRecommendationText, el mismo
+   texto que el reporte) debajo de las cifras. Sin caja: franja de lectura
+   con acento de decisión. */
+.reco-strip{grid-column:1/-1;margin:12px 0 14px;padding:11px 14px 11px 15px;
+  border-left:3px solid var(--warning);background:var(--warning-soft);
+  border-radius:0 var(--radius-sm) var(--radius-sm) 0;font-size:var(--fs-sm);
+  line-height:1.55;color:var(--ink)}
+.reco-strip .reco-l{display:block;font-size:.62rem;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--warning);margin-bottom:3px}
+/* Recomendación informativa (sin severidad alta): acento neutro en vez del
+   ámbar de urgencia — el color semántico queda reservado a la decisión. */
+.reco-strip.quiet{border-left-color:var(--accent);background:var(--accent-soft)}
+.reco-strip.quiet .reco-l{color:var(--accent)}
 
-/* Segmentado de 3 modos */
-.mode-tabs{display:flex;background:var(--surface-2);border-radius:10px;padding:3px;margin-bottom:14px}
-.mode-tabs button{flex:1;padding:8px 6px;border-radius:7px;font-size:var(--fs-sm);
-  font-weight:600;color:var(--ink-muted)}
-.mode-tabs button[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
-.mode-panel{display:none}
-.mode-panel.active{display:block}
-.mode-panel .empty-note{font-size:var(--fs-xs);color:var(--ink-muted);padding:16px 4px;text-align:center}
+.legend-swatch{display:inline-block;width:12px;height:12px;border-radius:3px;flex-shrink:0}
+/* Interpretación en lenguaje llano — dentro de la leyenda flotante del mapa
+   Y al tope de cada tarjeta de capa (layerCardHTML(), app.js). */
+.interpret{font-size:var(--fs-xs);color:var(--ink);background:var(--accent-soft);
+  border-radius:8px;padding:9px 11px;margin:0 0 10px;line-height:1.5}
 
-/* Tarjeta de información (una capa, modo simple) */
-.info-item{border:1px solid var(--line);border-radius:var(--radius-sm);margin-bottom:9px;overflow:hidden}
-.info-item-head{display:flex;align-items:center;gap:10px;padding:11px 12px}
-.info-item-name{flex:1;min-width:0;cursor:pointer}
-.info-item-name .n{font-size:var(--fs-sm);font-weight:600}
-.info-item-name .d{font-size:var(--fs-xs);color:var(--ink-muted);margin-top:1px}
-.info-item-details{padding:0 12px 12px}
-.info-item-legend{display:flex;gap:12px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--line);margin-top:2px}
-.info-item-legend .chip{display:flex;align-items:center;gap:6px;font-size:var(--fs-xs);color:var(--ink-muted)}
-.info-item-foot{display:flex;align-items:center;justify-content:space-between;margin-top:9px}
-.info-item-foot .date{font-size:var(--fs-xs);color:var(--ink-faint)}
-.info-item-foot a{font-size:var(--fs-xs);font-weight:600;color:var(--accent);cursor:pointer;text-decoration:none}
-.info-item-foot a:hover{text-decoration:underline}
-.info-item-full-desc{font-size:var(--fs-xs);color:var(--ink-muted);line-height:1.55;
-  padding-top:9px;margin-top:9px;border-top:1px solid var(--line)}
-.details-toggle{color:var(--ink-muted);transition:transform .15s;padding:4px}
-.details-toggle.open{transform:rotate(180deg)}
-
-.ajustes-toggle{width:100%;text-align:left;padding:10px 2px;font-size:var(--fs-sm);
-  font-weight:600;color:var(--ink-muted);display:flex;align-items:center;justify-content:space-between}
-.ajustes-body{display:none;padding:4px 2px 10px}
-.ajustes-body.open{display:block}
-.opacity-row{display:flex;align-items:center;gap:10px;font-size:var(--fs-xs);color:var(--ink-muted);padding:6px 0}
-.opacity-row input[type=range]{flex:1;accent-color:var(--accent)}
-
-/* ── Vista de lista accesible ─────────────────────────────────────── */
-.list-view{display:none;padding:20px 24px;overflow-y:auto;height:100%;background:var(--paper)}
-.list-view.active{display:block}
-.list-view table{width:100%;border-collapse:collapse;font-size:var(--fs-sm)}
-.list-view th{text-align:left;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.04em;
-  color:var(--ink-muted);padding:8px 12px;border-bottom:2px solid var(--line)}
-.list-view td{padding:12px;border-bottom:1px solid var(--line);vertical-align:top}
-.list-view caption{caption-side:top;text-align:left;font-size:var(--fs-xs);color:var(--ink-muted);padding-bottom:10px}
+/* Focos identificados — lista compacta DENTRO de la tarjeta de la capa
+   Hotspot térmico (antes vivía aparte, en la vista "Lista" que se sacó).
+   Un renglón por foco: coordenadas + severidad + temperatura, clickeable
+   para centrar el mapa ahí (ver wireHotspotList(), app.js). */
+.hotspot-list{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.hotspot-list-title{font-size:.66rem;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--ink-faint);margin-bottom:6px}
+.hotspot-row{display:flex;align-items:center;gap:8px;width:100%;padding:7px 4px;
+  border-radius:7px;background:none;border:none;text-align:left;cursor:pointer;
+  font-size:var(--fs-xs);color:var(--ink)}
+.hotspot-row:hover{background:var(--surface-2)}
+.hotspot-row .coord{flex:1;min-width:0;font-variant-numeric:tabular-nums;color:var(--ink-muted)}
+.hotspot-row .temp{font-variant-numeric:tabular-nums;font-weight:600}
 .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:7px;
-  font-size:var(--fs-xs);font-weight:700}
+  font-size:var(--fs-xs);font-weight:700;flex-shrink:0}
 .badge.leve{background:var(--good-soft);color:var(--good)}
 .badge.moderado{background:var(--warning-soft);color:var(--warning)}
 .badge.severo{background:var(--critical-soft);color:var(--critical)}
@@ -411,6 +441,7 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
 .timebar{display:none;background:var(--surface);border-top:1px solid var(--line);flex-shrink:0;z-index:770}
 .timebar.enabled{display:block}
 .timebar-head{display:flex;align-items:center;gap:14px;padding:10px 20px;cursor:pointer}
+.timebar-head:hover{background:var(--surface-2)}
 .timebar-head h3{font-size:var(--fs-sm);flex-shrink:0}
 .timebar-dates{display:flex;align-items:center;gap:10px;font-size:var(--fs-xs);color:var(--ink-muted);flex:1}
 .timebar-dates b{color:var(--ink);font-weight:700}
@@ -422,7 +453,8 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
 
 /* ── Modal: Generar resumen ───────────────────────────────────────── */
 .modal-overlay{position:fixed;inset:0;background:rgba(10,20,24,.5);z-index:1000;
-  display:none;align-items:center;justify-content:center;padding:24px}
+  display:none;align-items:center;justify-content:center;padding:24px;
+  backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px)}
 .modal-overlay.open{display:flex}
 .report-modal{width:100%;max-width:560px;max-height:88vh;overflow-y:auto;background:var(--surface);
   border-radius:var(--radius);box-shadow:var(--shadow-lg);padding:26px 28px}
@@ -441,21 +473,13 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
 .report-actions{display:flex;gap:10px;justify-content:flex-end}
 
 /* ═══════════════════════════════════════════════════════════════════
-   MODO OPERATIVO — gestor de capas técnico (search, reordenar, opacidad,
-   bandas, comparar, medir). Mismo contenido de siempre, retonificado.
+   PANEL SIG — gestor de capas técnico (reordenar, opacidad, bandas,
+   comparar, medir). Mismo contenido de siempre, retonificado.
    ═══════════════════════════════════════════════════════════════════ */
-#sidebar-head{padding:12px;border-bottom:1px solid var(--line);flex-shrink:0;
-  display:flex;flex-direction:column;gap:9px}
-.search-wrap{position:relative;display:flex;align-items:center}
-.search-ic{position:absolute;left:10px;font-size:.8em;opacity:.6;pointer-events:none}
-#layer-search{width:100%;background:var(--paper);border:1px solid var(--line);color:var(--ink);
-  padding:8px 28px 8px 30px;border-radius:8px;font-family:inherit;font-size:.82em}
-#layer-search:focus{outline:none;border-color:var(--accent)}
-#search-clear{position:absolute;right:6px;background:none;border:none;color:var(--ink-faint);
-  cursor:pointer;font-size:1.15em;line-height:1;padding:2px 5px;display:none}
-.search-wrap.has-text #search-clear{display:block}
+#sidebar-head{padding:16px 20px;border-bottom:1px solid var(--line);flex-shrink:0;
+  display:flex;flex-direction:column;gap:11px}
 .sidebar-actions{display:flex;gap:7px}
-.sidebar-actions .btn{flex:1}
+.sidebar-actions .btn{flex:1;background:var(--surface-2)}
 
 .card{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:11px}
 .card h3{font-size:.72em;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.07em;
@@ -475,48 +499,63 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
 .rgb-channel-custom,.ms-composite-custom{display:flex;flex-direction:column;gap:5px;
   margin-top:6px;padding-top:6px;border-top:1px solid var(--line)}
 
-.layer-group{margin-bottom:14px}
-.layer-group.filtered-out{display:none}
-.layer-group-title{font-size:.68em;color:var(--ink-faint);text-transform:uppercase;
-  letter-spacing:.07em;font-weight:700;margin:0 0 7px 2px;display:flex;align-items:center;gap:7px}
+.layer-group{margin-bottom:22px}
+.layer-group-title{font-size:.7em;color:var(--ink-faint);text-transform:uppercase;
+  letter-spacing:.07em;font-weight:700;margin:0 0 10px 2px;display:flex;align-items:center;gap:7px}
 .layer-group-title::after{content:'';flex:1;height:1px;background:var(--line)}
-.layer-list{display:flex;flex-direction:column;gap:7px}
+.layer-list{display:flex;flex-direction:column;gap:9px}
 /* CTA "agregar multiespectral" cuando un grupo de capas está vacío por falta
    de ese vuelo (no porque no haya nada que mostrar) — ver addMsCtaHTML() */
 .addms-cta{background:var(--surface-2);border:1px solid var(--line);border-radius:9px;
   padding:12px}
 .addms-cta p{margin:0 0 10px;font-size:.85em;color:var(--ink-muted);line-height:1.5}
 .addms-cta a.btn{text-decoration:none;width:100%;justify-content:center}
-.layer-card{background:var(--surface-2);border:1px solid var(--line);border-radius:9px;
-  padding:9px 11px;user-select:none;transition:border-color .15s}
-.layer-card.filtered-out{display:none}
+.layer-card{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;
+  padding:13px 14px;user-select:none;transition:border-color .15s,box-shadow .15s}
+.layer-card:hover{box-shadow:var(--shadow)}
 .layer-card.is-on{border-color:var(--accent)}
 .layer-card.dragging{opacity:.4;border-color:var(--accent)}
 .layer-card.drag-over{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
-.layer-card-head{display:flex;align-items:center;gap:8px}
-.layer-handle{cursor:grab;color:var(--ink-faint);font-size:.95em;touch-action:none;padding:0 1px}
-.layer-name{flex:1;font-size:.79em;font-weight:600;display:flex;align-items:center;gap:7px;
-  cursor:pointer;min-width:0}
-.layer-name input{accent-color:var(--accent);flex-shrink:0;cursor:pointer}
+.layer-card-head{display:flex;align-items:center;gap:9px}
+.layer-handle{cursor:grab;color:var(--ink-faint);font-size:.95em;touch-action:none;
+  padding:0 1px;opacity:.45;transition:opacity .15s}
+.layer-card:hover .layer-handle{opacity:1}
+.layer-name{flex:1;font-size:.8em;font-weight:600;display:flex;align-items:center;gap:9px;
+  cursor:pointer;min-width:0;color:var(--ink)}
+/* Checkbox nativo pero rediseñado (appearance:none): cuadrado redondeado con
+   check propio en vez del tildado default del navegador, que desentonaba
+   con el resto de controles a medida (.switch, .btn) de la app. */
+.layer-name input{appearance:none;-webkit-appearance:none;width:19px;height:19px;flex-shrink:0;
+  margin:0;border-radius:6px;border:1.5px solid var(--line);background:var(--surface);
+  cursor:pointer;display:grid;place-items:center;transition:background .15s,border-color .15s}
+.layer-name input:hover{border-color:var(--accent)}
+.layer-name input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.layer-name input:checked{background:var(--accent);border-color:var(--accent)}
+.layer-name input:checked::after{content:'';width:5px;height:9px;
+  border:solid var(--accent-ink);border-width:0 2px 2px 0;transform:rotate(40deg) translate(-1px,-1px)}
 .layer-name .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.layer-tools{display:flex;gap:2px;flex-shrink:0}
+.layer-tools{display:flex;gap:1px;flex-shrink:0}
 .layer-tools button{background:none;border:none;color:var(--ink-faint);cursor:pointer;
-  font-size:.82em;padding:3px 4px;border-radius:5px;transition:color .15s,background .15s}
+  width:26px;height:26px;display:grid;place-items:center;border-radius:7px;
+  transition:color .15s,background .15s}
+.layer-tools button .ic{width:15px;height:15px}
 .layer-tools button:hover{color:var(--ink);background:var(--surface)}
 .layer-tools button.on{color:var(--accent)}
-.layer-legend-toggle{transition:transform .15s}
-.layer-legend-toggle.open{transform:rotate(90deg);color:var(--accent)}
-.layer-card-opacity{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:.7em;color:var(--ink-faint)}
+.layer-legend-toggle .ic{transition:transform .15s;transform:rotate(-90deg)}
+.layer-legend-toggle.open .ic{transform:rotate(0deg)}
+.layer-legend-toggle.open{color:var(--accent)}
+.layer-card-opacity{display:flex;align-items:center;gap:9px;margin-top:10px;
+  font-size:.72em;color:var(--ink-faint)}
+.layer-card-opacity span:first-child{flex-shrink:0}
 .layer-card-opacity input[type=range]{flex:1;accent-color:var(--accent);height:3px}
-.layer-opacity-val{min-width:2.6em;text-align:right}
-.layer-legend-body{display:none;margin-top:9px;padding-top:9px;border-top:1px solid var(--line)}
+.layer-opacity-val{min-width:2.6em;text-align:right;font-variant-numeric:tabular-nums}
+.layer-legend-body{display:none;margin-top:11px;padding-top:11px;border-top:1px solid var(--line)}
 .layer-legend-body.open{display:block}
 .layer-legend-body p{font-size:.7em;color:var(--ink-muted);margin-bottom:6px;line-height:1.55}
 .base-picker{display:flex;gap:7px;margin-bottom:13px}
 .base-picker button{flex:1;background:var(--surface-2);border:1px solid var(--line);color:var(--ink-muted);
   padding:8px;border-radius:8px;font-size:.73em;cursor:pointer;font-weight:500}
 .base-picker button.active{color:var(--accent-ink);background:var(--accent);border-color:var(--accent);font-weight:600}
-.no-results{text-align:center;color:var(--ink-faint);font-size:.8em;padding:26px 10px}
 
 /* Comparador lado a lado */
 #compare-container{display:none;position:absolute;inset:0;z-index:790}
@@ -568,14 +607,15 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
 .area-vertex-mid{width:8px;height:8px;background:var(--critical);border:1px solid #fff;opacity:.7;
   border-radius:50%;cursor:copy}
 .area-trash{font-size:16px;text-align:center;line-height:24px;cursor:pointer;
-  filter:drop-shadow(0 0 3px rgba(0,0,0,.6))}
+  color:var(--critical);filter:drop-shadow(0 0 3px rgba(0,0,0,.6))}
 
 /* HUD de progreso — embebido al pie del sidebar (no flota sobre el mapa,
    ver el comentario en index.html), flex-shrink:0 para no perder espacio
-   contra panel-simple/panel-advanced (ver la regla de esos dos, más abajo,
-   que pasó de height:100% a flex:1;min-height:0 por lo mismo). Su propio
-   contenido puede crecer bastante (fases + log) así que tiene tope y
-   scroll propio para no empujar el resto del sidebar fuera de pantalla. */
+   contra #tab-content (el único hijo con flex:1;overflow-y:auto — ese
+   overflow le fija su tamaño mínimo automático a 0, así que se encoge sin
+   necesitar min-height:0 explícito). Su propio contenido puede crecer
+   bastante (fases + log) así que tiene tope y scroll propio para no
+   empujar el resto del sidebar fuera de pantalla. */
 #progress-hud{display:none;flex-shrink:0;border:none;border-top:1px solid var(--line);
   border-radius:0;box-shadow:none;padding:10px 16px;max-height:45vh;overflow-y:auto}
 #progress-hud.visible{display:block}
@@ -587,6 +627,15 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
 #progress-hud.failed .ph-dot{background:var(--critical);animation:none}
 .ph-stage{flex:1;font-size:.8em;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ph-time{font-size:.74em;color:var(--ink-muted);flex-shrink:0}
+/* Colapsa el CUADRO entero (barra+fases+log) — deja solo la franja de
+   arriba (punto+etapa+cronómetro) a la vista. Distinto del .ph-log-toggle
+   de más abajo, que solo esconde el log DENTRO del cuadro ya expandido. */
+.ph-collapse-toggle{flex-shrink:0;color:var(--ink-faint);display:flex;padding:2px}
+.ph-collapse-toggle:hover{color:var(--ink)}
+.ph-collapse-toggle .ic{transition:transform .15s}
+#progress-hud.collapsed .ph-collapse-toggle .ic{transform:rotate(-90deg)}
+#progress-hud.collapsed .ph-top{margin-bottom:0}
+#progress-hud.collapsed .ph-body{display:none}
 .ph-bar{height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden;border:1px solid var(--line)}
 .ph-bar-fill{height:100%;background:var(--accent);width:0%;transition:width .3s}
 #progress-hud.done .ph-bar-fill{background:var(--good)}
@@ -609,33 +658,20 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
   font-size:.96em}
 .ph-phase-dur{margin-left:6px;font-weight:400;font-variant-numeric:tabular-nums;color:var(--ink-faint);
   font-size:.92em}
+.ph-phase-live{color:var(--accent)}
 .ph-phases li.current .ph-phase-dur{color:var(--accent)}
 .ph-actions{display:flex;gap:7px;margin-top:9px}
 .ph-actions button{flex:1}
 .ph-log-toggle{background:none;border:none;color:var(--ink-faint);font-size:.7em;cursor:pointer;
-  padding:6px 0 0;width:100%;text-align:center}
+  padding:6px 0 0;width:100%;text-align:center;display:inline-flex;align-items:center;
+  justify-content:center;gap:5px}
+.ph-log-toggle:hover{color:var(--ink-muted)}
+.ph-log-toggle .ic{transition:transform .15s}
+.ph-log-toggle.open .ic{transform:rotate(180deg)}
 .ph-log{display:none;margin-top:8px;background:var(--paper);border:1px solid var(--line);
   border-radius:6px;padding:8px;max-height:160px;overflow-y:auto;font-size:.66em;color:var(--ink-muted);
   white-space:pre-wrap;line-height:1.5}
 .ph-log.open{display:block}
-
-/* ── Responsive ───────────────────────────────────────────────────── */
-@media (max-width:920px){
-  main.body{grid-template-columns:1fr;position:relative}
-  .panel{position:absolute;inset:auto 0 0 0;height:60vh;border-left:none;
-    border-top:1px solid var(--line);border-radius:16px 16px 0 0;
-    box-shadow:0 -8px 30px rgba(0,0,0,.15);transform:translateY(0);transition:transform .2s}
-  main.body.panel-collapsed .panel{transform:translateY(calc(100% - 46px))}
-  /* Antes esto ocultaba .panel-toggle del todo en pantallas angostas: al
-     colapsar el panel (translateY deja visible solo una franja de 46px del
-     PIE del panel, no la cabecera con el botón ✕) no quedaba NADA
-     clickeable para volver a abrirlo — callejón sin salida real, reportado
-     por un usuario. .panel-toggle vive en .map-area (position:absolute,
-     top:16px;right:16px), no dentro de .panel, así que sigue siendo visible
-     y clickeable sobre el mapa sin chocar con la franja colapsada del pie:
-     no hace falta ocultarlo acá, solo dejar que la regla de
-     .panel-collapsed .panel-toggle{display:flex} (arriba) siga aplicando. */
-}
 
 /* ── Aviso de "sin mapa base" ────────────────────────────────────────
    Ver avisarSiSinMapaBase() en app.js: sin internet los tiles de CARTO/Esri
@@ -647,12 +683,72 @@ main.body.panel-collapsed{grid-template-columns:1fr 0}
   z-index:1200; max-width:min(560px,calc(100vw - 32px));
   display:flex; align-items:flex-start; gap:12px;
   padding:13px 15px; border-radius:12px; font-size:.85rem; line-height:1.5;
-  background:var(--pnl); color:var(--tx); border:1px solid var(--bd);
-  border-left:3px solid var(--warn,#f59e0b);
+  background:var(--surface); color:var(--ink); border:1px solid var(--line);
+  border-left:3px solid var(--warning);
   box-shadow:0 8px 28px rgba(0,0,0,.22);
 }
 .aviso-offline button{
-  margin-left:auto; flex:none; cursor:pointer; color:var(--tx3);
+  margin-left:auto; flex:none; cursor:pointer; color:var(--ink-muted);
+  display:inline-flex;align-items:center;justify-content:center;
   font-size:1rem; line-height:1; padding:2px 4px;
 }
-.aviso-offline button:hover{color:var(--tx)}
+.aviso-offline button:hover{color:var(--ink)}
+
+/* ── Responsive ───────────────────────────────────────────────────── */
+@media (max-width:980px){.incident-id .name{max-width:30vw}}
+
+@media (max-width:920px){
+  .command-rail{display:none}
+  #topbar{left:0;height:60px;min-height:60px;padding:0 14px}
+  main.body{margin-left:0;padding-top:60px;display:block;position:relative}
+  .map-area{position:absolute;inset:60px 0 0}
+  /* #panel-wrap deja de ser transparente (display:contents en escritorio,
+     ver esa regla) y pasa a ser la hoja inferior real: resumen gerencial y
+     SIG se apilan DENTRO de ella (flex-direction:column) en vez de flotar
+     cada uno como su propia hoja independiente — dos hojas superpuestas
+     habrían competido por el mismo espacio. z-index explícito por lo de
+     siempre: sin él, los panes de Leaflet DENTRO de #map (z-index nativo
+     hasta 700, ver el comentario grande más arriba) pintan por ENCIMA de un
+     fondo sin contexto de apilado propio — el panel entero (contenido
+     incluido) quedaba tapado por el mapa, invisible, aunque el DOM y el
+     layout fueran correctos. Mismo margen que .panel-toggle (750+). */
+  #panel-wrap{display:flex;flex-direction:column;position:absolute;left:0;right:0;bottom:0;top:auto;
+    height:min(84vh,760px);z-index:760;background:var(--surface);border-top:1px solid var(--line);
+    border-radius:16px 16px 0 0;box-shadow:0 -8px 30px rgba(0,0,0,.15);overflow:hidden}
+  .panel{border-right:0;border-bottom:1px solid var(--line);flex:1;min-height:0;overflow-y:auto}
+  #panel-sig{border-bottom:0}
+  main.body.panel-collapsed #panel-wrap{transform:translateY(calc(100% - 46px))}
+  main.body.panel-collapsed{grid-template-columns:1fr}
+  /* Antes esto ocultaba .panel-toggle del todo en pantallas angostas: al
+     colapsar el panel (translateY deja visible solo una franja de 46px del
+     PIE del panel, no la cabecera con el botón ✕) no quedaba NADA
+     clickeable para volver a abrirlo — callejón sin salida real, reportado
+     por un usuario. .panel-toggle vive en .map-area (position:absolute,
+     top:16px;right:16px), no dentro de .panel, así que sigue siendo visible
+     y clickeable sobre el mapa sin chocar con la franja colapsada del pie:
+     no hace falta ocultarlo acá, solo dejar que la regla de
+     .panel-collapsed .panel-toggle{display:flex} (arriba) siga aplicando. */
+}
+
+@media (max-width:680px){
+  #topbar{gap:8px;min-height:56px;height:56px}
+  main.body{padding-top:56px}
+  .map-area{inset:56px 0 0}
+  .incident-id .name{max-width:34vw;font-size:var(--fs-sm)}
+  .freshness{max-width:32vw;overflow:hidden;text-overflow:ellipsis}
+  .freshness .confidence-ticks{display:none}
+  #btn-date{padding:7px 9px}
+  #btn-date .lbl{display:none}
+  #btn-report{width:38px;height:36px;padding:0;justify-content:center;gap:0}
+  #btn-report span{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  .menu-wrap .btn{width:36px;height:36px;padding:0;justify-content:center;font-size:0}
+  .menu-wrap .btn .chev{display:none}
+  .menu-wrap .btn::before{content:'⋯';font-size:1.25rem;line-height:1}
+  #panel-wrap{height:min(82vh,740px);padding-bottom:env(safe-area-inset-bottom)}
+  .panel-footer{padding-bottom:max(14px,env(safe-area-inset-bottom))}
+  .point-card{left:12px!important;right:12px;width:auto}
+}
+
+@media (prefers-reduced-transparency: reduce){
+  #topbar{background:var(--surface)}
+}

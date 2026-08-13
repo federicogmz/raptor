@@ -161,8 +161,8 @@ const MS_BAND_IDS=Object.keys(MS_BAND_RANGES);
 // de "Situación actual" se queda pegado en "Cargando datos de la misión…"
 // para siempre. Bug real, encontrado corriendo la página real en jsdom.
 let liveMsBandIds=[...MS_BAND_IDS];
-// flight_path acá igual que area_afectada: layersPanelHTML()/renderMapLegend()
-// filtran por layerOrder, no por LAYER_REGISTRY directo — una capa que se
+// flight_path acá igual que area_afectada: layersPanelHTML() filtra por
+// layerOrder, no por LAYER_REGISTRY directo — una capa que se
 // registra (sync o vía tryLoadFlightPath()) pero nunca entra a este array
 // se dibuja en el mapa igual (el loop de defaultOn de más abajo no depende
 // de layerOrder) pero no existía ni en el sidebar ni en la leyenda flotante.
@@ -207,7 +207,7 @@ function avisarSiSinMapaBase(){
   d.innerHTML='<b>Sin conexión al mapa base.</b> Las capas de esta misión '
             + '(ortomosaico, térmico, índices, área afectada) se ven igual — '
             + 'lo que falta es el fondo de calles y satelital, que viene de '
-            + 'internet.<button class="reset" aria-label="Cerrar">✕</button>';
+            + 'internet.<button class="reset" aria-label="Cerrar"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-x"/></svg></button>';
   d.querySelector('button').addEventListener('click',()=>d.remove());
   document.body.appendChild(d);
 }
@@ -365,6 +365,33 @@ function gsdTxt(clave){
   const v=RESOLUCION_CM&&RESOLUCION_CM[clave];
   return v?`${v} cm/px`:'—';
 }
+
+// SITUATION y SIMPLE_HINTS se declaran ACÁ (no donde se usan más abajo,
+// junto a loadSituation()) porque layerCardHTML() —
+// llamada desde renderCapasPanel() en el INIT, línea siguiente al registro
+// de capas — ya las lee (interpretación en lenguaje llano + focos
+// identificados dentro de la tarjeta de Hotspot). Con un `let`/`const` más
+// abajo en el mismo script, esa lectura temprana revienta con "Cannot
+// access before initialization" (temporal dead zone) — mismo bug real que
+// liveMsBandIds, ver su comentario más abajo.
+let SITUATION=null;
+const SIMPLE_HINTS={
+  severidad:'Rojo: daño alto — priorizar verificación en terreno. Amarillo/naranja: revisar cuando se pueda. Verde: sin anomalía detectada.',
+  hotspot_termico:'Rojo oscuro: foco activo (≥88°C) — riesgo de reactivación, requiere atención. Naranja/amarillo: temperatura elevada, monitorear.',
+  ndvi_class:'Verde: vegetación densa y sana. Amarillo: escasa o estresada — vigilar evolución. Café: sin cobertura vegetal.',
+  gndvi_class:'Verde: vegetación sana. Amarillo: estrés moderado. Rojo: estrés severo — posible daño por calor o falta de agua.',
+  ndre_class:'Verde oscuro: óptimo. Verde claro: saludable. Naranja/rojo: deficiencia — atención en el corto plazo.',
+  msavi2_class:'Verde: vegetación densa y sana. Amarillo: escasa o en regeneración temprana. Café: sin cobertura.',
+  ndvi:'Verde = vegetación sana y densa. Rojo/café = suelo desnudo o vegetación muy estresada.',
+  gndvi:'Verde = vegetación sana. Rojo = estrés severo, posible daño.',
+  ndre:'Verde = follaje saludable. Rojo = deficiencia — atención en el corto plazo.',
+  msavi2:'Verde = vegetación densa. Café = sin cobertura o suelo expuesto.',
+  rgb:'Imagen a color real del vuelo — referencia visual directa del terreno.',
+  ms_composite:'Composición de bandas espectrales — realza contrastes de vegetación no visibles a simple vista.',
+  thermal:'Escala de temperatura de superficie — más caliente (colores cálidos) puede indicar actividad térmica residual.',
+  hillshade:'Relieve del terreno — ayuda a ubicar pendientes y accesos, sin significado térmico ni de severidad.',
+  flight_path:'Recorrido real del dron durante la captura — útil para verificar cobertura del vuelo.',
+};
 
 // ── Registro de capas para el panel "Capas" (gestor unificado) ──
 const LAYER_REGISTRY={
@@ -622,7 +649,7 @@ function buildEditHandles(entry){
   });
   rebuildMidMarkers(entry);
   if(!entry.trashMarker){
-    entry.trashMarker=L.marker(entry.layer.getBounds().getCenter(),{icon:L.divIcon({className:'area-trash',html:'🗑',iconSize:[26,26]}),pane:'pane-area_afectada'});
+    entry.trashMarker=L.marker(entry.layer.getBounds().getCenter(),{icon:L.divIcon({className:'area-trash',html:'<svg viewBox="0 0 24 24" width="26" height="26"><use href="#i-trash"/></svg>',iconSize:[26,26]}),pane:'pane-area_afectada'});
     entry.trashMarker.on('click',ev=>{L.DomEvent.stopPropagation(ev);deletePolygonEntry(entry);});
   }
   areaEditHandlesGroup.addLayer(entry.trashMarker);
@@ -658,7 +685,7 @@ function enterAreaEditMode(){
   areaEditHandlesGroup.addTo(map);
   areaPolyEntries.forEach(buildEditHandles);
   document.getElementById('area-edit-panel').classList.add('editing');
-  document.getElementById('btn-area-edit').textContent='✕ Salir de edición';
+  document.getElementById('btn-area-edit').innerHTML='<svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-x"/></svg> Salir de edición';
 }
 function exitAreaEditMode(){
   areaEditMode=false;
@@ -706,7 +733,7 @@ function startDrawNewArea(){
   if(areaDrawingNew){finishDrawNewArea();return;}
   areaDrawingNew=true;
   areaNewRingPoints=[];
-  document.getElementById('btn-area-new').textContent='✓ Terminar (doble-click)';
+  document.getElementById('btn-area-new').innerHTML='<svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-check"/></svg> Terminar (doble-click)';
   map.getContainer().style.cursor='crosshair';
   map.doubleClickZoom.disable();
   map.on('click',onDrawNewAreaClick);
@@ -733,10 +760,10 @@ async function saveAreaAfectada(){
     if(!resp.ok)throw new Error('HTTP '+resp.status);
     areaOriginalGeoJSON=geo;
     areaDirty=false;
-    statusEl.textContent='✅ Guardado';
-    setTimeout(()=>{if(statusEl.textContent==='✅ Guardado')statusEl.textContent='';},3000);
+    statusEl.innerHTML='<svg class="ic" style="width:13px;height:13px;color:var(--good)" aria-hidden="true"><use href="#i-check"/></svg> Guardado';
+    setTimeout(()=>{if(statusEl.textContent.includes('Guardado'))statusEl.textContent='';},3000);
   }catch(err){
-    statusEl.textContent='❌ Error al guardar: '+err.message;
+    statusEl.innerHTML='<svg class="ic" style="width:13px;height:13px;color:var(--critical)" aria-hidden="true"><use href="#i-x"/></svg> Error al guardar: '+err.message;
   }
 }
 function discardAreaEdits(){
@@ -954,10 +981,11 @@ function toggleSidebar(){
 function renderCapasPanel(){
   const c=document.getElementById('tab-content');
   c.innerHTML=layersPanelHTML();wireLayersPanel();
-  applyLayerFilter();   // el panel se redibuja entero: reaplicar la búsqueda
+  renderFooterAddMsCta();
 }
 
-// ── Panel "Capas" (modo operativo): selector de mapa base + capas agrupadas ──
+// ── Panel "Capas": selector de mapa base + capas agrupadas, con descripción/
+// interpretación y los focos identificados dentro de la tarjeta Hotspot ──
 function basePickerHTML(){
   return `<div class="base-picker">
     <button class="${currentBase==='osm'?'active':''}" data-base="osm">🗺️ Calles</button>
@@ -973,9 +1001,9 @@ function layerCardHTML(id){
       <span class="layer-handle" title="Arrastrar para reordenar">⠿</span>
       <label class="layer-name"><input type="checkbox" class="layer-vis" data-id="${id}" ${shown?'checked':''}><span class="nm">${def.label}</span></label>
       <span class="layer-tools">
-        <button class="layer-solo" data-id="${id}" title="Ver solo esta capa">◉</button>
-        <button class="layer-zoom" data-id="${id}" title="Encuadrar esta capa">⤢</button>
-        <button class="layer-legend-toggle" data-id="${id}" title="Ver descripción y leyenda">▶</button>
+        <button class="layer-solo" data-id="${id}" title="Ver solo esta capa"><svg class="ic ic-dot" aria-hidden="true"><use href="#i-dot"/></svg></button>
+        <button class="layer-zoom" data-id="${id}" title="Encuadrar esta capa"><svg class="ic" aria-hidden="true"><use href="#i-frame"/></svg></button>
+        <button class="layer-legend-toggle" data-id="${id}" title="Ver descripción y leyenda"><svg class="ic" aria-hidden="true"><use href="#i-chev-down"/></svg></button>
       </span>
     </div>
     <div class="layer-card-opacity">
@@ -983,7 +1011,7 @@ function layerCardHTML(id){
       <input type="range" class="layer-opacity" data-id="${id}" min="0" max="100" value="${opacity}">
       <span class="layer-opacity-val">${opacity}%</span>
     </div>
-    <div class="layer-legend-body" data-id="${id}">${def.legend()}</div>
+    <div class="layer-legend-body" data-id="${id}">${SIMPLE_HINTS[id]?`<div class="interpret"><b>Qué significa:</b> ${SIMPLE_HINTS[id]}</div>`:''}${def.legend()}${id==='hotspot_termico'?hotspotListHTML():''}</div>
   </div>`;
 }
 // Grupo vacío porque a esta misión le falta el vuelo multiespectral (no
@@ -1086,6 +1114,7 @@ function wireLayersPanel(){
   });
   wireBandPickers();
   initLayerDrag();
+  wireHotspotList();
 }
 
 // ── Selectores de canales/bandas (RGB personalizado + compuesto MS) ──
@@ -1362,13 +1391,12 @@ async function pollBoundsForChanges(){
     // sin depender de capas_disponibles, así que un producto preliminar puede
     // haberse reemplazado por el final entre una pasada y la siguiente).
     Object.values(LAYER_REGISTRY).forEach(d=>{ if(d.layer.redraw)d.layer.redraw(); });
-    // Modo simple: situation.json aparece recién en la etapa de severidad
-    // (bastante después que bounds.json cambie por primera vez). Se
-    // reintenta cada vez que bounds.json cambia, no solo una vez al final.
-    // flight_quality.json sigue el mismo patrón (aparece bastante antes,
-    // en la etapa de recorte térmico, pero se recarga igual acá para
-    // agarrar el caso de una misión que arranca sin RGB+térmico todavía
-    // trimeados).
+    // situation.json aparece recién en la etapa de severidad (bastante
+    // después que bounds.json cambie por primera vez). Se reintenta cada
+    // vez que bounds.json cambia, no solo una vez al final. flight_quality.json
+    // sigue el mismo patrón (aparece bastante antes, en la etapa de recorte
+    // térmico, pero se recarga igual acá para agarrar el caso de una misión
+    // que arranca sin RGB+térmico todavía trimeados).
     const prevSituation=SITUATION;
     const prevFQ=JSON.stringify(FLIGHT_QUALITY);
     await loadSituation();
@@ -1376,10 +1404,9 @@ async function pollBoundsForChanges(){
     if(JSON.stringify(prevSituation)!==JSON.stringify(SITUATION)||prevFQ!==JSON.stringify(FLIGHT_QUALITY)){
       await renderSituationHeader();
       await renderSummaryCards();
-      renderSimpleTabs();
-      renderMapLegend();
+      renderCapasPanel();   // refresca los focos identificados dentro de la tarjeta Hotspot
     }else if(added){
-      renderSimpleTabs();
+      renderCapasPanel();
     }
   }catch(e){}
 }
@@ -1418,12 +1445,36 @@ function phTick(){
 function toggleProgressLog(){
   const log=document.getElementById('ph-log'),btn=document.getElementById('ph-log-toggle');
   const open=log.classList.toggle('open');
-  btn.textContent=open?'▴ Ocultar log':'▾ Ver log';
+  // El label vive en su propio span (el SVG del chevron se conserva: poner
+  // textContent sobre el botón entero lo borraría — por eso antes se usaban
+  // los emojis ▴/▾ que desentonaban con el sprite SVG del resto de la UI).
+  btn.classList.toggle('open',open);
+  const lbl=document.getElementById('ph-log-label');
+  if(lbl)lbl.textContent=open?' Ocultar log':' Ver log';
   if(open)log.scrollTop=log.scrollHeight;
 }
-function phSetStage(text){
+// Colapsa el CUADRO entero (barra + fases + log), no solo el log — deja a
+// la vista únicamente la franja de arriba (punto + etapa + cronómetro) para
+// que el resumen gerencial no quede empujado hacia abajo mientras una
+// corrida larga sigue viva.
+function toggleProgressHud(){
+  const hud=document.getElementById('progress-hud');
+  const btn=document.getElementById('ph-collapse-toggle');
+  const collapsed=hud.classList.toggle('collapsed');
+  btn.setAttribute('aria-expanded',String(!collapsed));
+  btn.setAttribute('aria-label',collapsed?'Expandir progreso':'Colapsar progreso');
+}
+document.getElementById('ph-collapse-toggle')?.addEventListener('click',toggleProgressHud);
+function phSetStage(html){
+  // innerHTML, no textContent: el handler 'done' (más abajo) pasa un ícono
+  // SVG + texto ("<svg...><use.../></svg> Falló (código N)") para pintar el
+  // check/cruz junto al estado. Con textContent ese markup se mostraba
+  // LITERAL en pantalla — el tag entero como texto — en vez de renderizar
+  // el ícono. Los otros dos llamadores pasan texto plano (nombre de etapa,
+  // controlado por scripts/progress.py del propio pipeline, no input de
+  // usuario) y siguen andando igual con innerHTML.
   const el=document.getElementById('ph-stage');
-  if(el)el.textContent=text;
+  if(el)el.innerHTML=html;
 }
 function phSetBar(pct){
   const el=document.getElementById('ph-bar-fill');
@@ -1634,7 +1685,7 @@ function connectLiveMission(mission){
     if(actions){
       actions.innerHTML='';
       const cancel=document.createElement('button');
-      cancel.className='btn sm';cancel.textContent='✕ Cancelar';
+      cancel.className='btn sm';cancel.innerHTML='<svg class="ic" style="width:13px;height:13px" aria-hidden="true"><use href="#i-x"/></svg> Cancelar';
       cancel.onclick=async()=>{
         if(!confirm('¿Cancelar el procesamiento en curso? Lo hecho hasta ahora en esta corrida se pierde.'))return;
         cancel.disabled=true;cancel.textContent='Cancelando…';
@@ -1643,7 +1694,7 @@ function connectLiveMission(mission){
           if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.detail||'no se pudo cancelar');}
         }catch(e){
           alert('No se pudo cancelar: '+e.message);
-          cancel.disabled=false;cancel.textContent='✕ Cancelar';
+          cancel.disabled=false;cancel.innerHTML='<svg class="ic" style="width:13px;height:13px" aria-hidden="true"><use href="#i-x"/></svg> Cancelar';
         }
       };
       actions.appendChild(cancel);
@@ -1673,7 +1724,9 @@ function connectLiveMission(mission){
       phServerElapsed=d.elapsed||phServerElapsed; phTick();
       const ok=d.returncode===0;
       hud.classList.add(ok?'done':'failed');
-      phSetStage(ok?'✅ Procesamiento completo':`❌ Falló (código ${d.returncode})`);
+      phSetStage(ok
+        ? '<svg class="ic" style="width:13px;height:13px;color:var(--good)" aria-hidden="true"><use href="#i-check"/></svg> Procesamiento completo'
+        : `<svg class="ic" style="width:13px;height:13px;color:var(--critical)" aria-hidden="true"><use href="#i-x"/></svg> Falló (código ${d.returncode})`);
       // La última fase que haya llegado a estar "current" nunca recibe su
       // propio endedAt (nada la reemplaza) — se completa acá, al terminar
       // la corrida entera, mejor aproximación que un endedAt=null.
@@ -1720,8 +1773,20 @@ if(urlMission)connectLiveMission(urlMission);
 const THEME_KEY='raptor-geovisor-theme';
 function applyTheme(t){
   document.documentElement.setAttribute('data-theme',t);
+  // theme-ic ahora lleva el par de iconos SVG (sol/luna) como en la webapp;
+  // el CSS decide cuál se ve según data-theme. Sin emojis: cada plataforma
+  // renderiza el glifo a su manera y en campo no hay que depender de eso.
   const ic=document.getElementById('theme-ic');
-  if(ic)ic.textContent = t==='light' ? '☀️' : '🌙';
+  if(ic && !ic.querySelector('svg')){
+    ic.innerHTML = `<svg class="ic ic-sun" aria-hidden="true"><use href="#i-sun"/></svg>`
+                 + `<svg class="ic ic-moon" aria-hidden="true"><use href="#i-moon"/></svg>`;
+  }
+  // El theme-color de la barra del navegador sigue al tema manual. Se
+  // actualizan TODOS los <meta> (cada uno con su media): el navegador
+  // aplica el que matchee la preferencia de sistema, y tocar solo el
+  // primero dejaría la barra oscura en un sistema oscuro con tema claro.
+  document.querySelectorAll('meta[name=theme-color]').forEach(m=>
+    m.setAttribute('content', t==='dark' ? '#0C1412' : '#F4F7F8'));
   try{localStorage.setItem(THEME_KEY,t);}catch(e){}
 }
 function toggleTheme(){
@@ -2213,46 +2278,6 @@ async function buildReportCanvas(){
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// BUSCADOR DE CAPAS
-// ═══════════════════════════════════════════════════════════════════
-// Vive FUERA de #tab-content a propósito: ese contenedor se reescribe entero
-// en cada renderCapasPanel(), y el input perdería foco y texto en cada
-// cambio de opacidad.
-// El elemento se busca DENTRO de la función, no vía un const de módulo:
-// renderCapasPanel() —que la llama— corre en el arranque, antes de que este
-// bloque se haya evaluado, y una referencia a un `const` todavía en zona
-// muerta temporal tiraría ReferenceError rompiendo el panel entero.
-function applyLayerFilter(){
-  const searchInput=document.getElementById('layer-search');
-  if(!searchInput)return;
-  const q=searchInput.value.trim().toLowerCase();
-  searchInput.parentElement.classList.toggle('has-text',!!q);
-  let visibles=0;
-  document.querySelectorAll('.layer-card').forEach(card=>{
-    const hit=!q||(card.dataset.name||'').includes(q);
-    card.classList.toggle('filtered-out',!hit);
-    if(hit)visibles++;
-  });
-  document.querySelectorAll('.layer-group').forEach(g=>{
-    const alguna=g.querySelector('.layer-card:not(.filtered-out)');
-    g.classList.toggle('filtered-out',!alguna);
-  });
-  const cont=document.getElementById('tab-content');
-  let vacio=cont.querySelector('.no-results');
-  if(q&&visibles===0){
-    if(!vacio){vacio=document.createElement('div');vacio.className='no-results';
-      vacio.textContent='Ninguna capa coincide con la búsqueda.';cont.appendChild(vacio);}
-  }else if(vacio)vacio.remove();
-}
-(function wireSearch(){
-  const si=document.getElementById('layer-search');
-  if(!si)return;
-  si.addEventListener('input',applyLayerFilter);
-  document.getElementById('search-clear').onclick=()=>{
-    si.value='';applyLayerFilter();si.focus();
-  };
-})();
-
 // ═══════════════════════════════════════════════════════════════════
 // MEDICIÓN (distancia + área)
 // ═══════════════════════════════════════════════════════════════════
@@ -2348,7 +2373,6 @@ document.addEventListener('keydown',e=>{
   else if(k==='m'){toggleMeasure();}
   else if(k==='c'){toggleCompare();}
   else if(k==='b'){toggleSidebar();}
-  else if(k==='/'){e.preventDefault();document.getElementById('layer-search')?.focus();}
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -2401,7 +2425,8 @@ labelMission();
 // navegador. Si el archivo no existe (misión sin multiespectral+térmico,
 // o corrida vieja de antes de este script) las tarjetas lo dicen así, no
 // rellenan con ceros.
-let SITUATION=null;
+// (SITUATION se declara arriba, junto a LAYER_REGISTRY — ver el comentario
+// ahí sobre por qué no puede vivir acá.)
 async function loadSituation(){
   try{
     const r=await fetch('outputs/situation.json?t='+Date.now(),{cache:'no-store'});
@@ -2463,7 +2488,12 @@ async function renderSituationHeader(){
     const captura=s?.captura?new Date(s.captura.replace(' ','T')):null;
     const minsAgo=captura&&!isNaN(captura)?Math.max(0,Math.round((Date.now()-captura)/60000)):null;
     const cuando=minsAgo===null?'':minsAgo<60?`hace ${minsAgo} min`:`hace ${Math.round(minsAgo/60)} h`;
-    freshEl.textContent=s?`Actualizado ${cuando||'recién'} · Calidad del vuelo: ${calidad}`
+    // Alerta de cobertura baja vs. el área volada (scripts/compute_coverage.py):
+    // el mosaico puede cubrir solo una fracción de lo que el dron recorrió
+    // (reconstrucción incompleta en terreno con relieve) y hay que decirlo en
+    // el mismo lugar donde se mira el dato.
+    const covAviso=s?.alerta_cobertura_baja?' · ⚠ cobertura baja vs. área volada':'';
+    freshEl.textContent=s?`Actualizado ${cuando||'recién'} · Calidad del vuelo: ${calidad}${covAviso}`
                           :'Sin datos de severidad todavía';
   }
   if(zoneEl)zoneEl.textContent=s?`${s.area_ha??'—'} ha detectadas`:'';
@@ -2489,6 +2519,7 @@ async function renderSummaryCards(){
       <div class="l">Sin datos de impacto todavía</div>
       <div class="sub">Esta misión no tiene ni multiespectral+térmico ni térmico solo, o la corrida no llegó a esa etapa.</div>
     </div>`;
+    grid.setAttribute('aria-busy','false');
     return;
   }
   // Cards que necesitan multiespectral (NDVI es la señal primaria del área
@@ -2510,7 +2541,7 @@ async function renderSummaryCards(){
     </div>` : (()=>{
       const dom={leve:'Leve',moderado:'Moderada',severo:'Severa'}[s.severidad.dominante]||'—';
       return `
-    <div class="stat-card">
+    <div class="stat-card area">
       <div class="l">Área afectada</div>
       <div class="v tabnum">${s.area_ha} <small>ha</small></div>
       ${severityMiniBar(s.severidad)}
@@ -2531,19 +2562,35 @@ async function renderSummaryCards(){
       <div class="sub">Del área afectada</div>
     </div>`;})();
   grid.innerHTML=`
-    <div class="stat-card hotspots">
+    <div class="stat-card hotspots${s.hotspots_activos>0?'':' none'}">
       <div class="l">Focos térmicos activos</div>
       <div class="v tabnum">${s.hotspots_activos}</div>
       <div class="sub">${s.hotspots_activos>0?'Riesgo de reactivación':'Ninguno detectado'}${
         (s.solo_termico||s.sin_impacto_detectado)&&s.temp_max!=null?` · máx ${s.temp_max}°C · prom ${s.temp_promedio}°C`:''}</div>
     </div>
     ${impactoCards}
+    ${recommendationStrip(s)}
     <div class="stat-card">
       <div class="l">Última captura</div>
       <div class="v" style="font-size:var(--fs-md)">${fmtFechaCorta(s.captura)}</div>
       <div class="sub">${fq?.equipo||'Dron UAV'}</div>
     </div>
     ${flightQualityCardHTML(fq)}`;
+    grid.setAttribute('aria-busy','false');
+}
+// Franja de recomendación — la frase accionable que ya arma
+// buildRecommendationText (el mismo texto que entra al reporte), puesta en
+// el panel, donde se decide. Un solo lugar donde vive la recomendación.
+function recommendationStrip(s){
+  const txt=buildRecommendationText(s);
+  if(!txt)return '';
+  // Ámbar solo cuando la recomendación es una urgencia real (hay severidad
+  // alta que verificar en terreno); el resto de los casos (solo-térmico,
+  // sin impacto) son informativos y se pintan en el acento neutro. El acceso
+  // a s.severidad acá es seguro: buildRecommendationText ya descartó los
+  // modos donde es null (solo_termico / sin_impacto_detectado).
+  const urgente=!!(s.severidad&&s.severidad.severo_pct>0);
+  return `<div class="reco-strip${urgente?'':' quiet'}" role="note"><span class="reco-l">Recomendación</span>${txt}</div>`;
 }
 // Calidad del LEVANTAMIENTO (compute_flight_quality.py): solape de cámaras,
 // velocidad de vuelo y % de imágenes reconstruidas — lo que de verdad
@@ -2575,210 +2622,54 @@ function flightQualityCardHTML(fq){
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// MODO SIMPLE — 3 pestañas (Impacto/Vegetación/Contexto) sobre el MISMO
-// LAYER_REGISTRY que usa el modo operativo — remapeo de grupos técnicos a
-// lenguaje llano, sin duplicar ninguna capa de Leaflet.
+// FOCOS TÉRMICOS IDENTIFICADOS — antes vivían en una vista "Lista" aparte
+// (tabla de texto, alternativa al mapa); ahora son parte de la propia
+// tarjeta de la capa Hotspot térmico (layerCardHTML(), más abajo): cada
+// renglón centra el mapa en ese foco al hacer click, sin salir del panel
+// de capas ni cambiar de vista.
 // ═══════════════════════════════════════════════════════════════════
-const SIMPLE_TABS={
-  impacto:{group:['impacto'],label:'Impacto'},
-  vegetacion:{group:['indices'],label:'Vegetación'},
-  contexto:{group:['opticas','termicas','terreno','vuelo'],label:'Contexto'},
-};
-let simpleActiveTab='impacto';
+function hotspotListHTML(){
+  const hotspots=SITUATION?.hotspots||[];
+  if(!hotspots.length)return'';
+  const sevLabel={leve:'Leve',moderado:'Moderada',severo:'Severa'};
+  const rows=hotspots.map((h,i)=>`<button class="hotspot-row" data-lat="${h.lat}" data-lon="${h.lon}">
+      <span class="badge ${h.severidad}">${sevLabel[h.severidad]||'—'}</span>
+      <span class="coord">Foco ${i+1} · ${h.lat.toFixed(5)}, ${h.lon.toFixed(5)}</span>
+      <span class="temp">${h.temp_c!=null?h.temp_c+' °C':'—'}</span>
+    </button>`).join('');
+  return `<div class="hotspot-list"><div class="hotspot-list-title">Focos identificados (${hotspots.length})</div>${rows}</div>`;
+}
+function wireHotspotList(){
+  document.querySelectorAll('.hotspot-row').forEach(row=>{
+    row.onclick=()=>{
+      const latlng=L.latLng(+row.dataset.lat,+row.dataset.lon);
+      map.setView(latlng,Math.max(map.getZoom(),19));
+      showPointCard(latlng,map.latLngToContainerPoint(latlng));
+    };
+  });
+}
 
-function simpleLegendChips(id){
-  // Reusa la leyenda técnica ya escrita en LAYER_REGISTRY[id].legend() —
-  // extrae solo los swatches de color con su etiqueta corta, si los hay.
-  const html=LAYER_REGISTRY[id].legend();
-  const tmp=document.createElement('div');tmp.innerHTML=html;
-  const swatches=Array.from(tmp.querySelectorAll('[style*="background"]'))
-    .filter(el=>el.style.width&&parseInt(el.style.width)<20);
-  if(!swatches.length)return '';
-  return `<div class="info-item-legend">${swatches.map(sw=>
-    `<span class="chip"><span class="legend-swatch" style="background:${sw.style.background}"></span>${(sw.nextSibling?.textContent||sw.parentElement.textContent||'').trim().slice(0,28)}</span>`
-  ).join('')}</div>`;
-}
-function simpleInfoItemHTML(id){
-  const def=LAYER_REGISTRY[id];
-  const on=map.hasLayer(def.layer);
-  return `<div class="info-item" data-id="${id}">
-    <div class="info-item-head">
-      <button class="switch reset simple-layer-switch" data-id="${id}" role="switch"
-        aria-checked="${on}" aria-label="Mostrar ${def.label.replace(/^\S+\s/,'')}"></button>
-      <div class="info-item-name simple-details-toggle" data-id="${id}">
-        <div class="n">${def.label.replace(/^\S+\s/,'')}</div>
-      </div>
-      <button class="details-toggle reset simple-details-toggle" data-id="${id}" aria-expanded="false"
-        aria-label="Ver leyenda y detalles">▾</button>
-    </div>
-    <div class="info-item-details" data-id="${id}" style="display:none">
-      ${simpleLegendChips(id)}
-      <div class="info-item-foot"><span class="date">${SITUATION?.captura?fmtFechaCorta(SITUATION.captura):'Capturado en esta misión'}</span>
-        <a class="simple-verdetalles" data-id="${id}" aria-expanded="false">Ver detalles →</a></div>
-      <div class="info-item-full-desc" data-id="${id}" style="display:none">${SIMPLE_HINTS[id]||'No hay una descripción adicional para esta capa todavía.'}</div>
-    </div>
-  </div>`;
-}
-function renderSimpleTabPanel(tabKey){
-  const el=document.getElementById('panel-'+tabKey);
-  if(!el)return;
-  const groups=SIMPLE_TABS[tabKey].group;
-  const ids=layerOrder.filter(id=>LAYER_REGISTRY[id]&&groups.includes(LAYER_REGISTRY[id].group)
-    &&id!=='area_afectada'); // el polígono se edita desde su propio panel flotante, no acá
-  if(!ids.length){
-    el.innerHTML='<div class="empty-note">No hay información de este tipo en esta misión.</div>';
-    return;
-  }
-  el.innerHTML=ids.map(simpleInfoItemHTML).join('');
-  el.querySelectorAll('.simple-layer-switch').forEach(sw=>{
-    sw.onclick=()=>{
-      const id=sw.dataset.id,def=LAYER_REGISTRY[id];
-      const on=sw.getAttribute('aria-checked')!=='true';
-      sw.setAttribute('aria-checked',String(on));
-      if(on)def.layer.addTo(map);else map.removeLayer(def.layer);
-      renderMapLegend();
-    };
-  });
-  el.querySelectorAll('.simple-details-toggle').forEach(t=>{
-    t.onclick=()=>{
-      const id=t.dataset.id;
-      const body=el.querySelector(`.info-item-details[data-id="${id}"]`);
-      const btn=el.querySelector(`.details-toggle[data-id="${id}"]`);
-      const open=body.style.display==='none';
-      body.style.display=open?'block':'none';
-      btn.classList.toggle('open',open);
-      btn.setAttribute('aria-expanded',String(open));
-    };
-  });
-  // "Ver detalles →" antes llamaba a soloLayer(id) — apagaba todo lo demás
-  // y prendía esta capa, cuando lo que el nombre promete es una descripción
-  // divulgativa, no una acción sobre el mapa. Efecto colateral del bug:
-  // soloLayer() refresca el panel de Capas (modo operativo) pero NUNCA
-  // renderMapLegend() — la leyenda flotante quedaba pegada en lo que fuera
-  // que mostraba antes, sin importar a qué capa se cambiara desde acá. Con
-  // el link despegado de soloLayer(), ese síntoma desaparece solo: cambiar
-  // de capa sigue pasando ÚNICAMENTE por el switch de arriba, que sí llama
-  // a renderMapLegend().
-  el.querySelectorAll('.simple-verdetalles').forEach(a=>{
-    a.onclick=()=>{
-      const id=a.dataset.id;
-      const desc=el.querySelector(`.info-item-full-desc[data-id="${id}"]`);
-      const open=desc.style.display==='none';
-      desc.style.display=open?'block':'none';
-      a.textContent=open?'Ocultar detalles ↑':'Ver detalles →';
-      a.setAttribute('aria-expanded',String(open));
-    };
-  });
-}
-function renderSimpleTabs(){
-  Object.keys(SIMPLE_TABS).forEach(renderSimpleTabPanel);
-  // La pestaña Vegetación solo tiene sentido si hay multiespectral: sin él
-  // nunca va a tener nada que mostrar más allá de "No hay información de
-  // este tipo en esta misión" — un callejón sin salida redundante con la
-  // tarjeta "Agregar vuelo multiespectral" que YA se ofrece en Impacto. Se
-  // usa liveMsBandIds (no MS_BAND_IDS) porque en una misión que sigue
-  // procesándose el multiespectral puede aparecer después del primer render
-  // (ver pollBoundsForChanges(), que llama a renderSimpleTabs() de nuevo).
-  const vegTab=document.getElementById('tab-vegetacion');
-  if(vegTab){
-    const hide=liveMsBandIds.length===0;
-    vegTab.hidden=hide;
-    if(hide&&simpleActiveTab==='vegetacion')selectSimpleTab('impacto');
-  }
-  renderFooterAddMsCta();
-}
-// La caja "Agregar vuelo multiespectral" ANTES solo aparecía si el usuario
-// entraba justo al grupo/pestaña que la mostraba (Impacto en modo simple,
-// o abrir "Índices"/"Impacto" vacíos en el panel de Capas) — fácil de no
-// ver nunca. Ahora vive TAMBIÉN fija al pie del sidebar, en los dos modos,
-// visible sin importar qué pestaña/grupo esté abierto. Se sigue ocultando
+// La caja "Agregar vuelo multiespectral" vive fija al pie del panel de
+// capas, visible sin importar qué grupo esté abierto/filtrado. Se oculta
 // sola en cuanto liveMsBandIds deja de estar vacío (ya no hay nada que
-// ofrecer).
+// ofrecer). Un solo footer ahora (antes había dos, uno por modo).
 function renderFooterAddMsCta(){
-  // liveMsBandIds vacío no alcanza: es cierto tanto para "esta misión nunca
-  // tuvo M3M" (acá SÍ corresponde ofrecer agregarlo) como para "tiene M3M
-  // pero ODM todavía no terminó de calcular los índices" (acá NO — ya está
-  // incluido, solo falta que termine). hasMsInput distingue los dos casos.
   const html=(liveMsBandIds.length===0&&!hasMsInput)
     ? addMsCtaHTML('🌿 Agregar multiespectral','Habilita área afectada, severidad e índices de vegetación automáticos.')
     : '';
-  const simple=document.getElementById('footer-addms-cta-simple');
-  const advanced=document.getElementById('footer-addms-cta-advanced');
-  if(simple)simple.innerHTML=html;
-  if(advanced)advanced.innerHTML=html;
+  const footer=document.getElementById('footer-addms-cta')?.closest('.panel-footer');
+  const cta=document.getElementById('footer-addms-cta');
+  if(!cta)return;
+  cta.innerHTML=html;
+  if(footer)footer.hidden=!html;
 }
-function selectSimpleTab(key){
-  simpleActiveTab=key;
-  Object.keys(SIMPLE_TABS).forEach(k=>{
-    const tab=document.getElementById('tab-'+k);
-    tab.setAttribute('aria-selected',String(k===key));
-    document.getElementById('panel-'+k).classList.toggle('active',k===key);
-  });
-  renderMapLegend();
-}
-['impacto','vegetacion','contexto'].forEach((key,i,arr)=>{
-  const tab=document.getElementById('tab-'+key);
-  if(!tab)return;
-  tab.onclick=()=>selectSimpleTab(key);
-  // Salta pestañas ocultas (ver renderSimpleTabs(): Vegetación se oculta sin
-  // multiespectral) — sin este filtro Flecha-derecha/izquierda podía dejar
-  // el foco en una pestaña invisible.
-  const step=dir=>{let n=i;do{n=(n+dir+arr.length)%arr.length;}while(document.getElementById('tab-'+arr[n]).hidden&&n!==i);document.getElementById('tab-'+arr[n]).click();};
-  tab.addEventListener('keydown',e=>{
-    if(e.key==='ArrowRight')step(1);
-    if(e.key==='ArrowLeft')step(-1);
-  });
-});
 
-// ── Leyenda contextual flotante: la del primer layer visible de la
-// pestaña activa, con interpretación accionable (ya viene en su legend()). ──
-// Interpretación corta y ACCIONABLE por capa — lo que se lee de un vistazo
-// en el mapa. El párrafo técnico completo (justificación estadística,
-// fuente de los cortes) sigue existiendo en def.legend() para "modo
-// operativo" — acá se reemplaza, no se agrega, porque un párrafo denso al
-// lado del mapa es lo contrario de "accionable" cuando hay que decidir rápido.
-const SIMPLE_HINTS={
-  severidad:'Rojo: daño alto — priorizar verificación en terreno. Amarillo/naranja: revisar cuando se pueda. Verde: sin anomalía detectada.',
-  hotspot_termico:'Rojo oscuro: foco activo (≥88°C) — riesgo de reactivación, requiere atención. Naranja/amarillo: temperatura elevada, monitorear.',
-  ndvi_class:'Verde: vegetación densa y sana. Amarillo: escasa o estresada — vigilar evolución. Café: sin cobertura vegetal.',
-  gndvi_class:'Verde: vegetación sana. Amarillo: estrés moderado. Rojo: estrés severo — posible daño por calor o falta de agua.',
-  ndre_class:'Verde oscuro: óptimo. Verde claro: saludable. Naranja/rojo: deficiencia — atención en el corto plazo.',
-  msavi2_class:'Verde: vegetación densa y sana. Amarillo: escasa o en regeneración temprana. Café: sin cobertura.',
-  ndvi:'Verde = vegetación sana y densa. Rojo/café = suelo desnudo o vegetación muy estresada.',
-  gndvi:'Verde = vegetación sana. Rojo = estrés severo, posible daño.',
-  ndre:'Verde = follaje saludable. Rojo = deficiencia — atención en el corto plazo.',
-  msavi2:'Verde = vegetación densa. Café = sin cobertura o suelo expuesto.',
-  rgb:'Imagen a color real del vuelo — referencia visual directa del terreno.',
-  ms_composite:'Composición de bandas espectrales — realza contrastes de vegetación no visibles a simple vista.',
-  thermal:'Escala de temperatura de superficie — más caliente (colores cálidos) puede indicar actividad térmica residual.',
-  hillshade:'Relieve del terreno — ayuda a ubicar pendientes y accesos, sin significado térmico ni de severidad.',
-  flight_path:'Recorrido real del dron durante la captura — útil para verificar cobertura del vuelo.',
-};
-function renderMapLegend(){
-  const box=document.getElementById('map-legend');
-  if(!box)return;
-  const groups=SIMPLE_TABS[simpleActiveTab].group;
-  const visibleId=layerOrder.find(id=>LAYER_REGISTRY[id]&&groups.includes(LAYER_REGISTRY[id].group)
-    &&id!=='area_afectada'&&map.hasLayer(LAYER_REGISTRY[id].layer));
-  if(!visibleId){box.classList.remove('visible');box.innerHTML='';return;}
-  const def=LAYER_REGISTRY[visibleId];
-  // El HTML técnico de legend() trae uno o más <p> largos (la justificación
-  // estadística) antes de la barra/clases de color — se descartan acá SOLO
-  // para esta vista; siguen intactos en "Ver detalles" (modo operativo),
-  // que llama a legend() directo sin pasar por acá.
-  const tmp=document.createElement('div');
-  tmp.innerHTML=def.legend();
-  tmp.querySelectorAll('p').forEach(p=>p.remove());
-  // El selector de bandas (RGB personalizado / compuesto multiespectral)
-  // solo queda funcional cuando wireBandPickers() lo conecta — eso pasa al
-  // renderizar "modo operativo" (#tab-content), nunca acá. Dejarlo en la
-  // leyenda flotante sería un <select> que no hace nada al tocarlo.
-  tmp.querySelectorAll('.band-picker').forEach(b=>b.remove());
-  const hint=SIMPLE_HINTS[visibleId];
-  box.innerHTML=`<h4>${def.label.replace(/^\S+\s/,'')}</h4>${tmp.innerHTML}`+
-    (hint?`<div class="interpret"><b>Qué significa:</b> ${hint}</div>`:'');
-  box.classList.add('visible');
-}
+// La leyenda contextual flotante sobre el mapa se sacó — con una sola capa
+// visible a la vez no había forma de distinguirla del resto de la interfaz,
+// y en pantallas angostas llegaba a tapar el mapa entero. La interpretación
+// (SIMPLE_HINTS) y la leyenda técnica completa (legend()) ya viven DENTRO de
+// la tarjeta de cada capa en el panel (layerCardHTML(), más abajo) — un solo
+// lugar, siempre en el mismo sitio, sin competir por espacio con el mapa.
 
 // ═══════════════════════════════════════════════════════════════════
 // FICHA "QUÉ SIGNIFICA ESTE PUNTO" — clic en el mapa (solo modo simple)
@@ -2798,13 +2689,13 @@ async function showPointCard(latlng,containerPoint){
     d=await r.json();
   }catch(e){
     card.innerHTML=`<div class="point-card-head"><h4>Error</h4>
-      <button class="point-card-close reset" onclick="closePointCard()">✕</button></div>
+      <button class="point-card-close reset" onclick="closePointCard()"><svg class="ic" style="width:15px;height:15px" aria-hidden="true"><use href="#i-x"/></svg></button></div>
       <p style="padding:0 16px 16px;font-size:var(--fs-xs);color:var(--ink-muted)">No se pudo consultar este punto.</p>`;
     return;
   }
   if(!d.dentro_del_area){
     card.innerHTML=`<div class="point-card-head"><h4>Punto seleccionado</h4>
-      <button class="point-card-close reset" onclick="closePointCard()">✕</button></div>
+      <button class="point-card-close reset" onclick="closePointCard()"><svg class="ic" style="width:15px;height:15px" aria-hidden="true"><use href="#i-x"/></svg></button></div>
       <p style="padding:0 16px 16px;font-size:var(--fs-xs);color:var(--ink-muted);line-height:1.5">
       Este punto está fuera del área afectada detectada — no hay severidad ni foco térmico que reportar acá.</p>`;
     return;
@@ -2812,7 +2703,7 @@ async function showPointCard(latlng,containerPoint){
   const sevLabel={leve:'Leve',moderado:'Moderada',severo:'Severa'}[d.severidad]||'—';
   card.innerHTML=`
     <div class="point-card-head"><h4>Punto seleccionado</h4>
-      <button class="point-card-close reset" onclick="closePointCard()">✕</button></div>
+      <button class="point-card-close reset" onclick="closePointCard()"><svg class="ic" style="width:15px;height:15px" aria-hidden="true"><use href="#i-x"/></svg></button></div>
     <span class="point-severity ${d.severidad}">🔥 Severidad ${sevLabel.toLowerCase()}</span>
     <div class="point-metrics">
       <div class="point-metric"><div class="l">Temperatura</div><div class="v tabnum">${d.temperatura_c!=null?d.temperatura_c+' °C':'—'}</div></div>
@@ -2824,48 +2715,11 @@ async function showPointCard(latlng,containerPoint){
   `;
 }
 map.on('click',e=>{
-  // Solo en modo simple, y solo si no hay otra herramienta usando el clic
-  // (medición, dibujo de área) — evita robarle el clic a esas herramientas.
-  const advancedOpen=!document.getElementById('panel-advanced').hidden;
-  if(advancedOpen||measureActive||areaDrawingNew)return;
+  // Solo si no hay otra herramienta usando el clic (medición, dibujo de
+  // área) — evita robarle el clic a esas herramientas.
+  if(measureActive||areaDrawingNew)return;
   showPointCard(e.latlng,e.containerPoint);
 });
-
-// ═══════════════════════════════════════════════════════════════════
-// VISTA DE LISTA — alternativa textual accesible al mapa
-// ═══════════════════════════════════════════════════════════════════
-async function renderListView(){
-  const box=document.getElementById('list-view');
-  const s=SITUATION||await loadSituation();
-  if(!s){
-    box.innerHTML=`<p style="color:var(--ink-muted);font-size:var(--fs-sm)">Sin datos de impacto todavía para listar.</p>`;
-    return;
-  }
-  const rows=(s.hotspots||[]).map((h,i)=>`<tr>
-      <td>Foco ${i+1}</td>
-      <td class="tabnum">${h.lat.toFixed(5)}, ${h.lon.toFixed(5)}</td>
-      <td><span class="badge ${h.severidad}">${{leve:'Leve',moderado:'Moderada',severo:'Severa'}[h.severidad]}</span></td>
-      <td class="tabnum">${h.temp_c!=null?h.temp_c+' °C':'—'}</td>
-      <td>${fmtFechaCorta(s.captura)}</td>
-      <td>${h.severidad==='severo'?'Priorizar verificación en terreno':h.severidad==='moderado'?'Sumar a la ronda de verificación':'Monitorear'}</td>
-    </tr>`).join('');
-  box.innerHTML=`<table>
-    <caption>Zonas críticas detectadas — ${fmtFecha(s.captura)}. Alternativa en texto al mapa.</caption>
-    <thead><tr><th>Zona</th><th>Ubicación</th><th>Severidad</th><th>Temp.</th><th>Fecha</th><th>Recomendación</th></tr></thead>
-    <tbody>${rows||'<tr><td colspan="6">No se detectaron focos térmicos activos.</td></tr>'}</tbody>
-  </table>`;
-}
-document.getElementById('btn-view-map').onclick=function(){
-  this.setAttribute('aria-pressed','true');
-  document.getElementById('btn-view-list').setAttribute('aria-pressed','false');
-  document.getElementById('list-view').classList.remove('active');
-};
-document.getElementById('btn-view-list').onclick=function(){
-  this.setAttribute('aria-pressed','true');
-  document.getElementById('btn-view-map').setAttribute('aria-pressed','false');
-  document.getElementById('list-view').classList.add('active');
-  renderListView();
-};
 
 // ═══════════════════════════════════════════════════════════════════
 // COMPARAR EN EL TIEMPO — solo si hay >1 misión en la misma zona
@@ -3005,21 +2859,6 @@ document.getElementById('switch-motion').onclick=function(){
 };
 applyA11yPrefs();
 
-// Modo operativo: el gestor de capas técnico de siempre, detrás de un link.
-// No se reimplementa nada — layersPanelHTML()/wireLayersPanel() ya rendería
-// exactamente esto en #tab-content, con o sin este toggle.
-document.getElementById('link-advanced').onclick=(e)=>{
-  e.preventDefault();
-  document.getElementById('panel-simple').hidden=true;
-  document.getElementById('panel-advanced').hidden=false;
-};
-document.getElementById('link-simple').onclick=(e)=>{
-  e.preventDefault();
-  document.getElementById('panel-advanced').hidden=true;
-  document.getElementById('panel-simple').hidden=false;
-};
-// Los 3 botones de herramientas técnicas viven ahora dentro de "modo
-// operativo" sin onclick inline (consistente con el resto de este bloque).
 document.getElementById('btn-compare').onclick=toggleCompare;
 document.getElementById('btn-measure').onclick=toggleMeasure;
 document.getElementById('btn-export').onclick=exportView;
@@ -3027,30 +2866,15 @@ document.getElementById('btn-export').onclick=exportView;
 document.getElementById('panel-close').onclick=toggleSidebar;
 document.getElementById('panel-toggle').onclick=toggleSidebar;
 
-// Ajustes de visualización (transparencia global del modo simple)
-document.getElementById('ajustes-toggle').onclick=function(){
-  const open=this.getAttribute('aria-expanded')!=='true';
-  this.setAttribute('aria-expanded',String(open));
-  document.getElementById('ajustes-body').classList.toggle('open',open);
-};
-document.getElementById('global-opacity').addEventListener('input',function(){
-  const v=this.value/100;
-  SIMPLE_TABS[simpleActiveTab].group.forEach(g=>{
-    layerOrder.filter(id=>LAYER_REGISTRY[id]&&LAYER_REGISTRY[id].group===g&&map.hasLayer(LAYER_REGISTRY[id].layer))
-      .forEach(id=>{ if(LAYER_REGISTRY[id].layer.setOpacity)LAYER_REGISTRY[id].layer.setOpacity(v); });
-  });
-});
-
 // ═══════════════════════════════════════════════════════════════════
-// INIT del modo simple — corre una vez que el LAYER_REGISTRY inicial (y
-// SITUATION, si existe) están listos.
+// INIT — corre una vez que el LAYER_REGISTRY inicial (y SITUATION, si
+// existe) están listos.
 // ═══════════════════════════════════════════════════════════════════
-(async function initSimpleMode(){
+(async function initPanel(){
   await loadSituation();
   await loadFlightQuality();
   await renderSituationHeader();
   await renderSummaryCards();
-  renderSimpleTabs();
-  renderMapLegend();
+  renderCapasPanel();   // refresca la tarjeta Hotspot con los focos ya identificados
   await checkRelatedMissions();
 })();

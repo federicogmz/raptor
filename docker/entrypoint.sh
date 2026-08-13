@@ -113,6 +113,11 @@ MS_SOURCE_DIR="${MS_SOURCE_DIR:-/input_ms}"
 # no automático solo porque haya archivos *_D.JPG: es procesamiento extra
 # (su propio ODM) que no todas las misiones quieren pagar.
 DBAND="${DBAND:-0}"
+# Submuestreo de emergencia: procesar 1 de cada N fotos (SUB_SAMPLE=N, N>=2).
+# Ver scripts/subsample_photos.py — la palanca más grande para acortar una
+# corrida en modo vistazo/rápido con terreno escarpado (la reconstrucción
+# incremental es secuencial y proporcional al número de fotos).
+SUB_SAMPLE="${SUB_SAMPLE:-0}"
 SKIP_ODM="${SKIP_ODM:-0}"
 PORT="${PORT:-8080}"
 SERVE="${SERVE:-1}"
@@ -182,6 +187,14 @@ fi
 } <<< "$_PRESET_TXT"
 HYBRID_BA_FLAG=()
 [[ "$HYBRID_BA" == "1" ]] && HYBRID_BA_FLAG=(--use-hybrid-bundle-adjustment)
+# Térmico: mismo criterio que RGB (vistazo/rápido → --fast-orthophoto).
+# Confirmado en vivo (mision_2026-08-08, vistazo+escarpado): el térmico
+# pagó ~3.3 h SOLO en DensifyPointCloud (openmvs) para un sensor de
+# 640×512 (0.33 MP) cuyo producto final es el ortomosaico en °C — la nube
+# densa no alimenta ningún producto (no pide --dsm). Con fast-orthophoto la
+# malla del render nativo de ODM sale de la nube dispersa de SfM (mismo
+# mecanismo que banda D), que a esa escala es suficiente.
+FAST_ORTHOPHOTO_THERMAL="$FAST_ORTHOPHOTO_RGB"
 
 # Resumen JSON también cuando la corrida FALLA: para CI, "en qué etapa murió y
 # qué alcanzó a producir" vale tanto como el código de salida. Solo se arma en
@@ -261,11 +274,20 @@ case "${1:-run}" in
     [[ -d "$SOURCE_DIR" ]] && N_RGB=$(find -L "$SOURCE_DIR" -type f \( -iname "*_V.JPG" -o -iname "*_W.JPG" \) 2>/dev/null | wc -l)
     [[ -d "$SOURCE_DIR" ]] && N_TH=$(find -L "$SOURCE_DIR" -type f -iname "*_T.JPG" 2>/dev/null | wc -l)
     [[ -d "$MS_SOURCE_DIR" ]] && N_MS=$(find -L "$MS_SOURCE_DIR" -type f -iname "*_MS_NIR.TIF" 2>/dev/null | wc -l)
+    # Modo urgencia (SUB_SAMPLE=N): ODM va a procesar 1 de cada N, así que la
+    # estimación usa el conteo REAL de lo que correrá, no el de la tarjeta.
+    # Multiespectral NO se submuestrea (ver el comentario grande junto a
+    # `python3 scripts/subsample_photos.py` más abajo — se fragmenta con
+    # menos solape) así que su conteo se deja completo acá también.
+    if [[ "${SUB_SAMPLE:-0}" -gt 1 ]]; then
+      N_RGB=$((N_RGB / SUB_SAMPLE)); N_TH=$((N_TH / SUB_SAMPLE))
+    fi
     python3 -c "
 import sys
 sys.path.insert(0, 'scripts')
 from hardware import estimate_message
-m = estimate_message('$PRESET', $N_RGB + $N_TH + $N_MS * 4, terreno='$TERRENO')
+m = estimate_message('$PRESET', $N_RGB + $N_TH + $N_MS * 4, terreno='$TERRENO',
+                     por_sensor={'rgb': $N_RGB, 'thermal': $N_TH, 'multispectral': $N_MS * 4})
 hw = m['hardware']
 print('🖥️  Hardware detectado: {} núcleos, {} — {}'.format(
     hw['cores'],
@@ -297,7 +319,9 @@ esac
 # así que sale del disparador igual que ella.
 _DENSIFY=/code/SuperBuild/install/bin/DensifyPointCloud
 if [[ "$SKIP_ODM" -eq 0 \
-      && ( ( "$RUN_RGB" -eq 1 && "$FAST_ORTHOPHOTO_RGB" != "1" ) || "$RUN_THERMAL" -eq 1 || "$RUN_MULTISPECTRAL" -eq 1 ) \
+      && ( ( "$RUN_RGB" -eq 1 && "$FAST_ORTHOPHOTO_RGB" != "1" ) \
+           || ( "$RUN_THERMAL" -eq 1 && "$FAST_ORTHOPHOTO_THERMAL" != "1" ) \
+           || "$RUN_MULTISPECTRAL" -eq 1 ) \
       && -x "$_DENSIFY" ]] && ldd "$_DENSIFY" 2>/dev/null | grep -q "libcuda.so.1 => not found"; then
   echo "❌ ERROR: falta el runtime de CUDA dentro del contenedor."
   echo "   La reconstrucción densa (DensifyPointCloud) está enlazada contra"
@@ -310,9 +334,9 @@ if [[ "$SKIP_ODM" -eq 0 \
   echo ""
   echo "   Si la máquina NO tiene GPU, hace falta igual el NVIDIA Container"
   echo "   Toolkit instalado en el host; sin eso esta imagen no puede correr"
-  echo "   la etapa densa. Alternativa sin GPU: PRESET=vistazo o rapido con RGB"
-  echo "   (usa --fast-orthophoto y no toca DensifyPointCloud), o una misión de"
-  echo "   banda D."
+  echo "   la etapa densa. Alternativa sin GPU: PRESET=vistazo o rapido"
+  echo "   (RGB y térmico usan --fast-orthophoto y no tocan DensifyPointCloud),"
+  echo "   o una misión de banda D."
   exit 1
 fi
 
@@ -410,14 +434,23 @@ make flight-path
 # Mismo texto que puede pedirse sin lanzar nada:
 #   python3 scripts/hardware.py estimate --preset "$PRESET" --photos N
 # Total de fotos = todas las que ODM va a procesar de verdad (RGB + térmico +
-# multiespectral cuentan cada una su propio SfM), no una mezcla rara.
-_TOTAL_FOTOS=$(( ${RGB_COUNT:-0} + ${TH_COUNT:-0} + ${MS_COUNT:-0} * 4 ))
+# multiespectral cuentan cada una su propio SfM), no una mezcla rara. Con
+# SUB_SAMPLE>1 (modo urgencia) se usa el conteo reducido y se avisa —
+# multiespectral queda FUERA de esa reducción (no se submuestrea, ver el
+# comentario grande junto a `python3 scripts/subsample_photos.py` más abajo).
+_N_RGB_EST=${RGB_COUNT:-0}; _N_TH_EST=${TH_COUNT:-0}; _N_MS_EST=$(( ${MS_COUNT:-0} * 4 ))
+if [[ "$SUB_SAMPLE" -gt 1 ]]; then
+  _N_RGB_EST=$((_N_RGB_EST / SUB_SAMPLE)); _N_TH_EST=$((_N_TH_EST / SUB_SAMPLE))
+fi
+_TOTAL_FOTOS=$(( _N_RGB_EST + _N_TH_EST + _N_MS_EST ))
 echo ""
 python3 -c "
 import json, sys
 sys.path.insert(0, 'scripts')
 from hardware import estimate_message
-m = estimate_message('$PRESET', $_TOTAL_FOTOS)
+m = estimate_message('$PRESET', $_TOTAL_FOTOS,
+                     por_sensor={'rgb': $_N_RGB_EST, 'thermal': $_N_TH_EST,
+                                 'multispectral': $_N_MS_EST})
 hw = m['hardware']
 print('🖥️  Hardware detectado: {} núcleos, {} — {}'.format(
     hw['cores'],
@@ -427,6 +460,7 @@ print('🎚️  ' + m['modelo_texto'])
 print('📐 ' + m['resolucion_texto'])
 print('⏱️  ' + m['tiempo_texto'])
 "
+[[ "$SUB_SAMPLE" -gt 1 ]] && echo "   ⚡ Modo urgencia: se procesarán 1 de cada $SUB_SAMPLE fotos — las originales quedan intactas en la fuente."
 echo ""
 
 # ── Concurrencia acotada por MEMORIA (detección automática de hardware) ──
@@ -486,7 +520,15 @@ PREP_SPLIT=$(( (PREP_BUDGET + N_PARALLEL_STREAMS - 1) / N_PARALLEL_STREAMS ))
 # y usa la ortofoto cruda de ODM como vista previa si el producto recortado
 # todavía no existe.
 publish_partial() {
-  python3 scripts/generate_tiles.py >> outputs/logs/tiles_parciales.log 2>&1 || true
+  # Los tiles parciales NO se llevan todos los núcleos: mientras esto corre
+  # el sensor siguiente puede estar en pleno SfM (con su concurrencia
+  # liviana), y gdal2tiles con NPROCS completos le pelearía la CPU (ver
+  # RAPTOR_TILES_PROCESSES en scripts/generate_tiles.py). Con la mitad de los
+  # núcleos el teselado tarda más pero el SfM en curso no se degrada; el
+  # `make tiles` final corre SIN esta env y usa la máquina entera. El sello
+  # de "al día" hace que lo ya teselado acá no se repita en el pase final.
+  RAPTOR_TILES_PROCESSES=$(python3 -c "import os;print(max(1, os.cpu_count() // 2))") \
+    python3 scripts/generate_tiles.py >> outputs/logs/tiles_parciales.log 2>&1 || true
   chmod -R a+rwX geovisor/tiles 2>/dev/null || true
 }
 
@@ -729,10 +771,15 @@ _odm_args() {
       # El sensor es de 640x512, así que su GSD es ~10x más grueso que el del
       # RGB: pedir 1 cm no lo mejora (ODM recorta al GSD real igual) pero
       # evita fijar un número que quede corto en un vuelo más bajo.
+      # --fast-orthophoto (solo vistazo/rápido, ver FAST_ORTHOPHOTO_THERMAL):
+      # salta DensifyPointCloud — en vistazo+escarpado real esa etapa sola se
+      # llevó ~3.3 h de las 6.2 h del térmico, para una nube densa que
+      # ningún producto usa. El render nativo (malla+textura) se mantiene.
       echo "--feature-quality $FEAT_QUALITY --radiometric-calibration camera"\
            "--orthophoto-resolution $ODM_RES_CM --crop 0"\
            "--min-num-features $MIN_FEATURES --matcher-neighbors $MATCHER_NEIGHBORS"\
-           "--pc-quality $PC_QUALITY --sfm-algorithm $SFM_ALGORITHM --skip-report" ;;
+           "--pc-quality $PC_QUALITY --sfm-algorithm $SFM_ALGORITHM --skip-report"\
+           "$([[ "$FAST_ORTHOPHOTO_THERMAL" == "1" ]] && echo --fast-orthophoto)" ;;
     multispectral)
       # --radiometric-calibration camera+sun: usa el sensor de sol embebido en
       # cada banda (DJI M3M) para calibrar a reflectancia sin panel físico.
@@ -771,7 +818,20 @@ _odm_args() {
 _odm_post() {
   case "$1" in
     rgb)     make clean-dsm && make trim-edges-dsm && make trim-edges-rgb ;;
-    thermal) make trim-edges-thermal ;;
+    thermal)
+      make trim-edges-thermal
+      # Resumen de situación TEMPRANO: apenas el térmico está recortado se
+      # generan el hotspot y situation.json (modo solo-térmico) para que el
+      # geovisor muestre los focos activos mientras los demás sensores
+      # siguen reconstruyendo — en una emergencia los focos llegan antes.
+      # El análisis cruzado (etapa 5) corre estrictamente DESPUÉS de todas
+      # las cadenas de sensor, así que cuando hay multiespectral
+      # compute-severity reemplaza este hotspot por el recortado al área
+      # detectada y situation.json por el resumen completo — nunca al revés.
+      make compute-thermal-hotspot
+      make situation-summary
+      python3 scripts/notify_alert.py || true
+      ;;
     multispectral)
       if [[ "$RUN_RGB" -eq 0 ]]; then
         # Sin vuelo RGB el DSM sale del proyecto multiespectral (también
@@ -878,6 +938,33 @@ if [[ "$SKIP_ODM" -eq 0 && "${#ODM_ORDEN[@]}" -gt 0 ]]; then
       set -e
       _t_prep0=$(date +%s)
       _odm_prep "$_label"
+      # Submuestreo de emergencia (SUB_SAMPLE=N): reduce a 1 de cada N las
+      # fotos que ODM va a procesar, apenas termina SU preparación (ver
+      # scripts/subsample_photos.py). El conjunto completo queda intacto en
+      # data/ y en la siguiente corrida la preparación lo restaura solo.
+      #
+      # EXCEPTO multispectral: medido en vivo (misión real, terreno
+      # escarpado + SUB_SAMPLE=3) — RGB y térmico terminan con 99% de sus
+      # fotos reconstruidas al mismo factor de submuestreo, pero
+      # multiespectral apenas 15% (93/608, ver outputs/flight_quality.json
+      # de esa corrida). El SfM incremental se fragmentó en 8 componentes
+      # desconectados en vez de uno solo: las bandas del M3M son
+      # monocromáticas y de features mucho más débiles que el RGB, así que
+      # bajar el solape (menos fotos = menos pares que encadenar) las deja
+      # sin overlap suficiente para converger en una sola reconstrucción —
+      # el resultado es un ortomosaico multiespectral (y todo lo que sale de
+      # él: NDVI, severidad, área afectada) recortado a una fracción chica
+      # del área real volada. RGB/térmico no sufren esto porque sus fotos
+      # tienen mucho más detalle por imagen. Se prioriza cobertura real
+      # sobre velocidad acá: multiespectral ya es el sensor más lento del
+      # trío (ver scripts/hardware.py), así que someterlo también a
+      # submuestreo no paga lo que cuesta en área perdida.
+      if [[ "${SUB_SAMPLE:-0}" -gt 1 && "$_label" != "multispectral" ]]; then
+        echo "--- ${_label}: modo urgencia — procesando 1 de cada $SUB_SAMPLE fotos ---"
+        python3 scripts/subsample_photos.py "processing/$(_odm_proyecto "$_label")" "$SUB_SAMPLE" || true
+      elif [[ "${SUB_SAMPLE:-0}" -gt 1 ]]; then
+        echo "--- ${_label}: modo urgencia activo, pero SIN submuestrear este sensor — su reconstrucción se fragmenta con menos solape (medido en vivo) ---"
+      fi
       echo "⏱  Preparación de ${_label} completa en $(( $(date +%s) - _t_prep0 ))s"
 
       # Ficha del semáforo — bloquea ACÁ si los cupos de reconstrucción están
@@ -1062,6 +1149,21 @@ fi
 [[ "$DO_CONFIANZA" -eq 1 ]] && pipeline_progress_done "Máscara de confianza lista"
 [[ "$DO_AREA" -eq 1 ]] && pipeline_progress_done "Área afectada y severidad listas"
 [[ "${#CROSS_PIDS[@]}" -gt 0 ]] && publish_partial
+
+# Cobertura vs. área volada (outputs/coverage.json): advierte si la
+# reconstrucción dejó el mosaico recortado muy por debajo del área real
+# volada — el síntoma del bug de planar en terreno con relieve (terminaba
+# "bien" con 23-45% de cobertura sin ningún error visible). Corre en
+# segundos y nunca corta la corrida (|| true).
+python3 scripts/compute_coverage.py || true
+
+# Alerta de focos activos (webhook, si está configurado) + informe de
+# emergencia HTML imprimible — best-effort, nunca cortan la corrida.
+# RAPTOR_MISSION: la webapp la pasa; en CLI se deriva de la carpeta de
+# entrega (o queda 'mision').
+export RAPTOR_MISSION="${RAPTOR_MISSION:-$(basename "${EXPORT_DIR:-/input}" 2>/dev/null || echo mision)}"
+python3 scripts/notify_alert.py || true
+python3 scripts/export_report.py || true
 
 stage_begin "Generación de tiles XYZ"
 make tiles
