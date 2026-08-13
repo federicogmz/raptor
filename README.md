@@ -125,8 +125,14 @@ velocidad del preset.
 ./raptor run --input ./vuelos/la_clara --preset vistazo --terreno escarpado
 ```
 
-Default: `plano` (`--terreno` no es obligatorio; con terreno chato o de
-relieve suave, `planar` es válido y bastante más rápido).
+Default de `./raptor run --terreno` (CLI): `plano` — no es obligatorio; con
+terreno chato o de relieve suave, `planar` es válido y bastante más rápido.
+
+El formulario de la **webapp** arranca en `escarpado` en cambio: la mayoría
+de las misiones de emergencia real (incendio, montaña, terreno rocoso) no
+son planas, y perder cobertura en silencio por no acordarse de tildar la
+opción correcta es peor que la corrida ser más lenta por defecto. Se puede
+cambiar a `plano` en el mismo formulario cuando el vuelo sí lo es.
 
 ### `--fast-orthophoto` en RGB (vistazo/rápido)
 

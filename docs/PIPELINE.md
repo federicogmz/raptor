@@ -304,8 +304,8 @@ lee solo ortomosaicos/índices ya recortados:
   necesita NDVI) — antes una misión RGB+térmico sin M3M se quedaba sin esta
   capa sin necesidad real.
 - **`compute_situation_summary.py`**: resume todo en `outputs/situation.json`
-  para el modo simple del geovisor — corre tanto con área afectada completa
-  como con el caso solo-térmico.
+  para el resumen gerencial del geovisor — corre tanto con área afectada
+  completa como con el caso solo-térmico.
 
 ### 6. Tiles y geovisor
 
