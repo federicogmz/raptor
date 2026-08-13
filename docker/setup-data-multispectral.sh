@@ -81,7 +81,7 @@ else
   done <<< "$MS_FILES")
   COPIED=$(echo "$TO_COPY" | grep -c . || true)
   if [[ "$COPIED" -gt 0 ]]; then
-    echo "$TO_COPY" | xargs -P "$NPROCS" -I{} cp {} "$DATA_DIR/"
+    echo "$TO_COPY" | xargs -P "$NPROCS" -I{} cp --reflink=auto {} "$DATA_DIR/"
   fi
   echo "  ✅ $COPIED copiadas a data/multiespectral_mosaico/"
 fi
@@ -108,7 +108,7 @@ else
   done <<< "$D_FILES")
   D_COPIED=$(echo "$D_TO_COPY" | grep -c . || true)
   if [[ "$D_COPIED" -gt 0 ]]; then
-    echo "$D_TO_COPY" | xargs -P "$NPROCS" -I{} cp {} "$DATA_DIR_D/"
+    echo "$D_TO_COPY" | xargs -P "$NPROCS" -I{} cp --reflink=auto {} "$DATA_DIR_D/"
   fi
   echo "  ✅ $D_COPIED copiadas a data/dband_mosaico/"
 fi

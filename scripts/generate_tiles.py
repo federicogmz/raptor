@@ -52,12 +52,22 @@ ZOOM_MAX_HARD = 23
 # grandes ni se cuidaba en las más chicas. gdal2tiles.py reparte por zoom, no
 # por RAM por hilo como ODM, así que acá alcanza con los núcleos sin acotar
 # por memoria. NPROCS sigue pudiéndose forzar a mano si hace falta.
-if os.environ.get("NPROCS"):
+# RAPTOR_TILES_PROCESSES: techo de procesos de gdal2tiles para las
+# publicaciones PARCIALES (docker/entrypoint.sh::publish_partial) — mientras
+# el sensor siguiente puede estar en pleno SfM, los tiles no se llevan todos
+# los núcleos (antes lo hacían: gdal2tiles usa NPROCS completos y peleaba la
+# CPU con la concurrencia liviana de ODM). El `make tiles` final corre SIN
+# esta env y usa la máquina entera.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from hardware import cpu_count
+NPROCS = cpu_count()
+if os.environ.get("RAPTOR_TILES_PROCESSES"):
+    try:
+        NPROCS = max(1, int(os.environ["RAPTOR_TILES_PROCESSES"]))
+    except ValueError:
+        NPROCS = cpu_count()  # valor inválido → default
+elif os.environ.get("NPROCS"):
     NPROCS = int(os.environ["NPROCS"])
-else:
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from hardware import cpu_count
-    NPROCS = cpu_count()
 # Nombre de banda (GetDescription(), lo pone ODM vía XMP Camera:BandName) ->
 # id corto de capa/tile. El compositor client-side (app.js) arma composites
 # RGB en el navegador combinando estas capas de a 3 — no se generan
@@ -221,22 +231,37 @@ if shutil.which("gdal2tiles.py") is None:
 
 
 def to_8bit(src, dst, bands=3, clip_range=None):
-    """Convertir a 8-bit para tiles."""
+    """Convertir a 8-bit para tiles.
+
+    Por FRANJAS (mismo patrón que _banda_a_8bit), no un ReadAsArray() del
+    ráster entero: el ortomosaico RGB de un preset alto es de decenas de
+    miles de píxeles por lado, y leerlo completo (3-4 bandas a resolución
+    nativa) disparaba un pico de memoria de varios GB justo antes de lanzar
+    gdal2tiles. Por franjas el pico es proporcional a FILAS_POR_BLOQUE y no
+    al alto del ráster; el resultado es idéntico (misma clip a 0-255, misma
+    alpha, mismo nodata).
+    """
     ds = gdal.Open(src)
-    arr = ds.ReadAsArray()
+    w, h = ds.RasterXSize, ds.RasterYSize
+    n = ds.RasterCount
     if bands == 3:
-        has_alpha = arr.shape[0] >= 4
-        rgb = arr[:4] if has_alpha else (arr[:3] if arr.shape[0] >= 3 else np.stack([arr[0]]*3))
-        if rgb.dtype != np.uint8:
-            rgb = np.clip(rgb, 0, 255).astype(np.uint8)
+        has_alpha = n >= 4
         nb = 4 if has_alpha else 3
+        # Ortófoto RGB de ODM: 3-4 bandas (R,G,B[,alpha]). Si por algo llega
+        # con menos, se replica la primera para no escribir un raster inválido
+        # (mismo criterio que el np.stack de la versión original).
+        leer = [b + 1 for b in range(nb)] if n >= nb else [1] * nb
         drv = gdal.GetDriverByName("GTiff")
-        out = drv.Create(dst, ds.RasterXSize, ds.RasterYSize, nb, gdal.GDT_Byte,
-                         ["COMPRESS=LZW", "TILED=YES"])
+        out = drv.Create(dst, w, h, nb, gdal.GDT_Byte,
+                         ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_SAFER"])
         out.SetGeoTransform(ds.GetGeoTransform())
         out.SetProjection(ds.GetProjection())
-        for i in range(nb):
-            out.GetRasterBand(i+1).WriteArray(rgb[i])
+        for y0 in range(0, h, FILAS_POR_BLOQUE):
+            alto = min(FILAS_POR_BLOQUE, h - y0)
+            franja = [np.clip(ds.GetRasterBand(b).ReadAsArray(0, y0, w, alto), 0, 255).astype(np.uint8)
+                      for b in leer]
+            for i, arr in enumerate(franja):
+                out.GetRasterBand(i + 1).WriteArray(arr, 0, y0)
         if has_alpha:
             out.GetRasterBand(4).SetColorInterpretation(gdal.GCI_AlphaBand)
         out = None

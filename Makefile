@@ -37,6 +37,10 @@ TIFF_DIR     := preprocessing/thermal_dji_sdk
 TIFF_DENOISED_DIR := preprocessing/thermal_dji_sdk_denoised
 TILES_DIR    := geovisor/tiles
 SERVER_PORT  ?= 8080
+# Concurrencia para etapas CPU-bound de ESTE Makefile (el exiftool de
+# prepare-rgb). Misma fuente que el resto del pipeline (scripts/hardware.py,
+# stdlib-only) para que MAX_CONCURRENCY sea una sola perilla en todos lados.
+NPROCS ?= $(shell python3 scripts/hardware.py concurrency 2 2>/dev/null || echo 4)
 
 # ── Productos finales ──────────────────────────────────────────────
 DSM_TIF      := $(OUTPUTS)/dsm.tif
@@ -114,8 +118,12 @@ prepare-rgb:
 	@find $(DATA_RGB) -maxdepth 1 -type f \( -name '*_V.JPG' -o -name '*_W.JPG' \) \
 		-exec cp --reflink=auto -t $(RGB_PROC)/images/ {} + 2>/dev/null || true
 	@find $(RGB_PROC)/images -maxdepth 1 -type f \( -name '*_V.JPG' -o -name '*_W.JPG' \) \
-		| exiftool -api Compact=Shorthand -all= -tagsfromfile @ -exif:all \
-		  -xmp-drone-dji:all -overwrite_original -q -@ - 2>/dev/null || true
+		| xargs -P $(or $(NPROCS),4) -n 100 exiftool -api Compact=Shorthand -all= \
+		  -tagsfromfile @ -exif:all -xmp-drone-dji:all -overwrite_original -q 2>/dev/null || true
+	@# exiftool en paralelo (xargs -P, lotes de 100 vía ARGV en vez de -@ -): cada
+	@# archivo es independiente (mismos tags por lote), y con cientos de fotos de
+	@# 12 MP el -overwrite_original de un solo proceso secuencial era minutos
+	@# reales de preparación antes de que ODM arrancara.
 	@python3 scripts/progress.py done "Imágenes RGB listas"
 
 prepare-multispectral:

@@ -51,6 +51,11 @@ PRODUCTS = [
     os.path.join(OUTPUTS, "dsm.tif"),
     os.path.join(OUTPUTS, "confidence_mask.tif"),
     os.path.join(OUTPUTS, "multispectral_orthomosaic.tif"),
+    # Los rasters de CLASES (Byte, discretos) también salen en COG — antes
+    # quedaban afuera y se exportaban como GeoTIFF plano pese a que el resto
+    # de los productos de la misión ya era COG.
+    os.path.join(OUTPUTS, "severidad_class.tif"),
+    os.path.join(OUTPUTS, "termico_hotspot_class.tif"),
 ] + sorted(glob.glob(os.path.join(OUTPUTS, "indices", "*.tif")))
 
 

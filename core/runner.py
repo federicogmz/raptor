@@ -47,7 +47,8 @@ class PipelineRun:
 
     def __init__(self, *, mode, source_dir, ms_source_dir=None,
                  skip_odm=False, port=8080, progress_file, export=None,
-                 preset=None, quality=None, dband=False, terreno=None):
+                 preset=None, quality=None, dband=False, terreno=None,
+                 subsample=0, mission_name=None):
         self.mode = mode
         self.source_dir = str(source_dir)
         self.ms_source_dir = str(ms_source_dir) if ms_source_dir else None
@@ -72,6 +73,13 @@ class PipelineRun:
         # (planar) es válido y rápido, pero en relieve fuerte puede descartar
         # la mayoría de las fotos en silencio — confirmado en vivo.
         self.terreno = str(terreno) if terreno else "plano"
+        # Modo urgencia: procesar 1 de cada N fotos (ver SUB_SAMPLE en
+        # docker/entrypoint.sh y scripts/subsample_photos.py). Solo tiene
+        # sentido con reconstrucción (reuse_odm=False); el entrypoint lo
+        # ignora con SKIP_ODM=1.
+        self.subsample = int(subsample) if subsample else 0
+        # Nombre de la misión para el payload de alerta/informe (opcional).
+        self.mission_name = mission_name
         self.returncode = None
         self.raw_lines = []
         self._proc = None
@@ -85,10 +93,13 @@ class PipelineRun:
             "PRESET": self.preset,
             "TERRENO": self.terreno,
             "DBAND": "1" if self.dband else "0",
+            "SUB_SAMPLE": str(self.subsample),
             "SERVE": "0",
             "PORT": str(self.port),
             "PROGRESS_FILE": self.progress_file,
         })
+        if self.mission_name:
+            env["RAPTOR_MISSION"] = self.mission_name
         if self.ms_source_dir:
             env["MS_SOURCE_DIR"] = self.ms_source_dir
         else:

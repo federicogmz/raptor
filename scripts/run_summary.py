@@ -109,6 +109,17 @@ def main():
         except Exception:
             pass
 
+    # Cobertura vs. área volada (scripts/compute_coverage.py): la métrica
+    # que dice si el mosaico cubre lo que el dron realmente recorrió —
+    # para CI, "cobertura_pct" del ráster no alcanza.
+    cov = os.path.join(OUTPUTS, "coverage.json")
+    if os.path.isfile(cov):
+        try:
+            with open(cov) as f:
+                resumen["cobertura_vs_vuelo"] = json.load(f)
+        except Exception:
+            pass
+
     export_dir = os.environ.get("EXPORT_DIR", "").strip()
     if export_dir:
         manifiesto = os.path.join(export_dir, "export_manifest.json")

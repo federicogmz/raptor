@@ -468,38 +468,69 @@ def quality_tier(quality):
 
 
 # ── Estimación de tiempo ─────────────────────────────────────────────
-# Coeficiente MUY aproximado: segundos por foto en el escalón MÁS RÁPIDO
-# (lowest) por "núcleo efectivo" (cores^0.75, el paralelismo real con
-# rendimientos decrecientes). Calibrado en orden de magnitud, no en
-# precisión — la variación real entre escenas (solape, nº de features,
-# GPU) es de sobra mayor que cualquier error de este número. Por eso la
-# estimación siempre se muestra como RANGO y rotulada "aproximada".
+# Modelo POR ETAPAS, calibrado contra las corridas reales más grandes de
+# esta máquina (laptop 20 núcleos, RTX A1000 6 GB, 23 GB RAM):
 #
-# CALIBRADO contra barbosa-picodegallo, la corrida completa más grande y más
-# reciente de esta máquina (laptop, RTX A1000 6 GB, 20 núcleos, 23 GB RAM):
-# 3149 imágenes (2340 bandas multiespectrales + 585 de banda D + 224
-# térmicas) a calidad 75 — el preset «alta», tiempo_relativo 16 — en 24 h 15
-# min de punta a punta (outputs/logs/timings.json: 87 300 s).
-#   S = total_real * cores^0.75 / (n_fotos * tiempo_relativo)
-#     = 87300 * 20^0.75 / (3149 * 16) ≈ 16.4 s/foto
+#   barbosa-picodegallo (3149 imágenes, preset «alta»): 24 h 15 min
+#   mision_2026-08-08     (2398 imágenes, «vistazo»+escarpado): 17 h 42 min
+#     → RGB 10.3 h (etapa opensfm 8.5 h) + térmico 6.2 h (MVS 3.3 h)
 #
-# El valor anterior (110) venía de barbosa-chorrera, una misión de 221
-# imágenes, y sobre picodegallo predecía 83-221 h contra las 24 h reales:
-# 5.8x pesimista. La causa es que este modelo es LINEAL en el número de
-# fotos y las dos misiones reales no lo son — 17x más imágenes costaron solo
-# 4x más tiempo (el matching no crece con n² porque ODM acota los pares con
-# matching_graph_rounds, y buena parte del costo por foto se amortiza). Se
-# calibra contra la misión GRANDE a propósito: es donde la espera duele y
-# donde la decisión de preset importa. En vuelos chicos la estimación va a
-# leerse pesimista.
+# El modelo anterior era un solo número por foto (16.4 s) multiplicado por
+# el tiempo_relativo del preset — y sobre mision_2026-08-08 prometía
+# "31 min – 2.1 h" contra las 17.7 h reales (≈10x optimista). La causa de
+# fondo: la corrección de escarpado (×3 sobre el tiempo_relativo) no
+# alcanza para la reconstrucción incremental, que es SECUENCIAL por diseño
+# (bundle adjustment foto por foto, ~12 s/foto medidos) y no se paraleliza
+# entre fotos; y el térmico paga la fase densa completa aunque su sensor
+# sea de 640×512. Un escalar por preset no puede representar eso.
 #
-# PENDIENTE de volver a medir: estos 24 h se midieron ANTES de arreglar el
-# split de concurrencia de run_odm (features y undistort corrían con 2 y 6
-# hilos sobre 20 núcleos, ver docker/entrypoint.sh) y antes de solapar
-# proyectos. O sea que hoy es una COTA SUPERIOR, no una predicción centrada.
-# Recalibrar con la primera corrida completa post-fix y anotar acá contra
-# qué misión se hizo.
-_SEG_POR_FOTO_BASE = 16.4
+# Ahora el modelo suma costos POR FASE, cada uno con su propia dependencia:
+#
+#   features/matching/undistort  s/foto, PARALELA (se divide por núcleos)
+#   incremental (BA foto a foto)  s/foto, SECUENCIAL (no se divide por nada)
+#   densa (DensifyPointCloud)     s/foto, solo si NO hay --fast-orthophoto,
+#                                 escala con pc_quality y con la GPU (VRAM)
+#   malla+textura                 s/foto, PARALELA, más barata con
+#                                 --fast-orthophoto (malla desde la nube
+#                                 dispersa en vez de la densa)
+#
+# Coeficientes por foto derivados de los substages reales de la última
+# corrida (outputs/logs/odm_rgb_substages.json de mision_2026-08-08):
+#   features+matching+undistort: 15686 s / 1199 fotos ≈ 13 s (a ~2 hilos;
+#     con la concurrencia liviana actual el costo por foto es el mismo pero
+#     el modelo lo divide por los núcleos reales — ver run_odm en
+#     docker/entrypoint.sh).
+#   incremental: opensfm 30592 s − 15686 s ≈ 14906 s / 1199 ≈ 12.4 s.
+#   densa (RGB): 16471 s / 1199 ≈ 13.7 s sobre la GPU de referencia (6 GB).
+#   malla+textura: (3097 + 2992) s / 1199 ≈ 5.1 s; con fast-orthophoto se
+#     estima 60% (malla dispersa) — PENDIENTE de medir en una corrida real.
+#
+# Sigue siendo una aproximación a propósito (se muestra como RANGO 0.5x-2x
+# y rotulada "aproximada"), pero el rango ya cubre las corridas reales que
+# importan — la estimación de vistazo+escarpado para 2398 fotos da
+# ~4.6-18.6 h, que SÍ contiene las 17.7 h reales, en vez de prometer horas
+# que no existen.
+_SEG_FEATURES = 13.0   # features+matching+undistort, s/foto, paralela
+_SEG_INCR = 12.4       # bundle adjustment incremental, s/foto, secuencial
+_SEG_MVS = 13.7        # DensifyPointCloud, s/foto, sobre GPU de referencia
+_SEG_MESH = 5.1        # malla+textura, s/foto, paralela
+
+# pc_quality/feature_quality escalan las fases que resuelven (mapas de
+# profundidad y features). Cada escalón de pc_quality es ~4x el tiempo de
+# SfM/MVS (documentado por ODM en --pc-quality --help) — acá como
+# multiplicador por nivel, amortiguado (no todo el SfM es MVS).
+_PC_Q_FACTOR = {"low": 1.0, "medium": 1.6, "high": 2.8, "ultra": 5.0}
+_FEAT_Q_FACTOR = {"low": 1.0, "medium": 1.2, "high": 1.6, "ultra": 2.2}
+
+# Peso relativo del costo POR FOTO de cada sensor: el térmico (640×512,
+# 0.33 MP) extrae features y empareja mucho más barato que el RGB (12.3 MP);
+# el multiespectral agrupa 4 bandas por captura, así que el costo real está
+# por captura y no por banda. Ajustado en orden de magnitud — PENDIENTE de
+# calibrar contra una corrida real por sensor.
+_SENSOR_PESO = {"rgb": 1.0, "thermal": 0.55, "multispectral": 1.1, "dband": 1.0}
+
+_TITULO_SENSOR = {"rgb": "RGB", "thermal": "térmico",
+                  "multispectral": "multiespectral", "dband": "banda D"}
 
 
 def _gpu_factor(vram_mb, has_gpu):
@@ -521,25 +552,55 @@ def _gpu_factor(vram_mb, has_gpu):
     return 0.4
 
 
+def _paralelismo_efectivo(cores):
+    """Núcleos con rendimientos decrecientes (overhead de coordinación): no
+    se divide linealmente por núcleo."""
+    return max(1, cores) ** 0.75
+
+
+def _seconds_per_photo(tier, hw):
+    """Segundos por foto de TODA la reconstrucción de un sensor con este
+    preset y este hardware — suma de fases, ver el comentario del modelo."""
+    par = _paralelismo_efectivo(hw["cores"])
+    factor_gpu = _gpu_factor(hw.get("vram_mb"), hw.get("gpu", False))
+    fast = tier["fast_orthophoto"]
+    feats = (_SEG_FEATURES * _FEAT_Q_FACTOR.get(tier["feature_quality"], 1.0)) / par
+    # Planar sigue haciendo un alineamiento barato por pares, no la
+    # reconstrucción foto por foto (que es la que domina en incremental).
+    incr = _SEG_INCR if tier["sfm_algorithm"] == "incremental" else (_SEG_FEATURES * 0.2) / par
+    mvs = 0.0 if fast else _SEG_MVS * _PC_Q_FACTOR.get(tier["pc_quality"], 1.0) * factor_gpu
+    mesh = (_SEG_MESH * (0.6 if fast else 1.0)) / par
+    return feats + incr + mvs + mesh
+
+
 def estimate_minutes(quality, n_photos, hw=None, terreno=None):
     """(min_low, min_high) minutos estimados, MUY aproximados a propósito.
-    `quality` es un nombre de preset o un QUALITY 0-100 heredado."""
+    `quality` es un nombre de preset o un QUALITY 0-100 heredado.
+
+    Modelo por etapas calibrado contra las corridas reales (ver el
+    comentario del modelo arriba) — el rango cubre vistazo+escarpado real
+    (17.7 h para 2398 fotos) en vez de prometer "31 min – 2.1 h"."""
     if n_photos <= 0:
         return (0.0, 0.0)
     hw = hw or detect_hardware()
     tier = preset(quality, terreno=terreno)
-    cores = max(1, hw["cores"])
-    # Paralelismo con rendimientos decrecientes (overhead de coordinación):
-    # no se divide linealmente por núcleo.
-    paralelismo_efectivo = cores ** 0.75
-    factor_gpu = _gpu_factor(hw.get("vram_mb"), hw.get("gpu", False))
-    base = n_photos * _SEG_POR_FOTO_BASE * tier["tiempo_relativo"] * factor_gpu
-    base /= paralelismo_efectivo
-    minutos = base / 60
-    # Banda ancha (0.5x-2x, antes 0.6x-1.6x) y a propósito: el modelo es
-    # lineal en el número de fotos y las dos misiones reales medidas no lo
-    # son (ver la nota de _SEG_POR_FOTO_BASE). Un rango angosto sobre un
-    # modelo que se sabe aproximado promete una precisión que no existe.
+    minutos = n_photos * _seconds_per_photo(tier, hw) / 60
+    # Banda ancha (0.5x-2x) a propósito: el modelo es aproximado y la escena
+    # real (solape, vegetación) pesa más que cualquier coeficiente. Un rango
+    # angosto promete una precisión que no existe.
+    return (round(minutos * 0.5, 1), round(minutos * 2.0, 1))
+
+
+def estimate_sensor_minutes(sensor, n_photos, quality, hw=None, terreno=None):
+    """(min_low, min_high) para UN sensor con n_photos fotos — lo que usa
+    estimate_message() con `por_sensor` para mostrar "térmico ≈ X–Y, RGB ≈
+    X–Y" en vez de un solo número que mezcla sensores con costos muy
+    distintos (un térmico de 0.33 MP no cuesta lo mismo que un RGB de 12 MP)."""
+    if n_photos <= 0:
+        return (0.0, 0.0)
+    hw = hw or detect_hardware()
+    tier = preset(quality, terreno=terreno)
+    minutos = n_photos * _seconds_per_photo(tier, hw) * _SENSOR_PESO.get(sensor, 1.0) / 60
     return (round(minutos * 0.5, 1), round(minutos * 2.0, 1))
 
 
@@ -593,14 +654,36 @@ def preset_options(n_photos, hw=None, terreno=None):
     return opciones
 
 
-def estimate_message(quality, n_photos, hw=None, terreno=None):
+def estimate_message(quality, n_photos, hw=None, terreno=None, por_sensor=None):
     """Mensaje completo (texto + datos crudos) para mostrarle al usuario
     ANTES de arrancar: a qué resolución van a salir los productos y cuánto se
-    espera que tarde, con las cuentas claras de por qué."""
+    espera que tarde, con las cuentas claras de por qué.
+
+    `por_sensor` (opcional): dict {sensor: fotos} para desglosar el tiempo
+    por sensor (térmico ≈ X–Y, RGB ≈ X–Y) en vez de un solo número — los
+    sensores tienen costos por foto muy distintos y, en modo escarpado, el
+    térmico termina mucho antes que el RGB. Lo usan el entrypoint y la
+    webapp, que saben cuántas fotos hay de cada uno."""
     hw = hw or detect_hardware()
     tier = preset(quality, terreno=terreno)
-    lo, hi = estimate_minutes(quality, n_photos, hw, terreno=terreno)
     partes_hw = _texto_hardware(hw)
+    aviso_escarpado = (PRESETS[tier["nombre"]]["sfm_algorithm"] != tier["sfm_algorithm"])
+    if por_sensor:
+        activos = {s: n for s, n in por_sensor.items() if n > 0}
+        lo = sum(estimate_sensor_minutes(s, n, quality, hw, terreno=terreno)[0]
+                 for s, n in activos.items())
+        hi = sum(estimate_sensor_minutes(s, n, quality, hw, terreno=terreno)[1]
+                 for s, n in activos.items())
+        desglose = " · ".join(
+            f"{_TITULO_SENSOR.get(s, s)} ≈ "
+            f"{_fmt_minutos(*estimate_sensor_minutes(s, n, quality, hw, terreno=terreno))}"
+            for s, n in activos.items())
+        lo_hi_por_sensor = {s: list(estimate_sensor_minutes(s, n, quality, hw, terreno=terreno))
+                            for s, n in activos.items()}
+    else:
+        lo, hi = estimate_minutes(quality, n_photos, hw, terreno=terreno)
+        desglose = None
+        lo_hi_por_sensor = None
 
     resolucion = (
         f"Hasta {tier['res_cm']} cm/px en el ortomosaico y el DSM — el techo real "
@@ -632,14 +715,29 @@ def estimate_message(quality, n_photos, hw=None, terreno=None):
            f"«{tier['titulo']}» por defecto sea planar — en terreno con "
            f"relieve fuerte, la reconstrucción planar puede descartar la "
            f"mayoría de las fotos en silencio (confirmado en vivo: 76-81% de "
-           f"las fotos perdidas en una misión de terreno rocoso)."
-           if PRESETS[tier["nombre"]]["sfm_algorithm"] != tier["sfm_algorithm"] else "")
+           f"las fotos perdidas en una misión de terreno rocoso). "
+           f"⚠ Y el costo es alto: la reconstrucción incremental es secuencial "
+           f"(~12 s por foto, no se paraleliza entre fotos) y pasa a dominar "
+           f"el tiempo — en un vuelo de cientos de fotos esperá HORAS por "
+           f"sensor, no minutos. El modo urgencia (1 de cada 3 fotos) o el "
+           f"submuestreo acortan esa espera."
+           if aviso_escarpado else "")
     )
-    tiempo = (
-        f"Tiempo estimado con tu hardware ({', '.join(partes_hw)}): "
-        f"{_fmt_minutos(lo, hi)} para {n_photos} fotos. Aproximado — la escena real "
-        f"(solape, vegetación) pesa más que este número."
-    )
+    if desglose:
+        tiempo = (
+            f"Tiempo estimado con tu hardware ({', '.join(partes_hw)}): "
+            f"{_fmt_minutos(lo, hi)} para {n_photos} fotos. Aproximado — la escena real "
+            f"(solape, vegetación) pesa más que este número."
+            f" Por sensor: {desglose} (los sensores reconstruyen en paralelo "
+            f"cuando la RAM disponible lo permite — el total puede terminar "
+            f"antes que la suma)."
+        )
+    else:
+        tiempo = (
+            f"Tiempo estimado con tu hardware ({', '.join(partes_hw)}): "
+            f"{_fmt_minutos(lo, hi)} para {n_photos} fotos. Aproximado — la escena real "
+            f"(solape, vegetación) pesa más que este número."
+        )
     # Guía de respuesta rápida: en los presets altos la reconstrucción densa
     # domina el tiempo (cada escalón multiplica por ~4) y los rápidos son
     # mucho más baratos. Se muestran sus tiempos acá, ANTES de arrancar — la
@@ -652,6 +750,7 @@ def estimate_message(quality, n_photos, hw=None, terreno=None):
                    f"{tier['res_cm']} cm (el GSD real del vuelo manda igual).")
     return {"tier": tier, "preset": tier["nombre"], "terreno": tier["terreno"],
             "hardware": hw, "n_photos": n_photos, "minutos_estimados": [lo, hi],
+            "por_sensor": lo_hi_por_sensor, "aviso_escarpado": aviso_escarpado,
             "opciones": preset_options(n_photos, hw, terreno=terreno),
             "resolucion_texto": resolucion, "modelo_texto": modelo,
             "tiempo_texto": tiempo}

@@ -9,6 +9,16 @@ outputs/
 geovisor/tiles/
 runs/
 agisoft/
+# activate_mission() (core/runner.py) los deja como SYMLINKS, no carpetas —
+# un patrón con "/" al final solo matchea carpetas reales, no un symlink que
+# apunte a una (aunque apunte a algo bajo processing/ etc.), así que quedaban
+# sueltos como "untracked" cada vez que un test corría con el repo entero
+# bind-mounteado como /app (ver docs de cómo correr la suite en contenedor).
+# Sin "/" final matchea cualquier tipo de entrada con ese nombre.
+processing
+preprocessing
+outputs
+geovisor/tiles
 
 # Trabajo en progreso del paper académico (pipeline deep-research/paper-plan/
 # paper-draft) — borrador vivo, no documentación curada del repo. Vive en
@@ -19,6 +29,8 @@ paper/
 __pycache__/
 *.pyc
 venv/
+.venv/
+.freebuff/
 
 # SDK (descargable, se incluye extraído pero no el zip)
 *.zip

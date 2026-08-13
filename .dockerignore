@@ -6,6 +6,7 @@ preprocessing/
 geovisor/tiles/
 runs/
 venv/
+.venv/
 agisoft/
 .git/
 *.zip

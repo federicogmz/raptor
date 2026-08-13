@@ -46,6 +46,7 @@ FAST_ORTHOPHOTO_RGB=0
 # acá no es el foco del test, se le da el default de "no hay banda D".
 DO_DBAND="${DO_DBAND:-0}"
 SKIP_ODM="${SKIP_ODM:-0}"
+SUB_SAMPLE="${SUB_SAMPLE:-0}"
 python3() {
   if [[ "$1" == "scripts/hardware.py" ]]; then
     printf '2\n2 2 2 2\n4 4 4 4\n'

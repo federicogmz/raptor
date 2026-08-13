@@ -304,6 +304,20 @@ def main():
         return 0
     situation["captura"] = _captura()
 
+    # Cobertura vs. área volada (scripts/compute_coverage.py): qué fracción
+    # del área que el dron recorrió quedó cubierta por cada mosaico y si
+    # disparó la alerta de cobertura baja — para que el panel de situación
+    # del geovisor lo muestre sin pedir otro archivo.
+    if os.path.isfile("outputs/coverage.json"):
+        try:
+            with open("outputs/coverage.json") as f:
+                c = json.load(f)
+            situation["cobertura_vs_area_volada"] = c.get("productos")
+            situation["area_volada_km2"] = c.get("area_volada_km2")
+            situation["alerta_cobertura_baja"] = bool(c.get("alerta"))
+        except Exception:
+            pass
+
     with open(OUT_PATH, "w", encoding="utf-8") as f:
         json.dump(situation, f, ensure_ascii=False, indent=2)
     try:
