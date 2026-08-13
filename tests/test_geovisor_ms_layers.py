@@ -279,21 +279,42 @@ class TestComparadorNoRevientaSinCapasOpcionales:
             "en cada activación de toggleCompare()")
 
 
-class TestPestanaVegetacionSinMultiespectral:
-    """Reportado: la pestaña "Vegetación" (modo simple) aparecía aunque la
-    misión no tuviera multiespectral — al abrirla siempre mostraba "No hay
-    información de este tipo en esta misión", un callejón sin salida
-    redundante con la tarjeta "Agregar vuelo multiespectral" que ya se
-    ofrece en la pestaña Impacto."""
+# TestPestanaVegetacionSinMultiespectral existía acá: protegía la pestaña
+# "Vegetación" del modo simple (renderSimpleTabs/selectSimpleTab) contra
+# quedar seleccionada-pero-oculta cuando la misión no tenía multiespectral.
+# El modo simple con pestañas Riesgo/Cobertura/Evidencia se eliminó — el
+# geovisor ahora tiene un solo panel de capas (layersPanelHTML), sin tabs que
+# puedan quedar "activas pero invisibles". La clase de bug que este test
+# vigilaba ya no puede pasar (no hay estado de pestaña que perder), y el caso
+# que sí sigue vivo —el grupo "índices" vacío sin multiespectral— lo cubre
+# TestBotonAgregarMultiespectral::test_se_ofrece_cuando_el_grupo_de_indices_esta_vacio.
 
-    def test_renderSimpleTabs_oculta_vegetacion_sin_indices(self):
-        cuerpo = _cuerpo_de(_js(), "renderSimpleTabs")
-        assert "liveMsBandIds.length===0" in cuerpo
-        assert "vegTab.hidden=hide" in cuerpo
 
-    def test_no_deja_la_pestana_activa_oculta(self):
-        """Si el usuario estaba parado en Vegetación y el multiespectral
-        desaparece de la señal (o nunca estuvo), no debe quedar una pestaña
-        activa pero invisible — tiene que saltar a Impacto."""
-        cuerpo = _cuerpo_de(_js(), "renderSimpleTabs")
-        assert "selectSimpleTab('impacto')" in cuerpo
+class TestEstadoDeEtapaRendereaHTML:
+    """Reportado: al fallar una corrida, en vez del ícono de cruz aparecía
+    el tag SVG entero como texto literal ("<svg...><use.../></svg> Falló
+    (código 1)") en el estado del HUD de progreso.
+
+    Causa real: phSetStage() pintaba con `el.textContent=...`, pero el
+    handler del evento 'done' (connectLiveMission()) le pasa markup HTML
+    (ícono ✓/✗ + texto) esperando que se RENDERICE, no que se muestre como
+    texto plano. textContent escapa cualquier `<` — el navegador nunca lo
+    interpreta como tag, así que el ícono nunca aparecía, se veía el
+    markup crudo."""
+
+    def test_phSetStage_usa_innerHTML(self):
+        cuerpo = _cuerpo_de(_js(), "phSetStage")
+        assert "el.innerHTML=" in cuerpo, (
+            "phSetStage tiene que asignar con innerHTML — el handler 'done' "
+            "le pasa un ícono <svg> esperando que se renderice, no texto plano")
+        assert "el.textContent=" not in cuerpo
+
+    def test_el_handler_done_le_pasa_markup_de_icono(self):
+        """Confirma que el caso que de verdad importa (el mensaje de fallo,
+        con el ícono de cruz) sigue pasando por phSetStage — si en algún
+        refactor futuro dejara de llamarlo, este test lo nota."""
+        js = _js()
+        i = js.index("}else if(d.kind==='done'){")
+        bloque = js[i:i + 800]
+        assert "phSetStage(ok" in bloque
+        assert "<svg" in bloque

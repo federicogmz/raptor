@@ -291,6 +291,50 @@ class TestTerrenoEscarpado:
         assert opciones["estandar"]["sfm_algorithm"] == "incremental"
 
 
+class TestEstimacionHonesta:
+    """El modelo recalibrado (por etapas, ver el comentario en
+    scripts/hardware.py) tiene que cubrir las corridas reales — el modelo
+    anterior prometía "31 min – 2.1 h" para la misión que terminó en
+    17.7 h, y esa promesa rota era la fuente de la insatisfacción."""
+
+    def _hw(self):
+        return {"cores": 20, "mem_available_mb": 23000, "gpu": True,
+                "gpu_name": "RTX A1000 6GB", "vram_mb": 6 * 1024}
+
+    def test_escarpado_vistazo_cubre_la_corrida_real(self):
+        """mision_2026-08-08: 2398 fotos (1199 RGB + 1199 térmicas) en
+        vistazo+escarpado = 17 h 42 min reales (outputs/logs/timings.json).
+        El rango estimado TIENE que contener ese número."""
+        lo, hi = HW.estimate_minutes("vistazo", 2398, self._hw(), terreno="escarpado")
+        assert lo <= 17.7 * 60 <= hi, (lo, hi)
+
+    def test_escarpado_ya_no_promete_minutos(self):
+        lo, _ = HW.estimate_minutes("vistazo", 2398, self._hw(), terreno="escarpado")
+        assert lo >= 120, f"no puede prometer minutos: lo={lo}"
+
+    def test_planar_sigue_siendo_rapido(self):
+        lo, hi = HW.estimate_minutes("vistazo", 2398, self._hw(), terreno="plano")
+        assert hi <= 4 * 60, (lo, hi)
+
+    def test_por_sensor_desglosa_y_termico_es_mas_barato(self):
+        m = HW.estimate_message("vistazo", 2398, self._hw(), terreno="escarpado",
+                                por_sensor={"rgb": 1199, "thermal": 1199})
+        assert "Por sensor" in m["tiempo_texto"]
+        rgb_lo, _ = m["por_sensor"]["rgb"]
+        th_lo, _ = m["por_sensor"]["thermal"]
+        assert th_lo < rgb_lo, "el térmico (0.33 MP) tiene que estimarse más barato por foto"
+
+    def test_aviso_escarpado_solo_cuando_se_fuerza(self):
+        m = HW.estimate_message("vistazo", 100, self._hw(), terreno="escarpado")
+        assert m["aviso_escarpado"] is True
+        assert "secuencial" in m["modelo_texto"]
+        m2 = HW.estimate_message("vistazo", 100, self._hw(), terreno="plano")
+        assert m2["aviso_escarpado"] is False
+        # En estandar (ya incremental por diseño) no se "fuerza" nada.
+        m3 = HW.estimate_message("estandar", 100, self._hw(), terreno="escarpado")
+        assert m3["aviso_escarpado"] is False
+
+
 class TestPipelineRunPropagaElPreset:
     def test_el_preset_llega_al_entorno_del_subproceso(self):
         from core.runner import PipelineRun
@@ -433,12 +477,19 @@ class TestEndpointDeLaWebapp:
         m = c.get("/api/missions/m9/quality-estimate?quality=75&n_photos=10").json()
         assert m["preset"] == "alta"
 
-    def test_estimate_default_es_terreno_plano(self, app):
+    def test_estimate_default_es_terreno_escarpado(self, app):
+        """Default de ESTE endpoint (webapp/main.py) — no confundir con
+        HW.preset(terreno=None), que sigue en "plano" (ver
+        test_terreno_none_es_plano más arriba): la mayoría de las misiones
+        de emergencia real no son planas, y "plano" por defecto venía
+        perdiendo cobertura en silencio salvo que el operador supiera tildar
+        "escarpado" a mano — ver el comentario del formulario en
+        webapp/static/index.html."""
         c, runs = app
         (runs / "m10").mkdir(parents=True)
         m = c.get("/api/missions/m10/quality-estimate?preset=vistazo&n_photos=100").json()
-        assert m["terreno"] == "plano"
-        assert m["tier"]["sfm_algorithm"] == "planar"
+        assert m["terreno"] == "escarpado"
+        assert m["tier"]["sfm_algorithm"] == "incremental"
 
     def test_estimate_terreno_escarpado_fuerza_incremental(self, app):
         c, runs = app

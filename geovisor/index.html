@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#F4F7F8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0C1412" media="(prefers-color-scheme: dark)">
 <title>Situación del incendio</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='none' stroke='%230f172a' stroke-width='7' stroke-linecap='round'%3E%3Cpath d='M35 38 L18 20'/%3E%3Cpath d='M65 38 L82 20'/%3E%3Cpath d='M35 62 L18 80'/%3E%3Cpath d='M65 62 L82 80'/%3E%3C/g%3E%3Ccircle cx='18' cy='20' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='82' cy='20' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='18' cy='80' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='82' cy='80' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Crect x='32' y='38' width='36' height='24' rx='7' fill='%230f172a'/%3E%3C/svg%3E">
 <!-- Leaflet SERVIDO DESDE LA IMAGEN, no desde unpkg.com. Esto es una
@@ -16,13 +19,39 @@
 </head>
 <body>
 
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></symbol>
+    <symbol id="i-chev-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol>
+    <symbol id="i-pen" viewBox="0 0 24 24"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2zM17 21v-8H7v8M7 3v5h8"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M3 7v6h6M21 17a9 9 0 0 0-15-6.7L3 13"/></symbol>
+    <symbol id="i-compare" viewBox="0 0 24 24"><rect x="2" y="5" width="9" height="14" rx="1.5"/><rect x="13" y="5" width="9" height="14" rx="1.5"/><path d="M6.5 9v6M17.5 9v6"/></symbol>
+    <symbol id="i-ruler" viewBox="0 0 24 24"><path d="M3 17 17 3l4 4L7 21l-4-4zM7.5 13.5l2 2M10.5 10.5l2 2M13.5 7.5l2 2"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14zM10 11v6M14 11v6"/></symbol>
+    <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-frame" viewBox="0 0 24 24"><path d="M4 9V6a2 2 0 0 1 2-2h3M20 9V6a2 2 0 0 0-2-2h-3M4 15v3a2 2 0 0 0 2 2h3M20 15v3a2 2 0 0 1-2 2h-3"/></symbol>
+  </defs>
+</svg>
+
 <a class="skip-link" href="#panel-heading">Saltar al panel de situación</a>
 
 <!-- Barra superior: responde "qué es esto" y "qué tan fresco es el dato"
      antes que nada — nombre del incidente, frescura/confianza, fecha de
      captura, acción de compartir y ayuda. Sin iconos sueltos sin etiqueta. -->
 <header id="topbar">
-  <button id="btn-back" class="reset" title="Volver a las misiones" aria-label="Volver a las misiones">←</button>
+  <button id="btn-back" class="reset" title="Volver a las misiones" aria-label="Volver a las misiones">
+    <svg class="ic" style="width:18px;height:18px" aria-hidden="true"><use href="#i-back"/></svg>
+  </button>
   <div class="incident-id">
     <span class="name" id="incident-name">Cargando…</span>
     <span class="zone" id="incident-zone"></span>
@@ -36,22 +65,22 @@
   <span class="spacer"></span>
 
   <button class="date-select reset" id="btn-date" title="Fecha de la captura mostrada">
-    <span aria-hidden="true">📅</span>
+    <svg class="ic" style="width:16px;height:16px" aria-hidden="true"><use href="#i-calendar"/></svg>
     <span><span class="lbl">Captura: </span><b id="capture-date-label">—</b></span>
   </button>
 
-  <button class="btn primary reset" id="btn-report">Generar resumen de situación</button>
+  <button class="btn primary reset" id="btn-report"><svg class="ic" style="width:15px;height:15px" aria-hidden="true"><use href="#i-image"/></svg><span>Generar resumen</span></button>
 
   <div class="menu-wrap">
     <button class="btn ghost reset" id="btn-help" aria-haspopup="true" aria-expanded="false">
-      Ayuda <span class="chev" aria-hidden="true">▾</span>
+      Ayuda <svg class="ic chev" style="width:13px;height:13px" aria-hidden="true"><use href="#i-chev-down"/></svg>
     </button>
     <div class="menu-panel" id="help-menu" role="menu">
       <div class="menu-section">
         <h4>Cómo usar</h4>
-        <div class="help-row"><span class="k">◉</span><span class="d">Solo — muestra únicamente esta capa</span></div>
-        <div class="help-row"><span class="k">🔍</span><span class="d">Click en el mapa — ver qué significa ese punto</span></div>
-        <div class="help-row"><span class="k">M</span><span class="d">Medir distancia/área (modo operativo)</span></div>
+        <div class="help-row"><span class="k"><svg class="ic ic-dot" style="width:12px;height:12px" aria-hidden="true"><use href="#i-dot"/></svg></span><span class="d">Solo — muestra únicamente esta capa</span></div>
+        <div class="help-row"><span class="k"><svg class="ic" style="width:12px;height:12px" aria-hidden="true"><use href="#i-search"/></svg></span><span class="d">Click en el mapa — ver qué significa ese punto</span></div>
+        <div class="help-row"><span class="k">M</span><span class="d">Medir distancia/área</span></div>
         <div class="help-row"><span class="k">T</span><span class="d">Cambiar tema claro/oscuro</span></div>
         <div class="help-row"><span class="k">Esc</span><span class="d">Cerrar lo que esté abierto</span></div>
       </div>
@@ -76,23 +105,26 @@
         <div class="pref-row">
           <span>Tema</span>
           <button class="btn sm reset" id="btn-theme" style="width:100%;justify-content:center">
-            <span id="theme-ic">🌙</span>&nbsp;Cambiar tema</button>
+            <span id="theme-ic"></span>&nbsp;Cambiar tema</button>
         </div>
       </div>
     </div>
   </div>
 </header>
 
+<aside class="command-rail" aria-label="Identidad de la estación">
+  <div class="rail-mark" aria-hidden="true">R</div>
+  <div class="rail-wordmark" aria-hidden="true">RAPTOR</div>
+  <div class="rail-rule"></div>
+  <div class="rail-context"><b>UAV</b><span>ANÁLISIS<br>DE CAMPO</span></div>
+  <div class="rail-footer">SIG<br>01</div>
+</aside>
+
 <main class="body" id="main-body">
   <section class="map-area" aria-label="Mapa de la zona">
-    <div class="map-viewmode" role="group" aria-label="Formato de visualización">
-      <button class="reset" id="btn-view-map" aria-pressed="true">Mapa</button>
-      <button class="reset" id="btn-view-list" aria-pressed="false">Lista</button>
-    </div>
-
     <div id="map"></div>
 
-    <!-- Comparador lado a lado — herramienta de modo operativo -->
+    <!-- Comparador lado a lado -->
     <div id="compare-container">
       <div id="compare-right"></div>
       <div id="compare-left"><div id="compare-left-map"></div></div>
@@ -101,15 +133,11 @@
       <span class="compare-label right"></span>
     </div>
 
-    <!-- Leyenda contextual: aparece con interpretación accionable cuando hay
-         una capa de impacto activa — la llena renderMapLegend() (app.js). -->
-    <div class="map-legend" id="map-legend"></div>
-
     <!-- Ficha "qué significa este punto" — clic en el mapa la llena con
          datos reales (severidad/temperatura/NDVI) vía /api/.../sample. -->
     <div class="point-card" id="point-card" role="dialog" aria-label="Detalle del punto seleccionado"></div>
 
-    <!-- Medición (modo operativo) -->
+    <!-- Medición -->
     <div id="measure-panel" class="hud-frame">
       <div class="mp-row"><b>Medición</b><button class="btn sm" onclick="clearMeasure()">Limpiar</button></div>
       <div class="mp-stat"><span>Distancia</span><b id="measure-dist">0 m</b></div>
@@ -117,117 +145,114 @@
       <div class="mp-hint">Click para agregar puntos · doble click para cerrar el área · Esc para salir</div>
     </div>
 
-    <!-- Edición del polígono de área afectada (modo operativo) -->
+    <!-- Edición del polígono de área afectada -->
     <div id="area-edit-panel" class="hud-frame">
       <div class="area-edit-row">
-        <span class="area-edit-icon">📐</span>
+        <svg class="ic area-edit-icon" style="width:16px;height:16px" aria-hidden="true"><use href="#i-ruler"/></svg>
         <span id="area-edit-ha">—</span>
-        <button id="btn-area-edit" class="btn" onclick="toggleAreaEdit()">✏️ Editar</button>
+        <button id="btn-area-edit" class="btn" onclick="toggleAreaEdit()"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-pen"/></svg> Editar</button>
       </div>
       <div class="area-edit-tools">
-        <button id="btn-area-new" class="btn" onclick="startDrawNewArea()">➕ Nueva área</button>
-        <button class="btn primary" onclick="saveAreaAfectada()">💾 Guardar</button>
-        <button class="btn" onclick="discardAreaEdits()">↩️ Descartar</button>
+        <button id="btn-area-new" class="btn" onclick="startDrawNewArea()"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-plus"/></svg> Nueva área</button>
+        <button class="btn primary" onclick="saveAreaAfectada()"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-save"/></svg> Guardar</button>
+        <button class="btn" onclick="discardAreaEdits()"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-undo"/></svg> Descartar</button>
       </div>
-      <div id="area-edit-hint">Click en un vértice para borrarlo · click en el punto medio de un borde para agregar uno · 🗑 borra el polígono completo · Esc cancela el dibujo</div>
+      <div id="area-edit-hint">Click en un vértice para borrarlo · click en el punto medio de un borde para agregar uno · el botón de borrar elimina el polígono completo · Esc cancela el dibujo</div>
       <div id="area-edit-status"></div>
     </div>
 
-    <button class="panel-toggle reset" id="panel-toggle" aria-label="Mostrar panel de situación">☰</button>
+    <button class="panel-toggle reset" id="panel-toggle" aria-label="Mostrar panel de situación">
+      <svg class="ic" style="width:17px;height:17px" aria-hidden="true"><use href="#i-menu"/></svg>
+    </button>
   </section>
 
-  <!-- Vista de lista: alternativa textual accesible al mapa -->
-  <section class="list-view" id="list-view" aria-label="Lista de zonas críticas"></section>
-
-  <aside class="panel" id="panel">
-    <!-- ═══ Modo simple (por defecto): lo que necesita alguien sin
-         experiencia en SIG para decidir en segundos. ═══ -->
-    <div id="panel-simple">
+  <!-- Antes un solo panel con todo apilado (informe + catálogo de capas).
+       Separado en dos: resumen gerencial a la izquierda (lectura), SIG a la
+       derecha (herramientas), mapa en el medio — no compiten por el mismo
+       espacio vertical, cada uno se desplaza solo. #panel-wrap es
+       transparente al
+       layout en escritorio (display:contents: los dos <aside> son hijos
+       DIRECTOS del grid de main.body, uno por columna) y se convierte en el
+       contenedor real de la hoja inferior en mobile (ver el media query en
+       style.css) — ahí SÍ hace falta un wrapper propio para apilar los dos
+       paneles dentro de una sola hoja, en vez de que cada uno flote como su
+       propia hoja independiente. -->
+  <div id="panel-wrap">
+    <aside class="panel" id="panel-summary">
       <div class="panel-head">
         <div class="panel-head-row">
-          <h2 id="panel-heading">Situación actual</h2>
-          <button class="panel-close reset" id="panel-close" aria-label="Ocultar panel">✕</button>
-        </div>
-      </div>
-      <div class="panel-scroll">
-        <div class="summary-grid" id="summary-grid">
-          <div class="stat-card"><div class="l">Cargando datos de la misión…</div></div>
-        </div>
-
-        <div class="mode-tabs" role="tablist" aria-label="Modo de información">
-          <button role="tab" aria-selected="true" id="tab-impacto" aria-controls="panel-impacto">Impacto</button>
-          <button role="tab" aria-selected="false" id="tab-vegetacion" aria-controls="panel-vegetacion">Vegetación</button>
-          <button role="tab" aria-selected="false" id="tab-contexto" aria-controls="panel-contexto">Contexto</button>
-        </div>
-
-        <div class="mode-panel active" id="panel-impacto" role="tabpanel" aria-labelledby="tab-impacto"></div>
-        <div class="mode-panel" id="panel-vegetacion" role="tabpanel" aria-labelledby="tab-vegetacion"></div>
-        <div class="mode-panel" id="panel-contexto" role="tabpanel" aria-labelledby="tab-contexto"></div>
-
-        <button class="ajustes-toggle reset" id="ajustes-toggle" aria-expanded="false">
-          <span>Ajustes de visualización</span><span aria-hidden="true">▾</span>
-        </button>
-        <div class="ajustes-body" id="ajustes-body">
-          <div class="opacity-row"><span style="width:110px">Transparencia</span>
-            <input type="range" min="0" max="100" value="85" id="global-opacity"
-              aria-label="Transparencia de las capas activas"></div>
-        </div>
-      </div>
-      <div class="panel-footer">
-        <div id="footer-addms-cta-simple"></div>
-        <a class="link-advanced reset" href="#" id="link-advanced">¿Eres personal técnico? Cambiar a modo operativo →</a>
-      </div>
-    </div>
-
-    <!-- ═══ Modo operativo: el gestor de capas técnico completo (buscar,
-         reordenar, opacidad por capa, bandas, comparar, medir). Mismo
-         motor de siempre — layersPanelHTML()/wireLayersPanel() en app.js,
-         sin tocar. ═══ -->
-    <div id="panel-advanced" hidden>
-      <div id="sidebar-head">
-        <div class="search-row">
-          <div class="search-wrap">
-            <span class="search-ic">🔍</span>
-            <input type="text" id="layer-search" placeholder="Buscar capa…" autocomplete="off">
-            <button id="search-clear" title="Limpiar">×</button>
+          <div>
+            <p class="panel-kicker">Informe de misión</p>
+            <h2 id="panel-heading">Evaluación del incidente</h2>
           </div>
+          <button class="panel-close reset" id="panel-close" aria-label="Ocultar panel">
+            <svg class="ic" style="width:15px;height:15px" aria-hidden="true"><use href="#i-x"/></svg>
+          </button>
         </div>
+        <p class="panel-sub">Hallazgos priorizados para coordinar la respuesta.</p>
+      </div>
+
+      <!-- Cifras clave de la misión — severidad, focos activos, calidad del
+           vuelo. Lo llena renderSummaryCards() (app.js). -->
+      <div class="summary-grid" id="summary-grid" aria-live="polite" aria-busy="true">
+        <div class="stat-card"><div class="l">Cargando datos de la misión…</div></div>
+      </div>
+
+      <!-- HUD de progreso: vive en el resumen gerencial (es el estado de LA
+           MISIÓN, no una herramienta de capas). Colapsable con el chevron de
+           .ph-top — antes solo el LOG interno se podía ocultar; el cuadro
+           entero (barra + fases) se quedaba siempre expandido, empujando el
+           resto del panel. -->
+      <div id="progress-hud" class="hud-frame">
+        <div class="ph-top">
+          <span class="ph-dot"></span>
+          <span class="ph-stage" id="ph-stage">Iniciando…</span>
+          <span class="ph-time" id="ph-time">00:00</span>
+          <button class="ph-collapse-toggle reset" id="ph-collapse-toggle"
+                  aria-label="Colapsar progreso" aria-expanded="true">
+            <svg class="ic" style="width:13px;height:13px" aria-hidden="true"><use href="#i-chev-down"/></svg>
+          </button>
+        </div>
+        <div class="ph-body" id="ph-body">
+          <div class="ph-bar"><div class="ph-bar-fill" id="ph-bar-fill"></div></div>
+          <ol class="ph-phases" id="ph-phases"></ol>
+          <div class="ph-actions" id="ph-actions"></div>
+          <button class="ph-log-toggle" id="ph-log-toggle" onclick="toggleProgressLog()"><svg class="ic" style="width:13px;height:13px" aria-hidden="true"><use href="#i-chev-down"/></svg><span id="ph-log-label"> Ver log</span></button>
+          <div class="ph-log" id="ph-log"></div>
+        </div>
+      </div>
+    </aside>
+
+    <aside class="panel" id="panel-sig">
+      <div class="panel-head">
+        <p class="panel-kicker">SIG</p>
+        <h2>Capas y herramientas</h2>
+        <p class="panel-sub">Catálogo de capas, comparar y medir.</p>
+      </div>
+
+      <!-- Catálogo de capas: prender/apagar, opacidad, descripción/
+           interpretación de cada capa, reordenar, comparar, medir. Sin caja
+           de búsqueda — con el catálogo agrupado por tema alcanza para las
+           ~15 capas típicas de una misión, y era una fila más para leer
+           antes de llegar a las capas mismas. layersPanelHTML()/
+           wireLayersPanel() en app.js arman el resto. -->
+      <div id="sidebar-head">
         <div class="sidebar-actions">
-          <button class="btn sm" id="btn-compare" title="Comparar dos capas lado a lado (C)">◫ Comparar</button>
-          <button class="btn sm" id="btn-measure" title="Medir distancia y área (M)">📏 Medir</button>
-          <button class="btn sm" id="btn-export" title="Descargar una imagen del mapa actual">🖼️ Exportar</button>
+          <button class="btn sm" id="btn-compare" title="Comparar dos capas lado a lado (C)"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-compare"/></svg> Comparar</button>
+          <button class="btn sm" id="btn-measure" title="Medir distancia y área (M)"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-ruler"/></svg> Medir</button>
+          <button class="btn sm" id="btn-export" title="Descargar una imagen del mapa actual"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-image"/></svg> Exportar</button>
         </div>
         <div class="sidebar-actions">
           <button class="btn sm" onclick="setAllLayers(false)" title="Apagar todas las capas">Ocultar todo</button>
           <button class="btn sm" onclick="resetLayers()" title="Volver a la vista inicial">Restablecer</button>
         </div>
       </div>
-      <div id="tab-content" style="flex:1;overflow-y:auto;padding:12px"></div>
+      <div id="tab-content" style="flex:1;overflow-y:auto;padding:18px 20px"></div>
       <div class="panel-footer">
-        <div id="footer-addms-cta-advanced"></div>
-        <a class="link-advanced reset" href="#" id="link-simple">← Volver al modo simple</a>
+        <div id="footer-addms-cta"></div>
       </div>
-    </div>
-
-    <!-- HUD de progreso: embebido al pie del sidebar (fuera de los tabs
-         simple/avanzado — visible en los dos), no flotando sobre el mapa.
-         Antes era un overlay centrado sin ningún control para ocultarlo
-         mientras la misión seguía procesando — bloqueaba navegar el mapa.
-         Acá se esconde/muestra con el mismo botón de siempre del sidebar
-         (panel-toggle/panel-close), y el mapa queda libre. -->
-    <div id="progress-hud" class="hud-frame">
-      <div class="ph-top">
-        <span class="ph-dot"></span>
-        <span class="ph-stage" id="ph-stage">Iniciando…</span>
-        <span class="ph-time" id="ph-time">00:00</span>
-      </div>
-      <div class="ph-bar"><div class="ph-bar-fill" id="ph-bar-fill"></div></div>
-      <ol class="ph-phases" id="ph-phases"></ol>
-      <div class="ph-actions" id="ph-actions"></div>
-      <button class="ph-log-toggle" id="ph-log-toggle" onclick="toggleProgressLog()">▾ Ver log</button>
-      <div class="ph-log" id="ph-log"></div>
-    </div>
-  </aside>
+    </aside>
+  </div>
 </main>
 
 <!-- Comparar en el tiempo: SOLO existe si hay más de una misión capturada
@@ -237,7 +262,7 @@
   <div class="timebar-head" id="timebar-head">
     <h3>Comparar en el tiempo</h3>
     <div class="timebar-dates" id="timebar-dates"></div>
-    <span class="timebar-chev" aria-hidden="true">▾</span>
+    <svg class="ic timebar-chev" style="width:14px;height:14px" aria-hidden="true"><use href="#i-chev-down"/></svg>
   </div>
   <div class="timebar-body">
     <p class="timebar-note" id="timebar-note"></p>
@@ -246,16 +271,18 @@
 
 <!-- Generar resumen de situación -->
 <div class="modal-overlay" id="report-overlay">
-  <div class="report-modal" role="dialog" aria-label="Resumen de situación">
+  <div class="report-modal" role="dialog" aria-modal="true" aria-labelledby="report-title">
     <div class="report-modal-head">
-      <div><h2>Resumen de situación</h2><div class="sub" id="report-sub"></div></div>
-      <button class="reset" id="report-close" aria-label="Cerrar" style="font-size:1.2em;color:var(--ink-muted)">✕</button>
+      <div><h2 id="report-title">Resumen de situación</h2><div class="sub" id="report-sub"></div></div>
+      <button class="reset" id="report-close" aria-label="Cerrar" style="color:var(--ink-muted)">
+        <svg class="ic" style="width:18px;height:18px" aria-hidden="true"><use href="#i-x"/></svg>
+      </button>
     </div>
     <div class="report-stats" id="report-stats"></div>
     <div class="report-preview" id="report-preview"></div>
     <p class="report-text" id="report-text"></p>
     <div class="report-actions">
-      <button class="btn primary reset" id="report-download">Descargar imagen</button>
+      <button class="btn primary reset" id="report-download"><svg class="ic" style="width:15px;height:15px" aria-hidden="true"><use href="#i-image"/></svg> Descargar imagen</button>
     </div>
   </div>
 </div>

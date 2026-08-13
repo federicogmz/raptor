@@ -4,7 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#F4F7F8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0C1412" media="(prefers-color-scheme: dark)">
 <meta name="description" content="Pipeline UAV de respuesta rápida — ortomosaicos RGB, térmicos y multiespectrales para DJI H20T / M3T / M3M.">
+<!-- Las dos fuentes críticas se pre-cargan: en campo puede no haber
+     internet y la primera pintura no debe esperar al resto del CSS. -->
+<link rel="preload" href="/static/fonts/pubsans-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/static/fonts/pubsans-800.woff2" as="font" type="font/woff2" crossorigin>
 <title>Raptor · Centro de misiones</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='none' stroke='%230f172a' stroke-width='7' stroke-linecap='round'%3E%3Cpath d='M35 38 L18 20'/%3E%3Cpath d='M65 38 L82 20'/%3E%3Cpath d='M35 62 L18 80'/%3E%3Cpath d='M65 62 L82 80'/%3E%3C/g%3E%3Ccircle cx='18' cy='20' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='82' cy='20' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='18' cy='80' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='82' cy='80' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Crect x='32' y='38' width='36' height='24' rx='7' fill='%230f172a'/%3E%3C/svg%3E">
 <style>
@@ -40,9 +46,13 @@
 
 :root{
   --font:'Public Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
-  --bg:#F5F8F6; --bg2:#FFFFFF; --bg3:#EEF3F0;
-  --bd:#E1E8E4; --bd2:#B9C6C0;
-  --tx:#14201D; --tx2:#4E615B; --tx3:#64746E;
+  /* Mismos tokens que el geovisor (geovisor/style.css) — las dos pantallas
+     son UN producto: mismo fondo, misma superficie, misma tinta, mismo
+     acento teal institucional. Los nombres difieren por historia (bg2/
+     surface, tx/ink), los valores no. */
+  --bg:#F4F7F8; --bg2:#FFFFFF; --bg3:#EAF1F2;
+  --bd:#DBE5E7; --bd2:#B9C6C0;
+  --tx:#15262C; --tx2:#55696E; --tx3:#8B9CA0;
   --ac:#0E7A68; --ac2:#0A5C4E; --on-ac:#FFFFFF;
   --ok:#2F7D5C; --warn:#A9751E; --err:#C2401F;
   --rgb:#0E7A68; --ther:#C2401F; --ms:#2F7D5C;
@@ -74,6 +84,7 @@
 html{scroll-behavior:smooth}
 body{font-family:var(--font);background:var(--bg);color:var(--tx);
   min-height:100vh;-webkit-font-smoothing:antialiased;line-height:1.55;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent;
   transition:background .25s,color .25s;
   background-image:radial-gradient(1100px 460px at 88% -12%,rgba(14,122,104,.06),transparent 62%)}
 button{font-family:inherit;color:inherit;cursor:pointer;
@@ -82,9 +93,19 @@ button{font-family:inherit;color:inherit;cursor:pointer;
 :focus-visible{outline:2px solid var(--ac);outline-offset:2px;border-radius:6px}
 ::selection{background:rgba(14,122,104,.18)}
 
-/* ── Iconos SVG inline (un solo trazo en toda la app) ─────────────── */
-.ic{width:1.15em;height:1.15em;flex-shrink:0;vertical-align:-.18em}
+/* ── Iconos SVG inline (un solo trazo en toda la app) ───────────────
+   El fill:none/stroke:currentColor que promete este comentario nunca
+   estaba puesto en ningún lado: sin él, el fill inicial de SVG (negro
+   sólido) quedaba fijo sin importar el tema — en claro los íconos se veían
+   por casualidad, en OSCURO (default de la app) eran invisibles: la luna
+   del selector de tema, el tacho de basura de cada misión, todos. Bug
+   real, encontrado en vivo (mismo bug que geovisor/style.css). */
+.ic{width:1.15em;height:1.15em;flex-shrink:0;vertical-align:-.18em;
+  fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 button .ic,label .ic{pointer-events:none}
+/* i-sun/i-moon son formas sólidas (disco de sol, media luna), no trazos —
+   con el fill:none de arriba quedarían como anillos huecos. */
+.ic-sun,.ic-moon{fill:currentColor;stroke:none}
 
 /* ── Barra superior: mínima, hairline, sin sombra ─────────────────── */
 header{position:sticky;top:0;z-index:20;height:60px;
@@ -115,27 +136,72 @@ header .sub{font-size:.72rem;color:var(--tx3);margin-top:1px}
 main{max-width:1120px;margin:0 auto;padding:0 24px 90px}
 
 /* ═══ LANDING ═══════════════════════════════════════════════════════ */
-.hero{display:flex;justify-content:space-between;align-items:flex-end;gap:26px;
-  flex-wrap:wrap;margin:56px 0 34px}
+.hero{position:relative;overflow:hidden;display:grid;
+  grid-template-columns:minmax(0,1fr) 300px;gap:40px;align-items:center;
+  margin:40px 0 32px;padding:26px 0 6px;min-height:200px}
+@media (max-width:900px){.hero{grid-template-columns:1fr;gap:24px;min-height:0}}
+/* Curvas de nivel — la firma. Flotan detrás del copy, teñidas del acento,
+   sin competir con el texto (opacidad baja + se atenúan al final). */
+.hero-terrain{position:absolute;inset:0;left:-10%;width:120%;height:100%;color:var(--ac);
+  opacity:.10;pointer-events:none;z-index:0}
+:root[data-theme="dark"] .hero-terrain{opacity:.14}
+@media (prefers-reduced-motion:no-preference){
+  .hero-terrain{animation:terrain-drift 26s ease-in-out infinite alternate}
+}
+/* La deriva traslada el SVG -18px sobre un elemento 20% más ancho que el
+   hero (left:-10%;width:120%): el borde derecho nunca queda al descubierto
+   — con width:100% y un translateX puro se veía una franja plana de ~22px
+   donde las curvas de nivel desaparecían de golpe. */
+@keyframes terrain-drift{from{transform:translateX(0)}to{transform:translateX(-18px)}}
+.hero-copy{position:relative;z-index:1}
 .eyebrow{font-size:.68rem;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
-  color:var(--ac);margin-bottom:12px}
-.hero h1{font-size:clamp(2.1rem,5vw,2.9rem);font-weight:800;letter-spacing:-.035em;line-height:1.05}
-.hero-sub{color:var(--tx2);max-width:54ch;margin-top:12px;font-size:.95rem}
-.hero-cta{margin-bottom:4px}
+  color:var(--ac);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.eyebrow::before{content:'';width:18px;height:2px;border-radius:2px;background:var(--ac)}
+.hero h1{font-size:clamp(2rem,4.6vw,2.9rem);font-weight:800;letter-spacing:-.04em;line-height:1.03;
+  text-wrap:balance}
+.hero-sub{color:var(--tx2);max-width:52ch;margin-top:14px;font-size:.95rem;line-height:1.65}
+.hero-cta{margin-top:22px}
+/* Panel de estado de operación — lo que alguien en una emergencia mira
+   PRIMERO: cuánto hay, qué corre, qué está listo. Números reales, no
+   decoración. */
+.hero-status{position:relative;z-index:1;background:var(--bg2);border:1px solid var(--bd);
+  border-radius:var(--r-lg);padding:20px 20px 18px;box-shadow:var(--shadow-md)}
+.hs-title{font-size:.66rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--tx3);margin-bottom:14px}
+.hs-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.hs-cell{display:flex;flex-direction:column;gap:2px;padding:0 8px}
+.hs-cell+.hs-cell{border-left:1px solid var(--bd)}
+.hs-cell b{font-size:1.7rem;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;
+  line-height:1}
+.hs-cell span{font-size:.66rem;color:var(--tx3);line-height:1.35}
+.hs-cell.live b{color:var(--ac)}
+.hs-cell.live b::after{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;
+  background:var(--ac);margin-left:6px;vertical-align:2px;animation:pulse 1.6s ease infinite}
+.hs-cell.ok b{color:var(--ok)}
 .mlist-head{display:flex;align-items:center;gap:10px;margin-bottom:16px;
   padding-bottom:14px;border-bottom:1px solid var(--bd)}
 #mcount{font-size:.7rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--tx3)}
-#mlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
-.mission{display:flex;flex-direction:column;justify-content:space-between;gap:16px;
+#mlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px}
+.mission{display:flex;flex-direction:column;gap:14px;
   background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r-lg);padding:20px;
   transition:border-color .18s,box-shadow .18s,transform .18s;
-  animation:card-in .4s ease backwards}
+  animation:card-in .4s ease backwards;position:relative;overflow:hidden}
 .mission:hover{border-color:var(--bd2);transform:translateY(-2px);box-shadow:var(--shadow-md)}
-.mission .nm{font-size:1rem;font-weight:700;letter-spacing:-.01em;word-break:break-word;
-  display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.mission .tg{font-size:.78rem;color:var(--tx2);margin-top:9px;display:flex;align-items:center;gap:7px}
+.mission:active{transform:translateY(0) scale(.995)}
+.mission-top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.mission .nm{font-size:1.05rem;font-weight:700;letter-spacing:-.015em;word-break:break-word;
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.mission .date{font-size:.72rem;color:var(--tx3);display:flex;align-items:center;gap:6px;
+  margin-top:7px;font-variant-numeric:tabular-nums}
+.mission .date .ic{width:.85em;height:.85em;opacity:.75}
+.mission .tg{font-size:.78rem;color:var(--tx2);margin-top:10px;display:flex;align-items:center;
+  gap:7px;padding-top:10px;border-top:1px dashed var(--bd)}
 .mission .tg .ic{width:.9em;height:.9em;color:var(--ac);opacity:.8}
-.mission .row{justify-content:flex-end;margin-top:2px;gap:8px}
+.mission .foot{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:auto}
+.mission .foot .row{justify-content:flex-end;gap:8px}
+/* El botón de borrar (delBtn, arriba a la derecha de la tarjeta) usa la
+   clase .btn.ghost existente — un estado hover destructivo propio: */
+.mission .ghost:hover{color:var(--err);border-color:var(--note-err-bd);background:var(--note-err-bg)}
 @keyframes card-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .mission:nth-child(2){animation-delay:.04s}
 .mission:nth-child(3){animation-delay:.08s}
@@ -150,6 +216,8 @@ main{max-width:1120px;margin:0 auto;padding:0 24px 90px}
   animation:pulse 1.6s ease infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 .badge.fail{background:var(--note-err-bg);color:var(--err);border:1px solid var(--note-err-bd)}
+.badge.ok{background:var(--note-ok-bg);color:var(--ok);border:1px solid var(--note-ok-bd)}
+.badge.ok::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor}
 .empty{grid-column:1/-1;text-align:center;padding:76px 20px;color:var(--tx2);
   font-size:.9rem;line-height:1.75}
 .empty .ic{width:44px;height:44px;margin:0 auto 20px;display:block;color:var(--ac);opacity:.5}
@@ -163,23 +231,28 @@ main{max-width:1120px;margin:0 auto;padding:0 24px 90px}
 }
 .panel{background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r-lg);
   padding:28px 26px;box-shadow:var(--shadow-sm)}
-@media (min-width:1024px){.panel{padding:34px 36px}}
-.panel-title{font-size:1.35rem;font-weight:800;letter-spacing:-.02em;margin-bottom:4px}
-.panel-sub{font-size:.85rem;color:var(--tx2);margin-bottom:8px}
-.form-section{padding:24px 0}
+@media (min-width:1024px){.panel{padding:36px 40px}}
+.panel-title{font-size:1.5rem;font-weight:800;letter-spacing:-.025em;margin-bottom:6px;
+  text-wrap:balance}
+.panel-sub{font-size:.85rem;color:var(--tx2);margin-bottom:8px;line-height:1.6}
+.form-section{padding:28px 0}
 .form-section+.form-section{border-top:1px solid var(--bd)}
 .form-section:last-child{padding-bottom:0}
-.section-label{font-size:.68rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
-  color:var(--ac);display:flex;align-items:center;gap:8px;margin-bottom:13px}
+.section-label{font-size:.66rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ac);display:flex;align-items:center;gap:9px;margin-bottom:14px}
 .section-label .ic{width:1em;height:1em}
 
 /* ── Botones ──────────────────────────────────────────────────────── */
 .btn{background:var(--bg2);border:1px solid var(--bd2);color:var(--tx);
   padding:9px 16px;border-radius:var(--r-sm);cursor:pointer;font-size:.85rem;font-family:inherit;
   font-weight:600;display:inline-flex;align-items:center;gap:8px;justify-content:center;
-  transition:background .15s,border-color .15s,color .15s,box-shadow .15s,transform .1s}
+  transition:background .15s,border-color .15s,color .15s,box-shadow .15s,transform .1s;
+  position:relative}
 .btn:hover:not(:disabled):not(.primary):not(.ghost){background:var(--bg3);border-color:var(--tx3)}
+/* Feedback físico: el dedo/mouse presiona Y la tarjeta responde en el
+   pointer-down, no al soltar — apple-design: respuesta sobre el press. */
 .btn:active:not(:disabled){transform:scale(.97)}
+.btn.primary:active:not(:disabled){transform:translateY(1px) scale(.99);box-shadow:0 1px 4px rgba(10,92,78,.2)}
 .btn.primary{background:var(--ac2);border-color:var(--ac2);color:var(--on-ac);
   box-shadow:0 2px 10px rgba(10,92,78,.24)}
 .btn.primary:hover:not(:disabled){background:var(--ac);box-shadow:0 4px 14px rgba(10,92,78,.3)}
@@ -250,7 +323,8 @@ select.in{cursor:pointer}
 .pick-btn{margin-top:10px}
 
 .picker-overlay{display:none;position:fixed;inset:0;background:rgba(9,22,18,.5);z-index:1000;
-  align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px)}
+  align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px);
+  overscroll-behavior:contain}
 .picker-overlay.open{display:flex;animation:fade-in .16s ease both}
 @keyframes fade-in{from{opacity:0}to{opacity:1}}
 .picker{background:var(--bg2);border-radius:var(--r-lg);max-width:580px;width:100%;max-height:80vh;
@@ -277,8 +351,11 @@ select.in{cursor:pointer}
 .picker-row .hint{font-size:.72rem;color:var(--tx3);flex-shrink:0;margin-top:0}
 .picker-row .add{flex-shrink:0;font-size:.75rem;padding:5px 10px}
 .picker-row.added .nm{color:var(--ok)}
+.picker-row .sel{flex-shrink:0;width:17px;height:17px;cursor:pointer;accent-color:var(--ac)}
 .picker-empty{padding:34px 16px;text-align:center;color:var(--tx3);font-size:.85rem}
-.picker-foot{padding:12px 20px;border-top:1px solid var(--bd);text-align:right}
+.picker-foot{padding:12px 20px;border-top:1px solid var(--bd);display:flex;
+  align-items:center;justify-content:space-between;gap:12px}
+.picker-foot .sel-count{font-size:.8rem;color:var(--tx2)}
 
 /* ── Opciones (radio en tarjeta) ──────────────────────────────────── */
 .opts{display:flex;flex-direction:column;gap:10px}
@@ -309,18 +386,23 @@ select.in{cursor:pointer}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:18px;margin-top:6px}
 
 /* ── Calidad ──────────────────────────────────────────────────────── */
-.preset-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
-.preset-cargando{grid-column:1/-1;color:var(--mut);font-size:.9rem;padding:8px 0}
-.preset-card{display:flex;flex-direction:column;gap:4px;text-align:left;cursor:pointer;
-  padding:12px;border:1.5px solid var(--bd);border-radius:10px;background:var(--pnl);
-  color:inherit;font:inherit;transition:border-color .12s,background .12s}
-.preset-card:hover{border-color:var(--ac)}
+.preset-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.preset-cargando{grid-column:1/-1;color:var(--tx2);font-size:.9rem;padding:8px 0}
+.preset-card{display:flex;flex-direction:column;gap:6px;text-align:left;cursor:pointer;
+  padding:16px 15px;border:1.5px solid var(--bd);border-radius:14px;background:var(--bg2);
+  color:inherit;font:inherit;position:relative;overflow:hidden;
+  transition:border-color .15s,background .15s,transform .15s,box-shadow .15s}
+.preset-card:hover{border-color:var(--bd2);transform:translateY(-2px);box-shadow:var(--shadow-md)}
 .preset-card:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
-.preset-card.sel{border-color:var(--ac);background:color-mix(in srgb,var(--ac) 10%,var(--pnl))}
-.preset-card .pc-titulo{font-weight:800}
-.preset-card .pc-tiempo{font-weight:700;font-variant-numeric:tabular-nums;color:var(--ac)}
-.preset-card .pc-para{font-size:.82rem;color:var(--mut);line-height:1.35}
-.preset-card .pc-res{font-size:.78rem;color:var(--mut)}
+.preset-card.sel{border-color:var(--ac);background:var(--sel-bg)}
+.preset-card.sel::after{content:'✓';position:absolute;top:12px;right:12px;width:20px;height:20px;
+  border-radius:50%;background:var(--ac);color:var(--on-ac);display:grid;place-items:center;
+  font-size:.64rem;font-weight:800}
+.preset-card .pc-titulo{font-weight:800;font-size:.92rem;padding-right:24px}
+.preset-card .pc-tiempo{font-weight:800;font-variant-numeric:tabular-nums;color:var(--ac);
+  font-size:1.28rem;letter-spacing:-.02em;line-height:1.1}
+.preset-card .pc-para{font-size:.8rem;color:var(--tx2);line-height:1.45;flex:1}
+.preset-card .pc-res{font-size:.74rem;color:var(--tx3);margin-top:2px}
 
 /* ── Avisos ───────────────────────────────────────────────────────── */
 .note{border-radius:12px;padding:13px 15px;font-size:.83rem;display:flex;gap:11px;align-items:flex-start;
@@ -348,8 +430,11 @@ select.in{cursor:pointer}
 /* ── Resumen lateral fijo ─────────────────────────────────────────── */
 .rail{position:sticky;top:84px;display:none}
 @media (min-width:1024px){.rail{display:block}}
-.rail .panel{padding:22px}
-.rail-title{font-size:.68rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
+.rail .panel{padding:24px;position:relative}
+.rail .panel::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;
+  border-radius:var(--r-lg) var(--r-lg) 0 0;
+  background:linear-gradient(90deg,var(--ac),var(--ac2))}
+.rail-title{font-size:.66rem;font-weight:700;letter-spacing:.16em;text-transform:uppercase;
   color:var(--ac);display:flex;align-items:center;gap:8px;margin-bottom:16px}
 .rail-title .ic{width:1em;height:1em}
 .rail-name{font-weight:700;font-size:1rem;word-break:break-word;margin-bottom:16px;
@@ -367,7 +452,8 @@ select.in{cursor:pointer}
 
 /* ── Modal de confirmación (reemplaza confirm() nativo) ───────────── */
 .confirm-overlay{display:none;position:fixed;inset:0;background:rgba(9,22,18,.5);z-index:1100;
-  align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px)}
+  align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px);
+  overscroll-behavior:contain}
 .confirm-overlay.open{display:flex;animation:fade-in .16s ease both}
 .confirm{background:var(--bg2);border-radius:var(--r-lg);max-width:430px;width:100%;
   box-shadow:var(--shadow-md);border:1px solid var(--bd);animation:rise-in .2s ease both;overflow:hidden}
@@ -378,6 +464,10 @@ select.in{cursor:pointer}
 .confirm-body b{color:var(--tx)}
 .confirm-foot{display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;
   border-top:1px solid var(--bd);background:var(--bg3)}
+
+@media (prefers-reduced-transparency: reduce){
+  header{background:var(--bg2);backdrop-filter:none;-webkit-backdrop-filter:none}
+}
 
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
@@ -411,6 +501,7 @@ select.in{cursor:pointer}
     <symbol id="i-map" viewBox="0 0 24 24"><path d="M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4zM8 2v16M16 6v16"/></symbol>
     <symbol id="i-package" viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16zM3.27 6.96 12 12.01l8.73-5.05M12 22.08V12"/></symbol>
     <symbol id="i-chev-up" viewBox="0 0 24 24"><path d="m18 15-6-6-6 6"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></symbol>
     <symbol id="i-drone" viewBox="0 0 24 24"><path d="M7 5 4.5 2.5M17 5l2.5-2.5M7 19l-2.5 2.5M17 19l2.5 2.5"/><circle cx="4.5" cy="2.5" r="2"/><circle cx="19.5" cy="2.5" r="2"/><circle cx="4.5" cy="21.5" r="2"/><circle cx="19.5" cy="21.5" r="2"/><rect x="6" y="8" width="12" height="8" rx="2.5"/></symbol>
     <symbol id="i-mountain" viewBox="0 0 24 24"><path d="m8 3 4 8 5-5 5 15H2L8 3z"/></symbol>
   </defs>
@@ -447,17 +538,42 @@ select.in{cursor:pointer}
 
 <!-- ═══ LANDING ═══ -->
 <section id="v-landing" class="hidden">
-  <header class="hero">
-    <div>
+  <div class="hero" role="group" aria-label="Centro de operaciones">
+    <!-- Firma visual: curvas de nivel. Es el mundo del producto — mapeo
+         aéreo del terreno — como geometría, no como adorno de fondo. -->
+    <svg class="hero-terrain" viewBox="0 0 640 320" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+      <g fill="none" stroke="currentColor" stroke-width="1.4">
+        <path d="M-40 250 C 90 210, 170 270, 290 235 S 490 180, 680 225"/>
+        <path d="M-40 215 C 95 175, 185 240, 305 200 S 505 140, 680 190"/>
+        <path d="M-40 180 C 100 140, 200 205, 320 165 S 520 105, 680 155"/>
+        <path d="M-40 145 C 105 105, 215 170, 335 130 S 535 70, 680 120"/>
+        <path d="M-40 110 C 110 70, 230 135, 350 95 S 550 35, 680 85"/>
+        <path d="M-40 75 C 115 35, 245 100, 365 60 S 565 0, 680 50"/>
+        <path d="M120 320 C 150 265, 220 250, 275 215 S 350 160, 400 120"/>
+        <path d="M300 320 C 330 265, 400 250, 455 215 S 530 160, 580 120"/>
+        <path d="M470 320 C 500 265, 570 250, 625 215 S 700 160, 720 120"/>
+      </g>
+    </svg>
+    <div class="hero-copy">
       <p class="eyebrow">Centro de operaciones</p>
       <h1>Misiones</h1>
       <p class="hero-sub">Ortomosaicos RGB, térmicos y multiespectrales de vuelos DJI: procesá, revisá y entregá desde un solo lugar.</p>
+      <button class="btn primary hero-cta" onclick="openSetup()">
+        <svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg> Nueva misión
+      </button>
     </div>
-    <button class="btn primary hero-cta" onclick="openSetup()">
-      <svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg> Nueva misión
-    </button>
-  </header>
-  <div class="mlist-head"><span id="mcount"></span></div>
+    <div class="hero-status" role="group" aria-label="Estado de operación">
+      <div class="hs-title">Estado de operación</div>
+      <!-- aria-live: son los números que alguien en una emergencia mira
+           primero y llegan después del fetch — hay que anunciarlos. -->
+      <div class="hs-grid" aria-live="polite">
+        <div class="hs-cell"><b id="hs-total">—</b><span>misiones</span></div>
+        <div class="hs-cell live"><b id="hs-running">0</b><span>en proceso</span></div>
+        <div class="hs-cell ok"><b id="hs-ready">0</b><span>con tiles listos</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="mlist-head"><span id="mcount" aria-live="polite"></span></div>
   <div id="mlist"></div>
 </section>
 
@@ -476,7 +592,7 @@ select.in{cursor:pointer}
           </div>
           <div class="name-wrap">
             <input type="text" id="mname" placeholder="p. ej. Barbosa_2026-07-24" autocomplete="off">
-            <div class="name-msg" id="mname-msg"></div>
+            <div class="name-msg" id="mname-msg" aria-live="polite"></div>
           </div>
           <div class="name-hint">Se usará como nombre de carpeta para fotos, reconstrucción y productos.</div>
         </div>
@@ -593,13 +709,17 @@ select.in{cursor:pointer}
             <svg class="ic" aria-hidden="true"><use href="#i-mountain"/></svg> Terreno
           </div>
           <div class="opts">
-            <label class="opt on" id="o-terr-plano">
-              <input type="radio" name="terreno" value="plano" checked onchange="refreshUI()">
+            <label class="opt" id="o-terr-plano">
+              <input type="radio" name="terreno" value="plano" onchange="refreshUI()">
               <div><div class="ot">Plano</div>
                 <div class="od">Terreno chato o con relieve suave. Vistazo/rápido reconstruyen por homografías — mucho más veloz</div></div>
             </label>
-            <label class="opt" id="o-terr-escarpado">
-              <input type="radio" name="terreno" value="escarpado" onchange="refreshUI()">
+            <!-- Default: la mayoría de las misiones de emergencia real (incendio,
+                 montaña, terreno rocoso) NO son planas — "plano" por defecto venía
+                 perdiendo cobertura en silencio (ver el comentario grande de arriba)
+                 salvo que el operador supiera tildar "escarpado" a mano. -->
+            <label class="opt on" id="o-terr-escarpado">
+              <input type="radio" name="terreno" value="escarpado" checked onchange="refreshUI()">
               <div><div class="ot">Escarpado</div>
                 <div class="od">Montaña, cañón, terreno rocoso. Fuerza reconstrucción completa en todos los presets — evita perder fotos en silencio</div></div>
             </label>
@@ -609,9 +729,15 @@ select.in{cursor:pointer}
         <!-- Calidad: se elige por USO Y TIEMPO, no por un número abstracto.
              Antes era un slider de 0 a 100 que no respondía ni cuánto iba a
              tardar ni para qué servía cada tramo (y donde 71 y 89 daban
-             exactamente lo mismo). Las tarjetas se arman solas desde
-             /quality-estimate, que devuelve los cinco presets con su tiempo
-             estimado para ESTAS fotos y ESTE hardware. -->
+             exactamente lo mismo). Las tarjetas se arman desde
+             /quality-estimate (scripts/hardware.py sigue teniendo los CINCO
+             presets — «rápido» y «alta» quedan disponibles por CLI/API, ver
+             ./raptor run --help) pero acá se muestran solo 3, para no
+             obligar a elegir entre cinco tramos en medio de una emergencia:
+             «Urgencia» (preset vistazo + submuestreo 1-de-cada-3 SIEMPRE
+             activado — antes era un checkbox aparte que había que acordarse
+             de tildar), «Estándar» y «Máxima». pintarPresets() filtra la
+             respuesta del servidor a esos tres nombres. -->
         <div class="form-section">
           <div class="section-label">
             <svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg> Calidad y tiempo
@@ -623,6 +749,11 @@ select.in{cursor:pointer}
           <div class="note info" style="margin-top:12px" id="quality-note">
             <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg></span>
             <div id="quality-note-t">Calculando…</div>
+            <!-- Anuncio para lectores de pantalla SOLO del tiempo estimado:
+                 el texto completo (modelo + resolución) se re-renderiza en
+                 cada clic de preset y anunciarlo entero sería ruido. -->
+            <span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)"
+                  aria-live="polite" id="quality-note-live"></span>
           </div>
         </div>
 
@@ -681,19 +812,19 @@ select.in{cursor:pointer}
                 </select>
               </div>
             </div>
-            <div id="exp-note" class="note hidden" style="margin-top:12px">
+            <div id="exp-note" class="note hidden" style="margin-top:12px" aria-live="polite">
               <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg></span>
               <div id="exp-note-t"></div>
             </div>
           </div>
         </div>
 
-        <div id="setup-err" class="note err hidden">
+        <div id="setup-err" class="note err hidden" role="alert">
           <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-warn"/></svg></span>
           <div id="setup-err-t"></div>
         </div>
 
-        <div class="up hidden" id="upbox">
+        <div class="up hidden" id="upbox" role="status" aria-live="polite">
           <div class="ut"><span id="uplabel">Subiendo…</span><span id="uppct">0%</span></div>
           <div class="bar"><i id="upbar"></i></div>
         </div>
@@ -753,7 +884,13 @@ select.in{cursor:pointer}
     </div>
     <div class="picker-crumbs" id="picker-crumbs"></div>
     <div class="picker-list" id="picker-list"></div>
-    <div class="picker-foot"><button class="btn sm" onclick="closeFolderPicker()">Listo</button></div>
+    <div class="picker-foot">
+      <span class="sel-count" id="picker-sel-count"></span>
+      <div style="display:flex;gap:8px">
+        <button class="btn sm primary" id="picker-add-sel" onclick="addSelectedFolders()" disabled>Agregar seleccionadas</button>
+        <button class="btn sm" onclick="closeFolderPicker()">Listo</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -811,6 +948,13 @@ function goBack(){
 const THEME_KEY='raptor-geovisor-theme';
 function applyTheme(t){
   document.documentElement.setAttribute('data-theme',t);
+  // El theme-color de la barra del navegador debe seguir al tema manual,
+  // no solo al prefers-color-scheme de los dos <meta> estáticos. Se
+  // actualizan TODOS: cada uno tiene su propio media, y el navegador
+  // aplica el que matchee — si se tocara solo el primero, un sistema
+  // oscuro con tema claro manual seguiría mostrando la barra oscura.
+  document.querySelectorAll('meta[name=theme-color]').forEach(m=>
+    m.setAttribute('content', t==='dark' ? '#0C1412' : '#F4F7F8'));
   try{ localStorage.setItem(THEME_KEY,t); }catch(e){}
 }
 function toggleTheme(){
@@ -903,12 +1047,31 @@ function totalFor(kind){
 // ═══════════════════════════════════════════════════════════════════
 function showLanding(){ show('v-landing'); loadMissions(); }
 
+// Fecha relativa corta ("hace 3 h", "ayer", "hace 12 d") — la línea de
+// tiempo del centro de operaciones. Nada de relojes: solo la distancia.
+function fechaRelativa(ts){
+  const diff = Date.now() - ts;
+  if(diff < 60*1000) return 'recién';
+  if(diff < 3600*1000) return 'hace ' + Math.round(diff/60000) + ' min';
+  if(diff < 24*3600*1000) return 'hace ' + Math.round(diff/3600000) + ' h';
+  if(diff < 48*3600*1000) return 'ayer';
+  if(diff < 30*24*3600*1000) return 'hace ' + Math.round(diff/(24*3600*1000)) + ' d';
+  return new Date(ts).toLocaleDateString('es-CO', {day:'2-digit', month:'short', year:'numeric'});
+}
+
 async function loadMissions(){
   const box = $('mlist');
   box.innerHTML = '<div class="empty">Cargando…</div>';
   try{
     const d = await (await fetch('/api/missions')).json();
     $('mcount').textContent = d.missions.length ? d.missions.length + ' misión(es)' : '';
+    // Panel de estado de operación: números reales del endpoint.
+    const total = d.missions.length, running = d.missions.filter(m=>m.name===d.active).length;
+    const ready = d.missions.filter(m=>m.has_tiles && m.ok !== false && m.name !== d.active).length;
+    const setHS = (id,v)=>{const el=$(id); if(el) el.textContent=v;};
+    setHS('hs-total', total);
+    setHS('hs-running', running);
+    setHS('hs-ready', ready);
     if(!d.missions.length){
       box.innerHTML = `<div class="empty"><svg class="ic" aria-hidden="true"><use href="#i-drone"/></svg>
         Todavía no procesaste ninguna misión.<br>
@@ -926,6 +1089,9 @@ async function loadMissions(){
       const failed  = !running && m.ok === false;
       const tags = [ m.has_tiles?'tiles listos':(m.has_outputs?'productos generados':'sin productos'),
                      m.has_processing?'reconstrucción ODM guardada':null ].filter(Boolean).join(' · ');
+      // Fecha relativa de la última actividad (subida/reconstrucción) — el
+      // backend manda mtime (epoch) en /api/missions.
+      const fecha = m.mtime ? fechaRelativa(m.mtime*1000) : '';
       // El geovisor integrado es el mismo destino esté procesándose (con su
       // HUD de progreso en vivo) o ya terminada (solo el mapa) — no hace
       // falta una pantalla de progreso aparte acá, ver geovisor/app.js.
@@ -946,12 +1112,16 @@ async function loadMissions(){
       // escribiendo a la nada.
       const delBtn = running ? '' :
         `<button class="btn sm ghost" onclick="deleteMission('${m.name}')" title="Eliminar misión" aria-label="Eliminar misión ${m.name}"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg></button>`;
-      return `<div class="mission">
-        <div><div class="nm">${m.name}
+      return `<article class="mission">
+        <div class="mission-top"><div class="nm">${m.name}
           ${running?'<span class="badge run">procesando</span>':''}
-          ${failed ?'<span class="badge fail">falló</span>':''}</div>
-          <div class="tg"><svg class="ic" aria-hidden="true"><use href="#i-map"/></svg>${tags}</div></div>
-        <div class="row">${btn}${delBtn}</div></div>`;
+          ${failed ?'<span class="badge fail">falló</span>':''}
+          ${(!running && !failed && m.has_tiles)?'<span class="badge ok">lista</span>':''}</div>
+          ${delBtn}</div>
+        ${fecha?`<div class="date"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg>${fecha}</div>`:''}
+        <div class="tg"><svg class="ic" aria-hidden="true"><use href="#i-map"/></svg>${tags}</div>
+        <div class="foot"><div class="row">${btn}</div></div>
+      </article>`;
     }).join('');
   }catch(e){ box.innerHTML = '<div class="empty">No se pudo cargar la lista.</div>'; }
 }
@@ -1210,18 +1380,46 @@ function renderRail(){
 // servidor (PRESET_DEFAULT en scripts/hardware.py), no una copia acá.
 let presetElegido = 'estandar';
 
+// El servidor sigue calculando los CINCO presets de scripts/hardware.py
+// (rápido y alta quedan disponibles por CLI/API, ver ./raptor run --help),
+// pero acá se muestran solo 3 — cinco tramos de calidad es demasiada
+// decisión en medio de una emergencia. «vistazo» se relabelea como
+// «Urgencia»: unifica el preset MÁS el submuestreo 1-de-cada-3, que antes
+// eran dos controles separados (un preset + un checkbox aparte, fácil de
+// olvidar tildar). El nombre real que viaja al servidor sigue siendo
+// 'vistazo' — es SOLO relabeling de UI; ver el subsample automático en
+// el armado del FormData, más abajo, que deriva de presetElegido==='vistazo'.
+const PRESETS_UI_VISIBLES = ['vistazo', 'estandar', 'maxima'];
+const PRESET_UI_OVERRIDE = {
+  vistazo: {
+    titulo: '⚡ Urgencia',
+    // Multiespectral queda AFUERA del submuestreo (ver docker/entrypoint.sh,
+    // junto a "python3 scripts/subsample_photos.py"): medido en vivo, con
+    // menos fotos sus bandas monocromáticas no encadenan un SfM incremental
+    // completo — RGB/térmico terminan con 99% de sus fotos reconstruidas,
+    // multiespectral se quedaba en 15% (ortomosaico recortado a una
+    // fracción chica del vuelo real). Tarda más que RGB/térmico, pero llega
+    // completo.
+    para_que: 'Respuesta inmediata: RGB y térmico procesan 1 de cada 3 fotos, corta el SfM casi a la tercera parte. ' +
+      'Multiespectral reconstruye completo (submuestrearlo lo fragmenta) — tarda más, pero no se recorta el mosaico. ' +
+      'Las originales quedan intactas y la próxima corrida las restaura solas.',
+  },
+};
+
 function pintarPresets(opciones){
   const grid = $('preset-grid');
   grid.innerHTML = '';
   for(const o of opciones){
+    if(!PRESETS_UI_VISIBLES.includes(o.nombre)) continue;
+    const ui = PRESET_UI_OVERRIDE[o.nombre] || {};
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'preset-card' + (o.nombre === presetElegido ? ' sel' : '');
     b.setAttribute('role','radio');
     b.setAttribute('aria-checked', o.nombre === presetElegido ? 'true' : 'false');
-    b.innerHTML = `<span class="pc-titulo">${o.titulo}</span>`
+    b.innerHTML = `<span class="pc-titulo">${ui.titulo || o.titulo}</span>`
                 + `<span class="pc-tiempo">${o.tiempo_texto}</span>`
-                + `<span class="pc-para">${o.para_que}</span>`
+                + `<span class="pc-para">${ui.para_que || o.para_que}</span>`
                 + `<span class="pc-res">hasta ${o.res_cm} cm/px</span>`;
     b.addEventListener('click', ()=>{
       presetElegido = o.nombre;
@@ -1261,6 +1459,7 @@ function refreshQualityEstimate(){
       // está a la vista en el momento de decidir.
       if(m.opciones) pintarPresets(m.opciones);
       noteT.innerHTML = `${m.modelo_texto}<br><br>${m.resolucion_texto}<br><br>${m.tiempo_texto}`;
+      const live = $('quality-note-live'); if(live) live.textContent = m.tiempo_texto;
     }catch(e){
       noteT.textContent = 'No se pudo estimar (¿la misión ya tiene nombre?).';
     }
@@ -1497,8 +1696,15 @@ async function removeImported(kind, name){
 // Dónde está parado el explorador — se resetea cada vez que se abre. Ya no
 // hay un "pickerKind" fijo de antemano: cada carpeta que se lista trae su
 // propio hint (rgb/thermal/ms/dband) y de ahí sale a qué balde va cuando se
-// aprieta "+ Usar esta" (ver kindFromHint()).
+// tilda (ver kindFromHint()).
 let pickerPath = '';
+// Selección DENTRO de la carpeta que se está mirando ahora mismo — host_path
+// → kind. Se vacía al navegar (ver browseTo()): elegir varias a la vez es
+// para carpetas HERMANAS en el mismo listado (el caso real: una SD con
+// 100MEDIA/101MEDIA/102MEDIA todas al mismo nivel), no un carrito que
+// sobrevive saltos de carpeta — eso complicaría el picker sin que nadie lo
+// haya pedido.
+let pickerSelected = new Map();
 
 function openFolderPicker(){
   const mission = $('mname').value.trim();
@@ -1534,6 +1740,8 @@ function kindFromHint(h){
 async function browseTo(path){
   const list = $('picker-list');
   list.innerHTML = '<div class="picker-empty">Cargando…</div>';
+  pickerSelected = new Map();
+  updatePickerFooter();
   try{
     const r = await fetch(`/api/import/browse?path=${encodeURIComponent(path)}`);
     const d = await r.json();
@@ -1543,6 +1751,12 @@ async function browseTo(path){
   }catch(e){
     list.innerHTML = `<div class="picker-empty">${e.message}</div>`;
   }
+}
+
+function updatePickerFooter(){
+  const n = pickerSelected.size;
+  $('picker-sel-count').textContent = n ? `${n} carpeta${n===1?'':'s'} seleccionada${n===1?'':'s'}` : '';
+  $('picker-add-sel').disabled = n === 0;
 }
 
 function renderPicker(d){
@@ -1571,32 +1785,57 @@ function renderPicker(d){
     const hp = e.host_path.replace(/'/g,"\\'");
     // Sin RGB/térmico ni MS reconocibles no hay a qué balde mandarla —
     // se deja entrar igual (puede ser una carpeta intermedia con
-    // subcarpetas adentro) pero no se puede "usar" directamente.
-    const btn = added ? `<button class="btn sm add" disabled>✓ agregada</button>`
-      : kind ? `<button class="btn sm add" onclick="addFolder('${hp}','${kind}')">+ Usar esta</button>`
-      : `<button class="btn sm add" disabled title="No se reconoce contenido de vuelo acá">+ Usar esta</button>`;
+    // subcarpetas adentro) pero no se puede tildar directamente.
+    // Checkbox en vez de un botón que agrega al toque: así se puede tildar
+    // VARIAS carpetas hermanas (p.ej. 100MEDIA/101MEDIA/102MEDIA de una SD)
+    // en el mismo listado y mandarlas juntas con "Agregar seleccionadas",
+    // en vez de un viaje al servidor por carpeta.
+    const check = added ? `<span class="hint" style="color:var(--ok);flex-shrink:0">✓ agregada</span>`
+      : kind ? `<input type="checkbox" class="sel" data-hp="${hp}" data-kind="${kind}">`
+      : `<input type="checkbox" class="sel" disabled title="No se reconoce contenido de vuelo acá">`;
     return `<div class="picker-row ${added?'added':''}">
       <svg class="ic" onclick="browseTo('${hp}')" aria-hidden="true"><use href="#i-folder"/></svg>
       <span class="nm" onclick="browseTo('${hp}')" title="Entrar a ${e.name}">${e.name}</span>
       <span class="hint">${hintTxt}</span>
-      ${btn}
+      ${check}
     </div>`;
   }).join('');
+  list.querySelectorAll('input.sel:not([disabled])').forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      if(cb.checked) pickerSelected.set(cb.dataset.hp, cb.dataset.kind);
+      else pickerSelected.delete(cb.dataset.hp);
+      updatePickerFooter();
+    });
+  });
 }
 
-async function addFolder(hostPath, kind){
+async function addSelectedFolders(){
   const mission = $('mname').value.trim();
-  const fd = new FormData();
-  fd.append('kind', kind); fd.append('host_path', hostPath);
-  try{
-    const r = await fetch(`/api/missions/${encodeURIComponent(mission)}/import-local`, {method:'POST', body:fd});
-    const j = await r.json();
-    if(!r.ok) throw new Error(j.detail || 'no se pudo agregar esa carpeta');
-    await loadStatus(mission); refreshUI();
-    await browseTo(pickerPath);   // re-renderiza esta misma carpeta con el estado "✓ agregada" al día
-  }catch(e){
-    // Error INLINE dentro del explorador (reemplaza el alert() nativo)
-    $('picker-list').innerHTML = `<div class="picker-empty" style="color:var(--err)">No se pudo agregar esa carpeta: ${e.message}</div>`;
+  const btn = $('picker-add-sel');
+  const entradas = [...pickerSelected.entries()];
+  if(!entradas.length) return;
+  btn.disabled = true; btn.textContent = 'Agregando…';
+  const fallidas = [];
+  // Secuencial, no Promise.all: cada POST es un symlink (rápido), y así el
+  // orden de "cuál falló" queda claro en vez de N requests concurrentes
+  // pisándose los logs entre sí.
+  for(const [hostPath, kind] of entradas){
+    const fd = new FormData();
+    fd.append('kind', kind); fd.append('host_path', hostPath);
+    try{
+      const r = await fetch(`/api/missions/${encodeURIComponent(mission)}/import-local`, {method:'POST', body:fd});
+      const j = await r.json();
+      if(!r.ok) throw new Error(j.detail || 'no se pudo agregar');
+    }catch(e){
+      fallidas.push(hostPath.split('/').pop());
+    }
+  }
+  btn.textContent = 'Agregar seleccionadas';
+  await loadStatus(mission); refreshUI();
+  await browseTo(pickerPath);   // re-renderiza esta misma carpeta con el estado "✓ agregada" al día
+  if(fallidas.length){
+    $('picker-list').insertAdjacentHTML('afterbegin',
+      `<div class="picker-empty" style="color:var(--err)">No se pudo agregar: ${fallidas.join(', ')}</div>`);
   }
 }
 
@@ -1680,6 +1919,10 @@ async function uploadAndStart(){
     fd.append('reuse_odm', reuse === '1' ? 'true':'false');
     fd.append('preset', presetElegido);
     fd.append('terreno', selectedTerreno());
+    // «Urgencia» (ver pintarPresets/PRESET_UI_OVERRIDE) ES el preset
+    // 'vistazo' con submuestreo SIEMPRE activado — ya no es un checkbox
+    // aparte que se pudiera dejar destildado por error.
+    fd.append('subsample', presetElegido === 'vistazo' ? '3' : '0');
     if(exporting()){
       fd.append('export_dir', $('exp-dir').value.trim());
       fd.append('export_products', selectedExportProducts().join(','));
