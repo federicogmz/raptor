@@ -19,9 +19,10 @@ más abajo).
 
 ---
 
-## Modo webapp — por defecto
+## Instalación — webapp persistente (por defecto)
 
-`docker run` sin argumentos levanta una **webapp interactiva** (FastAPI):
+La forma de instalar RAPTOR en una máquina (propia o de otra persona) es
+desplegar la **webapp interactiva** (FastAPI) una vez y dejarla corriendo:
 subís las fotos crudas del vuelo desde el navegador, elegís qué sensores y
 productos procesar, el tipo de terreno y el preset de calidad, ves el
 progreso en vivo (SSE) y al terminar se muestra directo el geovisor con los
@@ -40,6 +41,25 @@ rehacer el SfM.
 ./raptor webapp --export ~/entregas
 # abrir http://localhost:8080
 ```
+
+`./raptor webapp` queda **en segundo plano** (`-d`) con `--restart
+unless-stopped`: si el contenedor se cae o se reinicia la máquina, Docker lo
+vuelve a levantar solo — no hay que dejar una terminal ni una sesión `tmux`
+abierta, ni volver a correr el comando después de un reinicio (para eso
+alcanza con que el propio servicio de Docker arranque solo:
+`sudo systemctl enable --now docker` en una instalación estándar, root, no
+rootless). Correrlo de nuevo con las mismas opciones reemplaza **solo** ese
+contenedor (`raptor-web` por nombre), nunca toca otros contenedores que haya
+en la misma máquina.
+
+```bash
+./raptor logs     # ver el progreso en vivo (Ctrl+C no la apaga, solo sale del log)
+./raptor status   # ver si está corriendo
+./raptor stop      # apagarla
+```
+
+Para debug puntual, sin dejarla instalada (corre pegada a la terminal, sin
+reinicio automático, se borra sola al salir): `./raptor webapp --fg`.
 
 `--export` es la carpeta **de tu disco** donde van a salir los productos: el
 lanzador la monta en el contenedor, así que lo que elijas en el formulario es
@@ -326,7 +346,7 @@ de una misión ya procesada más adelante: `docker run --rm -p 8080:8080 -v
 $PWD/runs/la_clara/tiles:/app/geovisor/tiles raptor serve`.
 
 > Nota: si preferís no lidiar con volúmenes/rutas del host a mano, la
-> [webapp por defecto](#modo-webapp--por-defecto) resuelve exactamente este
+> [webapp persistente](#instalación--webapp-persistente-por-defecto) resuelve exactamente este
 > mismo problema (una carpeta por misión, sin mezclar corridas) subiendo
 > las fotos por navegador en vez de montarlas.
 

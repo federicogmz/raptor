@@ -249,20 +249,39 @@ cmd_run() {
 }
 
 cmd_webapp() {
-  local runs="$PWD/runs" export_dir="" import_dir="" port=8080
+  local runs="$PWD/runs" export_dir="" import_dir="" port=8080 name="raptor-web" fg=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --runs)    runs="$2"; shift 2 ;;
       --export)  export_dir="$2"; shift 2 ;;
       --import)  import_dir="$2"; shift 2 ;;
       --port)    port="$2"; shift 2 ;;
+      --name)    name="$2"; shift 2 ;;
       --no-gpu)  NO_GPU=1; shift ;;
-      -h|--help) echo "Uso: ./raptor webapp [--runs DIR] [--export DIR] [--import DIR] [--port N] [--no-gpu]"; exit 0 ;;
+      --fg)      fg=1; shift ;;
+      -h|--help)
+        cat <<'EOF'
+Uso: ./raptor webapp [--runs DIR] [--export DIR] [--import DIR] [--port N] [--name NOMBRE] [--no-gpu] [--fg]
+
+Por defecto queda corriendo en segundo plano y se reinicia sola si se cae
+el contenedor o se reinicia la máquina (--restart unless-stopped) — pensado
+para instalarla una vez y dejarla andando sin volver a ejecutar este comando.
+
+  --name NOMBRE   Nombre del contenedor (default: raptor-web). Si ya existe
+                   uno con ese nombre, se reemplaza (SOLO ese contenedor).
+  --fg            No hacer deploy persistente: correr en primer plano,
+                   pegado a la terminal, sin --restart (para debug).
+
+./raptor logs     Ver el log en vivo de la webapp persistente
+./raptor stop      Parar la webapp persistente
+./raptor status    Ver si está corriendo
+EOF
+        exit 0 ;;
       *) morir "opción desconocida: $1" ;;
     esac
   done
   runs="$(abs "$runs")"; mkdir -p "$runs"
-  local args=(--rm -p "${port}:${port}" -v "$runs:$C_RUNS" -e "PORT=$port")
+  local args=(-p "${port}:${port}" -v "$runs:$C_RUNS" -e "PORT=$port")
   if [[ -n "$export_dir" ]]; then
     export_dir="$(abs "$export_dir")"
     mkdir -p "$export_dir" 2>/dev/null || morir "no se pudo crear la carpeta de entrega: $export_dir"
@@ -281,15 +300,58 @@ cmd_webapp() {
     # hace falta pasar por HTTP para duplicar algo que ya está en disco).
     args+=(-v "$import_dir:$C_IMPORT:ro" -e "IMPORT_HOST_DIR=$import_dir")
   fi
-  echo "🌐 http://localhost:${port}"
+
+  if [[ "$fg" -eq 1 ]]; then
+    echo "🌐 http://localhost:${port} (primer plano, sin --restart)"
+    # shellcheck disable=SC2046
+    docker run --rm "${args[@]}" $(gpu_args) "$IMAGE" webapp
+    return $?
+  fi
+
+  # Deploy persistente: nombre fijo para poder reemplazar SOLO este
+  # contenedor en la próxima corrida (nunca un `docker ps -aq` a ciegas —
+  # este mismo daemon puede tener contenedores de otros proyectos corriendo).
+  if [[ -n "$(docker ps -aq -f "name=^/${name}\$")" ]]; then
+    echo "🔁 Reemplazando contenedor previo «${name}»…"
+    docker rm -f "$name" >/dev/null
+  fi
+  args+=(-d --name "$name" --restart unless-stopped)
   # shellcheck disable=SC2046
-  docker run "${args[@]}" $(gpu_args) "$IMAGE" webapp
+  docker run "${args[@]}" $(gpu_args) "$IMAGE" webapp >/dev/null
+  echo "🌐 http://localhost:${port}  (persistente — sobrevive reinicios de la máquina si Docker arranca solo)"
+  echo "   ./raptor logs   → ver el progreso en vivo"
+  echo "   ./raptor stop   → apagarla"
+  echo "   ./raptor status → ver si está corriendo"
+}
+
+cmd_stop() {
+  local name="${1:-raptor-web}"
+  docker stop "$name" >/dev/null 2>&1 && echo "🛑 ${name} detenido." || echo "ℹ  ${name} no estaba corriendo."
+}
+
+cmd_logs() {
+  local name="${1:-raptor-web}"
+  docker logs -f "$name"
+}
+
+cmd_status() {
+  local name="${1:-raptor-web}"
+  local row
+  row="$(docker ps -a -f "name=^/${name}\$" --format '{{.Status}}')"
+  if [[ -z "$row" ]]; then
+    echo "ℹ  ${name}: no existe (todavía no se desplegó — ./raptor webapp)"
+  else
+    echo "${name}: ${row}"
+  fi
 }
 
 case "${1:-}" in
   build)  shift; cmd_build "$@" ;;
   run)    shift; cmd_run "$@" ;;
   webapp) shift; cmd_webapp "$@" ;;
+  stop)   shift; cmd_stop "$@" ;;
+  logs)   shift; cmd_logs "$@" ;;
+  status) shift; cmd_status "$@" ;;
   shell)  shift; docker run --rm -it -v "$PWD:/app" "$IMAGE" shell ;;
   -h|--help|"")
     cat <<'EOF'
@@ -297,10 +359,13 @@ RAPTOR — pipeline fotogramétrico de respuesta a incendios (DJI M3T/H20T/M3M)
 
   ./raptor build              Construir la imagen
   ./raptor run     [opciones] Procesar una misión (no interactivo, apto CI)
-  ./raptor webapp  [opciones] Levantar la interfaz web
-  ./raptor shell              Shell dentro del contenedor
+  ./raptor webapp  [opciones] Desplegar la webapp de forma persistente
+  ./raptor logs                Ver el log en vivo de la webapp persistente
+  ./raptor stop                Apagar la webapp persistente
+  ./raptor status              Ver si la webapp persistente está corriendo
+  ./raptor shell               Shell dentro del contenedor
 
-`./raptor run --help` para las opciones de procesamiento y entrega.
+`./raptor run --help` / `./raptor webapp --help` para el resto de las opciones.
 EOF
     ;;
   *) morir "comando desconocido: $1  (./raptor --help)" ;;
