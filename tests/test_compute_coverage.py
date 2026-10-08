@@ -11,8 +11,7 @@ import os
 import subprocess
 
 import numpy as np
-import pytest
-from osgeo import gdal, ogr, osr
+from osgeo import gdal, osr
 
 gdal.UseExceptions()
 
@@ -117,3 +116,31 @@ class TestCoberturaVsVuelo:
         assert r.returncode == 0
         assert not (tmp_path / "outputs" / "coverage.json").exists()
         assert "sin ruta de vuelo" in r.stdout
+
+    def test_ruta_con_linestring_y_puntos(self, tmp_path):
+        """flight_path.geojson real contiene una LineString del track + Points de fotos."""
+        outputs = _setup(tmp_path, mitad_datos=False)
+        feats = [
+            {
+                "type": "Feature",
+                "properties": {"kind": "flight_track"},
+                "geometry": {"type": "LineString", "coordinates": LON_LAT_CORNERS},
+            }
+        ] + [
+            {
+                "type": "Feature",
+                "properties": {"kind": "capture"},
+                "geometry": {"type": "Point", "coordinates": [lon, lat]},
+            }
+            for lon, lat in LON_LAT_CORNERS
+        ]
+        (outputs / "flight_path.geojson").write_text(
+            json.dumps({"type": "FeatureCollection", "features": feats})
+        )
+        r = subprocess.run(["python3", SCRIPT], cwd=str(tmp_path),
+                           capture_output=True, text=True, timeout=60)
+        assert r.returncode == 0, r.stdout + r.stderr
+        cov = json.loads((outputs / "coverage.json").read_text())
+        assert cov["alerta"] is False
+        assert cov["productos"]["rgb"]["cobertura_area_volada_pct"] > 95
+

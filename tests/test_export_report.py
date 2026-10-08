@@ -6,7 +6,6 @@ import os
 import subprocess
 
 import numpy as np
-import pytest
 from osgeo import gdal
 
 gdal.UseExceptions()
@@ -21,9 +20,9 @@ def _minimal_outputs(tmp_path):
     (outputs / "situation.json").write_text(json.dumps({
         "hotspots_activos": 2,
         "hotspots": [{"lat": 6.334963, "lon": -75.488735, "px": 126,
-                      "temp_c": 125.9, "severidad": "severo"}],
+                      "temp_c": 125.9}],
         "temp_max": 125.9, "temp_promedio": 34.2, "confianza": "media",
-        "cobertura_pct": 55.0, "solo_termico": True,
+        "cobertura_pct": 55.0,
         "captura": "2026-08-08T11:49:18",
         "alerta_cobertura_baja": True,
     }))
@@ -75,14 +74,34 @@ class TestInforme:
         assert (entrega / "reporte_emergencia.html").exists()
 
     def test_sin_datos_de_impacto_no_revienta(self, tmp_path):
+        """Ya no existen los modos "sin_impacto_detectado"/"solo_termico"
+        (situation.json siempre tiene la misma forma térmica única, ver
+        compute_situation_summary.py) — el único caso real de "sin datos de
+        impacto" es que situation.json ni siquiera exista (misión sin
+        térmico, o que no llegó a esa etapa)."""
         outputs = tmp_path / "outputs"
         outputs.mkdir(exist_ok=True)
-        (outputs / "situation.json").write_text(json.dumps({
-            "hotspots_activos": 0, "hotspots": [], "solo_termico": False,
-            "sin_impacto_detectado": True, "captura": None,
-        }))
         r = subprocess.run(["python3", SCRIPT], cwd=str(tmp_path),
                            capture_output=True, text=True, timeout=60)
         assert r.returncode == 0
         html = (tmp_path / "outputs" / "reporte_emergencia.html").read_text()
         assert "Sin datos de impacto" in html
+
+    def test_con_situation_pero_sin_focos_muestra_las_tarjetas_igual(self, tmp_path):
+        """Con situation.json presente pero hotspots_activos=0 (ninguna
+        detección, misión sí llegó a esa etapa), las 4 tarjetas ejecutivas
+        se muestran igual, con los valores reales (0 focos, temperaturas si
+        las hay) — no el mensaje de "sin datos"."""
+        outputs = tmp_path / "outputs"
+        outputs.mkdir(exist_ok=True)
+        (outputs / "situation.json").write_text(json.dumps({
+            "hotspots_activos": 0, "hotspots": [],
+            "temp_max": 25.0, "temp_promedio": 22.0,
+            "cobertura_pct": 100.0, "confianza": "alta", "captura": None,
+        }))
+        r = subprocess.run(["python3", SCRIPT], cwd=str(tmp_path),
+                           capture_output=True, text=True, timeout=60)
+        assert r.returncode == 0
+        html = (tmp_path / "outputs" / "reporte_emergencia.html").read_text()
+        assert "Sin datos de impacto" not in html
+        assert "Focos térmicos activos" in html

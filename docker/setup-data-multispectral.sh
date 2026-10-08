@@ -49,7 +49,7 @@ fi
 echo "═══ Organizando bandas multiespectrales desde: $SRC"
 echo ""
 
-mkdir -p "$DATA_DIR"
+mkdir -p "$DATA_DIR" "$DATA_DIR_D"
 
 # find -L: ver el comentario largo en docker/setup-data.sh sobre por qué
 # hace falta (SRC puede ser un symlink de import_local(), y find sin -L
@@ -88,7 +88,7 @@ fi
 
 # ── Banda D (RGB, opcional) ──────────────────────────────────────────
 # A diferencia de las 4 bandas espectrales, ausente acá NO es un error: no
-# todos los vuelos M3M la usan (o el usuario solo quiere NDVI/severidad, sin
+# todos los vuelos M3M la usan (o el usuario solo quiere los índices, sin
 # el mosaico visible rápido). Ver scripts/prepare_dband_odm.py.
 echo ""
 echo "Buscando banda D (*_D.JPG, cámara RGB del M3M) ..."

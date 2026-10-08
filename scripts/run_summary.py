@@ -28,12 +28,11 @@ RASTERS = {
     "dsm": f"{OUTPUTS}/dsm.tif",
     "multispectral": f"{OUTPUTS}/multispectral_orthomosaic.tif",
     "confidence": f"{OUTPUTS}/confidence_mask.tif",
-    "severidad": f"{OUTPUTS}/severidad_class.tif",
+    "hotspot": f"{OUTPUTS}/termico_hotspot_class.tif",
     **{f"indice_{n}": f"{OUTPUTS}/indices/{n}.tif"
        for n in ("ndvi", "gndvi", "ndre", "msavi2")},
 }
 VECTORES = {
-    "area_afectada": f"{OUTPUTS}/area_afectada.geojson",
     "flight_path": f"{OUTPUTS}/flight_path.geojson",
 }
 
@@ -58,7 +57,8 @@ def _info_raster(path):
         # la última banda (el alpha, donde lo hay) submuestreada a 512 px, que
         # alcanza para un porcentaje y no obliga a leer el ráster entero.
         band = ds.GetRasterBand(ds.RasterCount)
-        arr = band.ReadAsArray(buf_xsize=min(512, ds.RasterXSize),
+        arr = band.ReadAsArray(0, 0, ds.RasterXSize, ds.RasterYSize,
+                               buf_xsize=min(512, ds.RasterXSize),
                                buf_ysize=min(512, ds.RasterYSize))
         if arr is not None:
             con_dato = np.isfinite(arr) & (arr > 0)

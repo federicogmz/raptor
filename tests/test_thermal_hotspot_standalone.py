@@ -1,10 +1,13 @@
 """Hotspot térmico independiente del multiespectral.
 
 Antes solo se generaba como subproducto de compute_severity_classes.py, que
-exige detect_area_afectada.py, que a su vez EXIGE multiespectral (su señal
-primaria es NDVI). Una misión RGB+térmico sin M3M se quedaba sin la capa de
+exigía detect_area_afectada.py, que a su vez EXIGÍA multiespectral (su señal
+primaria era NDVI). Una misión RGB+térmico sin M3M se quedaba sin la capa de
 hotspot sin necesidad real: nada en su cálculo depende de NDVI ni de un
-polígono de área afectada.
+polígono de área afectada. Ambos módulos (detect_area_afectada.py,
+compute_severity_classes.py) fueron eliminados; compute_thermal_hotspot.py
+es ahora la ÚNICA fuente de clasificación de hotspot, para toda misión con
+térmico, con o sin multiespectral.
 """
 import os
 
@@ -68,26 +71,31 @@ class TestHotspotSinMultiespectral:
         assert exc.value.code == 1
         assert "no encontrado" in capsys.readouterr().out
 
-    def test_mismos_cortes_que_compute_severity_classes(self):
-        """No se duplican los 40/60/88°C de la literatura — se importan."""
-        from compute_severity_classes import TERM_BREAKS
-        assert H.TERM_BREAKS is TERM_BREAKS
+    def test_cortes_de_clasificacion(self):
+        """Los cortes 40/60/88°C viven directamente en este módulo — ya no
+        hay un segundo módulo (compute_severity_classes.py, eliminado) del
+        que importarlos para comparar por identidad."""
+        assert H.TERM_BREAKS == [40.0, 60.0, 88.0]
 
 
-class TestEntrypointNoLoLlamaConMultiespectral:
-    """El hotspot recortado al área detectada (compute-severity) sigue siendo
-    la fuente cuando SÍ hay multiespectral — este script no debe pisarlo."""
+class TestEntrypointSiempreLoLlama:
+    """El único código de hotspot térmico ahora es este script — corre
+    incondicionalmente siempre que haya térmico, sin importar si hay
+    multiespectral (el segundo camino recortado al área afectada ya no
+    existe)."""
 
-    def test_solo_se_invoca_cuando_DO_MS_es_0(self):
+    def test_se_invoca_incondicionalmente(self):
         src = open(os.path.join(os.path.dirname(os.path.dirname(
             os.path.abspath(__file__))), "docker", "entrypoint.sh"), encoding="utf-8").read()
         # Se ancla al comentario de "Calidad del LEVANTAMIENTO", único en el
         # archivo — es el bloque real de flight-quality/hotspot/situation-
         # summary (hoy corre en un subshell de fondo, parte del análisis
         # cruzado en paralelo). El `fi` de cierre buscado es el que arranca
-        # en columna 0 (el `if $DO_MS -eq 0` interno cierra con 4 espacios
-        # de indentación, no en columna 0).
+        # en columna 0.
         ini = src.index('if [[ "$DO_THERMAL" -eq 1 ]]; then\n  # Calidad del LEVANTAMIENTO')
         bloque = src[ini:src.index("\nfi\n", ini) + 4]
         assert "compute-thermal-hotspot" in bloque
-        assert 'if [[ "$DO_MS" -eq 0 ]]; then' in bloque
+        assert "make situation-summary" in bloque
+        # El viejo gate interno "solo si no hay multiespectral" ya no existe
+        # — ambas líneas corren siempre.
+        assert 'if [[ "$DO_MS" -eq 0 ]]; then' not in bloque

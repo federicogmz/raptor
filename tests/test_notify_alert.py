@@ -1,14 +1,16 @@
 """scripts/notify_alert.py — aviso al puesto de mando cuando hay focos
-activos o área afectada (webhook + outputs/alert.json).
+térmicos activos.
 
 Se llama después de cada situation-summary; nunca debe romper el pipeline.
+El disparador solía tener un segundo camino ("área afectada sin focos" —
+via el ya eliminado area_ha) — ahora es puramente hotspots_activos > 0,
+porque situation.json ya no tiene ninguna noción de área/severidad.
 """
 import json
 import os
 import sys
 import urllib.request
 
-import pytest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
@@ -16,19 +18,16 @@ sys.path.insert(0, os.path.join(REPO, "scripts"))
 import notify_alert  # noqa: E402
 
 
-def _situation(tmp_path, focos=2, area=None, temp_max=125.9):
+def _situation(tmp_path, focos=2, temp_max=125.9):
     outputs = tmp_path / "outputs"
     outputs.mkdir(exist_ok=True)
     s = {
         "hotspots_activos": focos,
-        "hotspots": [{"lat": 6.33, "lon": -75.48, "px": 126, "temp_c": temp_max,
-                      "severidad": "severo"}],
-        "area_ha": area,
+        "hotspots": [{"lat": 6.33, "lon": -75.48, "px": 126, "temp_c": temp_max}],
         "temp_max": temp_max,
         "temp_promedio": 34.2,
         "confianza": "media",
         "cobertura_pct": 55.0,
-        "solo_termico": True,
         "captura": "2026-08-08T11:49:18",
     }
     (outputs / "situation.json").write_text(json.dumps(s))
@@ -46,18 +45,12 @@ class TestAlerta:
         assert alerta["hotspots_activos"] == 2
         assert alerta["mision"] == "mision_prueba"
         assert alerta["hotspots"][0]["temp_c"] == 125.9
+        for clave in ("area_ha", "severidad", "solo_termico"):
+            assert clave not in alerta, f"'{clave}' ya no debería aparecer en el payload"
 
-    def test_area_afectada_sin_focos_tambien_alerta(self, tmp_path, monkeypatch):
+    def test_sin_focos_no_escribe_alerta(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        _situation(tmp_path, focos=0, area=12.5)
-        assert notify_alert.main() == 0
-        alerta = json.loads((tmp_path / "outputs" / "alert.json").read_text())
-        assert alerta["evento"] == "area_afectada"
-        assert alerta["area_ha"] == 12.5
-
-    def test_sin_focos_ni_area_no_escribe_alerta(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        _situation(tmp_path, focos=0, area=None)
+        _situation(tmp_path, focos=0)
         assert notify_alert.main() == 0
         assert not (tmp_path / "outputs" / "alert.json").exists()
 

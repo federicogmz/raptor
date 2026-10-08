@@ -55,6 +55,7 @@ from osgeo import gdal
 gdal.UseExceptions()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from trim_low_overlap_edges import _rgb_camera_overlap  # noqa: E402  (reusa la huella de cámara real)
+from gdal_open_retry import gdal_open_retry  # noqa: E402
 
 FLIGHT_PATH = "outputs/flight_path.geojson"
 OUT_PATH = "outputs/flight_quality.json"
@@ -180,7 +181,7 @@ def _solape():
                  None)
     if ref is None or recon is None:
         return None, None
-    ds = gdal.Open(ref)
+    ds = gdal_open_retry(ref)
     gt, proj = ds.GetGeoTransform(), ds.GetProjection()
     W, H = ds.RasterXSize, ds.RasterYSize
     ds = None
@@ -199,7 +200,7 @@ def _gsd_cm():
     out = {}
     for nombre, _, path in SENSORES:
         if os.path.isfile(path):
-            ds = gdal.Open(path)
+            ds = gdal_open_retry(path)
             out[nombre] = round(abs(ds.GetGeoTransform()[1]) * 100, 1)
             ds = None
     return out

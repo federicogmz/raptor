@@ -60,7 +60,7 @@ def mision(tmp_path, monkeypatch):
     n = 1200
     _raster("outputs/dsm.tif", rng.uniform(1900, 2100, (n, n)).astype(np.float32),
             gdal.GDT_Float32, nodata=float("nan"))
-    _raster("outputs/severidad_class.tif",
+    _raster("outputs/termico_hotspot_class.tif",
             rng.integers(0, 5, (n, n)).astype(np.uint8), gdal.GDT_Byte, nodata=0)
     _raster("outputs/rgb_orthomosaic.tif",
             np.concatenate([rng.integers(0, 255, (3, n, n), dtype=np.uint8),
@@ -69,13 +69,13 @@ def mision(tmp_path, monkeypatch):
 
     wgs = osr.SpatialReference(); wgs.ImportFromEPSG(4326)
     wgs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-    ds = ogr.GetDriverByName("GeoJSON").CreateDataSource("outputs/area_afectada.geojson")
-    lyr = ds.CreateLayer("area", wgs, ogr.wkbPolygon)
-    lyr.CreateField(ogr.FieldDefn("area_m2", ogr.OFTReal))
+    ds = ogr.GetDriverByName("GeoJSON").CreateDataSource("outputs/flight_path.geojson")
+    lyr = ds.CreateLayer("flight_path", wgs, ogr.wkbLineString)
+    lyr.CreateField(ogr.FieldDefn("velocidad_kmh", ogr.OFTReal))
     f = ogr.Feature(lyr.GetLayerDefn())
     f.SetGeometry(ogr.CreateGeometryFromWkt(
-        "POLYGON((-75.5 6.4,-75.499 6.4,-75.499 6.401,-75.5 6.401,-75.5 6.4))"))
-    f.SetField("area_m2", 12345.0)
+        "LINESTRING(-75.5 6.4,-75.499 6.4,-75.499 6.401)"))
+    f.SetField("velocidad_kmh", 12345.0)
     lyr.CreateFeature(f)
     ds = None
 
@@ -142,7 +142,7 @@ class TestClases:
         que estén TODAS — un ráster vacío también cumpliría "sin intermedios"."""
         _, destino = mision
         _exportar(destino, monkeypatch, EXPORT_PRODUCTS="classes", EXPORT_EPSG=str(MAGNA))
-        ds = gdal.Open(f"{destino}/severidad_class.tif")
+        ds = gdal.Open(f"{destino}/termico_hotspot_class.tif")
         vals = set(np.unique(ds.GetRasterBand(1).ReadAsArray()).tolist())
         ds = None
         assert vals <= {0, 1, 2, 3, 4}, f"aparecieron clases inventadas: {sorted(vals)}"
@@ -154,9 +154,9 @@ class TestFormatos:
                                          ("shp", ".shp"), ("kml", ".kml")])
     def test_formatos_vectoriales(self, mision, monkeypatch, fmt, ext):
         _, destino = mision
-        assert _exportar(destino, monkeypatch, EXPORT_PRODUCTS="area",
+        assert _exportar(destino, monkeypatch, EXPORT_PRODUCTS="flight_path",
                          EXPORT_VECTOR_FORMAT=fmt, EXPORT_EPSG=str(MAGNA)) == 0
-        salida = f"{destino}/area_afectada{ext}"
+        salida = f"{destino}/flight_path{ext}"
         assert os.path.isfile(salida)
         ds = ogr.Open(salida)
         lyr = ds.GetLayer()
@@ -177,11 +177,11 @@ class TestFormatos:
 
     def test_los_atributos_sobreviven(self, mision, monkeypatch):
         _, destino = mision
-        _exportar(destino, monkeypatch, EXPORT_PRODUCTS="area",
+        _exportar(destino, monkeypatch, EXPORT_PRODUCTS="flight_path",
                   EXPORT_VECTOR_FORMAT="gpkg", EXPORT_EPSG=str(MAGNA))
-        ds = ogr.Open(f"{destino}/area_afectada.gpkg")
+        ds = ogr.Open(f"{destino}/flight_path.gpkg")
         feat = ds.GetLayer().GetNextFeature()
-        val = feat.GetField("area_m2")
+        val = feat.GetField("velocidad_kmh")
         ds = None
         assert abs(val - 12345.0) < 1e-6
 
@@ -215,9 +215,9 @@ class TestComportamiento:
 
     def test_escribe_el_manifiesto(self, mision, monkeypatch):
         _, destino = mision
-        _exportar(destino, monkeypatch, EXPORT_PRODUCTS="dsm,area", EXPORT_EPSG=str(MAGNA))
+        _exportar(destino, monkeypatch, EXPORT_PRODUCTS="dsm,flight_path", EXPORT_EPSG=str(MAGNA))
         with open(f"{destino}/export_manifest.json") as f:
             m = json.load(f)
         assert m["crs"] == f"EPSG:{MAGNA}"
         assert len(m["archivos"]) == 2
-        assert {a["producto"] for a in m["archivos"]} == {"dsm", "area"}
+        assert {a["producto"] for a in m["archivos"]} == {"dsm", "flight_path"}

@@ -8,11 +8,10 @@ import os
 import re
 import shutil
 import signal
-import time
 from pathlib import Path
 
 APP_DIR = Path("/app")
-LINKED_DIRS = ["processing", "outputs", "preprocessing"]
+LINKED_DIRS = ["processing", "outputs", "preprocessing", "data"]
 TILES_LINK = APP_DIR / "geovisor" / "tiles"
 
 _LINE_SPLIT = re.compile(r"[\r\n]")
@@ -20,11 +19,29 @@ _ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
 
 
 def _replace_with_symlink(link: Path, target: Path):
-    target.mkdir(parents=True, exist_ok=True)
+    """Deja `link` como symlink a `target`, reemplazando lo que hubiera.
+
+    Si `link` es un punto de montaje no se puede borrar (EBUSY) y tampoco
+    habría que intentarlo: es una carpeta del host que el usuario montó a
+    propósito — el modo CLI documenta `-v /ruta/de/salida:/app/outputs`. En
+    ese caso se usa el montaje TAL CUAL y se enlaza al revés: el directorio
+    de la misión pasa a apuntar al montaje, así el pipeline escribe donde el
+    usuario pidió y la misión ve lo mismo. Antes esto reventaba con un
+    OSError [Errno 16] sin explicar nada.
+    """
+    if not target.is_symlink():
+        target.mkdir(parents=True, exist_ok=True)
     if link.is_symlink():
         link.unlink()
     elif link.is_dir():
-        shutil.rmtree(link)
+        try:
+            shutil.rmtree(link)
+        except OSError:
+            if target.is_dir() and not any(target.iterdir()):
+                target.rmdir()
+            if not target.exists() and not target.is_symlink():
+                target.symlink_to(link)
+            return
     elif link.exists():
         link.unlink()
     link.symlink_to(target)
@@ -38,6 +55,16 @@ def activate_mission(mission_dir: Path):
     for d in LINKED_DIRS:
         _replace_with_symlink(APP_DIR / d, mission_dir / d)
     _replace_with_symlink(TILES_LINK, mission_dir / "tiles")
+
+
+def deactivate_mission():
+    """Quita los symlinks de activate_mission(). Se usa al BORRAR la misión
+    activa: sin esto quedan colgados apuntando a un directorio que ya no
+    existe, y el siguiente script que escriba ahí falla con un ENOENT que no
+    explica nada."""
+    for link in [APP_DIR / d for d in LINKED_DIRS] + [TILES_LINK]:
+        if link.is_symlink():
+            link.unlink()
 
 
 class PipelineRun:
@@ -57,7 +84,7 @@ class PipelineRun:
         # `quality` (0-100) es la anterior y se sigue aceptando — el mapeo lo
         # hace scripts/hardware.py, que es donde vive la tabla.
         self.preset = str(preset if preset is not None
-                          else (quality if quality is not None else "estandar"))
+                          else (quality if quality is not None else "cartografico"))
         self.port = port
         self.progress_file = str(progress_file)
         # export: dict con las EXPORT_* que entiende docker/entrypoint.sh

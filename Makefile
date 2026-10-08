@@ -16,7 +16,7 @@
 .PHONY: prepare-rgb prepare-multispectral prepare-thermal-native \
         sdk-convert denoise-thermal clean-dsm \
         trim-edges trim-edges-rgb trim-edges-dsm trim-edges-thermal trim-edges-multispectral \
-        compute-indices confidence-mask detect-area-afectada compute-severity \
+        compute-indices confidence-mask classify-vegetation-indices \
         compute-thermal-hotspot \
         situation-summary flight-quality flight-path tiles export-cog export-copc export-products serve info test \
         clean clean-all
@@ -78,52 +78,14 @@ endef
 # ── 1. Preparación de imágenes (GPS lo lee ODM directo del EXIF — sin
 # geo.txt: nunca se demostró necesario, ver paper/COMPARATIVA_ODM_VANILLA_VS_RAPTOR.md,
 # y una corrida real mostró que puede degradar la escala de la reconstrucción) ──
-# El -all= previo borraba tambien los tags XMP-drone-dji:RtkStd{Lon,Lat,Hgt} -
-# ODM los auto-detecta desde el EXIF (opendm/photo.py) y ajusta el peso GPS del
-# bundle adjustment segun la precision RTK real (~1-3cm) en vez de caer a un DOP
-# generico (~metros), PERO solo si sobreviven en el archivo. Se agrega
-# -xmp-drone-dji:all para preservarlos. -api Compact=Shorthand es necesario: sin
-# esto, exiftool reserializa esos tags como elementos XML anidados en vez de
-# atributos (formato original de DJI), y el parser XMP propio de ODM (busca
-# '@drone-dji:RtkStdLon' con prefijo @ = atributo) no los reconoce - se
-# verifico que sin este flag gps_xy_stddev quedaba en None pese a copiar
-# los tags "correctamente" segun exiftool.
-#
-# Se restaura -exif:all y NO solo -gps:all: -gps:all devuelve la posicion pero
-# NO Make/Model/FocalLength, asi que ODM ve una camara anonima y usa su focal
-# por defecto (focal_ratio 0.85) en vez de la real del M3T (0.667) - 27% de
-# error inicial. Con esa semilla el bundle adjustment diverge a focal_x=75 y la
-# reconstruccion COLAPSA de escala: un vuelo de 500x416 m produce una ortofoto
-# de 34x23 m, y el recorte por solape
-# —haciendo lo correcto sobre una geometria imposible— dejo el mosaico en 2% de
-# cobertura. -exif:all es superconjunto de -gps:all (el GPS vive en el EXIF), asi
-# que preserva la posicion igual y ademas la identidad de la camara. Verificado
-# con opendm.photo.ODM_Photo sobre las 3 variantes: make/model/focal_ratio
-# vuelven a los valores de la foto cruda y gps_xy_stddev sigue en 0.0235 m.
-# A diferencia de multiespectral y banda D (ver scripts/odm_staging.py), acá
-# NO se puede enlazar en vez de copiar: el exiftool de abajo corre con
-# -overwrite_original sobre los archivos de images/, y con un hardlink eso
-# modificaría también el original de data/. Se usa --reflink=auto, que en un
-# filesystem con copy-on-write (btrfs, XFS, overlay2 sobre ellos) cuesta
-# prácticamente cero y en el resto cae a una copia normal sin decir nada.
-#
-# La lista va por stdin (`-@ -`) y no como glob de shell: un vuelo de varios
-# cientos de fotos con rutas largas se acerca al tope duro de ARG_MAX, y
-# cuando lo pasa el error no dice nada útil. Mismo patrón que ya usan
-# scripts/odm_staging.py y scripts/export_flight_path.py.
+# Copia + limpieza de EXIF ahora en scripts/prepare_rgb_odm.py (ver ese
+# docstring para el porqué de -exif:all + -xmp-drone-dji:all específicamente,
+# y por qué es copia real y no hardlink) — se saltea lo que ya esté copiado
+# de una corrida anterior de la misma misión, en vez de recopiar + re-limpiar
+# EXIF de todas las imágenes en cada retry.
 prepare-rgb:
 	@python3 scripts/progress.py stage-header "Preparación imágenes RGB" 1 1
-	@mkdir -p $(RGB_PROC)/images
-	@rm -f $(RGB_PROC)/images/*_V.JPG $(RGB_PROC)/images/*_W.JPG
-	@find $(DATA_RGB) -maxdepth 1 -type f \( -name '*_V.JPG' -o -name '*_W.JPG' \) \
-		-exec cp --reflink=auto -t $(RGB_PROC)/images/ {} + 2>/dev/null || true
-	@find $(RGB_PROC)/images -maxdepth 1 -type f \( -name '*_V.JPG' -o -name '*_W.JPG' \) \
-		| xargs -P $(or $(NPROCS),4) -n 100 exiftool -api Compact=Shorthand -all= \
-		  -tagsfromfile @ -exif:all -xmp-drone-dji:all -overwrite_original -q 2>/dev/null || true
-	@# exiftool en paralelo (xargs -P, lotes de 100 vía ARGV en vez de -@ -): cada
-	@# archivo es independiente (mismos tags por lote), y con cientos de fotos de
-	@# 12 MP el -overwrite_original de un solo proceso secuencial era minutos
-	@# reales de preparación antes de que ODM arrancara.
+	$(call run_quiet,python3 scripts/prepare_rgb_odm.py $(DATA_RGB) $(RGB_PROC)/images,prepare-rgb)
 	@python3 scripts/progress.py done "Imágenes RGB listas"
 
 prepare-multispectral:
@@ -224,21 +186,15 @@ confidence-mask:
 	$(call run_quiet,python3 scripts/confidence_mask.py,confidence-mask)
 	@python3 scripts/progress.py done "Máscara generada"
 
-# ── 5b. Área afectada + severidad (solo si hay multiespectral+térmico) ──
-detect-area-afectada:
-	@python3 scripts/progress.py stage-header "Detección de área afectada" 1 1
-	$(call run_quiet,python3 scripts/detect_area_afectada.py,detect-area-afectada)
-	@python3 scripts/progress.py done "Área afectada detectada"
+# ── 5b. Clasificación de índices de vegetación (solo si hay multiespectral) ──
+classify-vegetation-indices:
+	@python3 scripts/progress.py stage-header "Clasificación de índices de vegetación" 1 1
+	$(call run_quiet,python3 scripts/classify_vegetation_indices.py,classify-vegetation-indices)
+	@python3 scripts/progress.py done "Índices de vegetación clasificados"
 
-compute-severity:
-	@python3 scripts/progress.py stage-header "Clasificación de severidad" 1 1
-	$(call run_quiet,python3 scripts/compute_severity_classes.py,compute-severity)
-	@python3 scripts/progress.py done "Severidad clasificada"
-
-# Hotspot térmico SIN multiespectral (ver scripts/compute_thermal_hotspot.py):
-# el hotspot es puramente térmico, no depende de NDVI ni del polígono de área
-# afectada — en una misión CON multiespectral lo genera compute-severity
-# (recortado al área detectada), este target no se llama ahí.
+# El hotspot es puramente térmico, no depende de NDVI ni de multiespectral
+# (ver scripts/compute_thermal_hotspot.py) — es la única fuente de hotspot
+# del pipeline, para cualquier misión que tenga térmico.
 compute-thermal-hotspot:
 	@python3 scripts/progress.py stage-header "Hotspot térmico" 1 1
 	$(call run_quiet,python3 scripts/compute_thermal_hotspot.py,compute-thermal-hotspot)

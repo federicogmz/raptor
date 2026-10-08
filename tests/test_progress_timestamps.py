@@ -1,8 +1,8 @@
 """scripts/progress.py escribe t=<epoch> en CADA evento de PROGRESS_FILE —
-el HUD del geovisor (geovisor/app.js::advancePhase) lo usa para calcular
-cuánto duró cada fase real de la corrida (diff entre el t de una fase y el
-de la siguiente), con la hora del SERVIDOR en vez de Date.now() del
-navegador, para que siga siendo correcto aunque se reconecte a mitad de una
+eventos que el runner (core/runner.py::parse_progress_events) reenvía tal
+cual por SSE al HUD del geovisor, con la hora del SERVIDOR en vez de
+Date.now() del navegador, para que el cronómetro general (geovisor/
+app.js::phTick) siga siendo correcto aunque se reconecte a mitad de una
 corrida de horas.
 """
 import importlib

@@ -1,17 +1,17 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#F4F7F8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0C1412" media="(prefers-color-scheme: dark)">
-<meta name="description" content="Pipeline UAV de respuesta rápida — ortomosaicos RGB, térmicos y multiespectrales para DJI H20T / M3T / M3M.">
+<meta name="description" content="UAV photogrammetric processing pipeline, from a quick look to full detail: RGB, thermal, and multispectral orthomosaics for DJI H20T / M3T / M3M.">
 <!-- Las dos fuentes críticas se pre-cargan: en campo puede no haber
      internet y la primera pintura no debe esperar al resto del CSS. -->
 <link rel="preload" href="/static/fonts/pubsans-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/static/fonts/pubsans-800.woff2" as="font" type="font/woff2" crossorigin>
-<title>Raptor · Centro de misiones</title>
+<title id="doc-title">Raptor · Mission center</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='none' stroke='%230f172a' stroke-width='7' stroke-linecap='round'%3E%3Cpath d='M35 38 L18 20'/%3E%3Cpath d='M65 38 L82 20'/%3E%3Cpath d='M35 62 L18 80'/%3E%3Cpath d='M65 62 L82 80'/%3E%3C/g%3E%3Ccircle cx='18' cy='20' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='82' cy='20' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='18' cy='80' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='82' cy='80' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Crect x='32' y='38' width='36' height='24' rx='7' fill='%230f172a'/%3E%3C/svg%3E">
 <style>
 /* ═══════════════════════════════════════════════════════════════════
@@ -19,8 +19,8 @@
    ─────────────────────────────────────────────────────────────────────
    Redesign total: minimalista y editorial, tipografía-led. Menos cajas,
    más aire: hairline borders en vez de tarjetas apiladas, jerarquía
-   grande de display, un solo acento (teal institucional de SIATA, mismo
-   que el geovisor — las dos pantallas son UN producto).
+   grande de display, un solo acento (dark cyan #008B8B, institucional de
+   SIATA, mismo que el geovisor — las dos pantallas son UN producto).
 
    Reglas de forma (documentadas, se cumplen en todos lados):
      · tarjetas/paneles ........ 14–20px de radio
@@ -48,14 +48,14 @@
   --font:'Public Sans',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
   /* Mismos tokens que el geovisor (geovisor/style.css) — las dos pantallas
      son UN producto: mismo fondo, misma superficie, misma tinta, mismo
-     acento teal institucional. Los nombres difieren por historia (bg2/
+     acento dark cyan institucional. Los nombres difieren por historia (bg2/
      surface, tx/ink), los valores no. */
   --bg:#F4F7F8; --bg2:#FFFFFF; --bg3:#EAF1F2;
   --bd:#DBE5E7; --bd2:#B9C6C0;
   --tx:#15262C; --tx2:#55696E; --tx3:#8B9CA0;
-  --ac:#0E7A68; --ac2:#0A5C4E; --on-ac:#FFFFFF;
+  --ac:#008B8B; --ac2:#006F6F; --on-ac:#FFFFFF;
   --ok:#2F7D5C; --warn:#A9751E; --err:#C2401F;
-  --rgb:#0E7A68; --ther:#C2401F; --ms:#2F7D5C;
+  --rgb:#008B8B; --ther:#C2401F; --ms:#2F7D5C;
   --note-info-bg:#E7F2EE; --note-info-bd:#BCD9CE; --note-info-tx:#0C4F41;
   --note-warn-bg:#FBF3E1; --note-warn-bd:#EACF94; --note-warn-tx:#6B4E06;
   --note-err-bg:#FBEAE3;  --note-err-bd:#EFB9A3;  --note-err-tx:#7C2A16;
@@ -69,9 +69,9 @@
   --bg:#0C1412; --bg2:#121D1A; --bg3:#182622;
   --bd:#23332E; --bd2:#3A4C46;
   --tx:#E8F0EC; --tx2:#9DB0A9; --tx3:#7E918A;
-  --ac:#4FC2A4; --ac2:#3BA688; --on-ac:#06201A;
+  --ac:#2FC4C4; --ac2:#22A3A3; --on-ac:#052626;
   --ok:#7CD4A4; --warn:#E7B45C; --err:#FF8B6B;
-  --rgb:#4FC2A4; --ther:#FF8B6B; --ms:#7CD4A4;
+  --rgb:#2FC4C4; --ther:#FF8B6B; --ms:#7CD4A4;
   --note-info-bg:#13241F; --note-info-bd:#2A4A40; --note-info-tx:#B4E3D4;
   --note-warn-bg:#2E2410; --note-warn-bd:#5C4A1F; --note-warn-tx:#E7B45C;
   --note-err-bg:#311B14;  --note-err-bd:#5E3527;  --note-err-tx:#FFB59E;
@@ -86,12 +86,12 @@ body{font-family:var(--font);background:var(--bg);color:var(--tx);
   min-height:100vh;-webkit-font-smoothing:antialiased;line-height:1.55;
   touch-action:manipulation;-webkit-tap-highlight-color:transparent;
   transition:background .25s,color .25s;
-  background-image:radial-gradient(1100px 460px at 88% -12%,rgba(14,122,104,.06),transparent 62%)}
+  background-image:radial-gradient(1100px 460px at 88% -12%,rgba(0,139,139,.06),transparent 62%)}
 button{font-family:inherit;color:inherit;cursor:pointer;
   appearance:none;-webkit-appearance:none;-moz-appearance:none;background:transparent}
 :focus{outline:none}
 :focus-visible{outline:2px solid var(--ac);outline-offset:2px;border-radius:6px}
-::selection{background:rgba(14,122,104,.18)}
+::selection{background:rgba(0,139,139,.18)}
 
 /* ── Iconos SVG inline (un solo trazo en toda la app) ───────────────
    El fill:none/stroke:currentColor que promete este comentario nunca
@@ -117,12 +117,13 @@ header .logo{width:26px;height:26px;flex-shrink:0;color:var(--ac)}
 header .title-block{min-width:0}
 header h1{font-size:.98rem;font-weight:800;letter-spacing:-.015em;text-wrap:balance}
 header .sub{font-size:.72rem;color:var(--tx3);margin-top:1px}
-#btn-back,#btn-theme{width:36px;height:36px;border-radius:var(--r-sm);background:transparent;
+#btn-back,#btn-theme,#btn-lang{width:36px;height:36px;border-radius:var(--r-sm);background:transparent;
   border:1px solid var(--bd);color:var(--tx2);cursor:pointer;
   display:grid;place-items:center;flex-shrink:0;font-family:inherit;
   transition:background .15s,color .15s,border-color .15s,transform .1s}
-#btn-back:hover,#btn-theme:hover{background:var(--bg3);border-color:var(--bd2);color:var(--tx)}
-#btn-back:active,#btn-theme:active{transform:scale(.94)}
+#btn-back:hover,#btn-theme:hover,#btn-lang:hover{background:var(--bg3);border-color:var(--bd2);color:var(--tx)}
+#btn-back:active,#btn-theme:active,#btn-lang:active{transform:scale(.94)}
+#btn-lang{font-size:.72rem;font-weight:700;letter-spacing:.02em}
 /* Tema: los dos iconos viven en el botón, CSS decide cuál se ve */
 #theme-ic{display:grid;place-items:center;width:18px;height:18px;color:inherit}
 #theme-ic .ic-moon{display:none}
@@ -242,6 +243,24 @@ main{max-width:1120px;margin:0 auto;padding:0 24px 90px}
   color:var(--ac);display:flex;align-items:center;gap:9px;margin-bottom:14px}
 .section-label .ic{width:1em;height:1em}
 
+/* ── Asistente de misión nueva, paso a paso ──────────────────────────
+   [data-step] se muestra/oculta con showStep() (ver JS) — un solo paso
+   visible a la vez, en vez del formulario largo de antes. */
+.wiz-steps{display:flex;gap:6px;margin-bottom:6px}
+.wiz-dot{height:4px;flex:1;border-radius:2px;background:var(--bd2);transition:background .15s}
+.wiz-dot.on{background:var(--ac)}
+.wiz-dot.done{background:var(--ok)}
+.wiz-step-label{font-size:.72rem;color:var(--tx2);margin-bottom:18px}
+/* Un paso visible a la vez (showStep() en JS) — la separación entre
+   secciones ya la da .form-section+.form-section (sin cambios), acá no
+   hace falta padding/borde propio en el contenedor del paso 4
+   ([data-step="4"] envuelve #blk-rt/#blk-ms, que ya son .form-section por
+   su cuenta). */
+#rt-statement{margin-bottom:0}
+#rt-statement a{color:var(--ac);cursor:pointer;text-decoration:none;font-size:.82rem;display:inline-block;margin-top:6px}
+#rt-statement a:hover{text-decoration:underline}
+#rt-choice{margin-top:14px}
+
 /* ── Botones ──────────────────────────────────────────────────────── */
 .btn{background:var(--bg2);border:1px solid var(--bd2);color:var(--tx);
   padding:9px 16px;border-radius:var(--r-sm);cursor:pointer;font-size:.85rem;font-family:inherit;
@@ -271,7 +290,7 @@ input[type=text],.in{background:var(--bg);border:1px solid var(--bd2);color:var(
   transition:border-color .15s,box-shadow .15s,background .15s}
 input[type=text]:hover:not(:focus),.in:hover:not(:focus){border-color:var(--tx3)}
 input[type=text]:focus,.in:focus{outline:none;border-color:var(--ac);
-  box-shadow:0 0 0 3px rgba(14,122,104,.14);background:var(--bg2)}
+  box-shadow:0 0 0 3px rgba(0,139,139,.14);background:var(--bg2)}
 select.in{cursor:pointer}
 
 .name-wrap{position:relative}
@@ -372,6 +391,8 @@ select.in{cursor:pointer}
 .opt input{margin-top:3px;accent-color:var(--ac);flex-shrink:0}
 .opt .ot{font-size:.9rem;font-weight:700;padding-right:26px}
 .opt .od{font-size:.78rem;color:var(--tx2);margin-top:3px;line-height:1.5;padding-right:26px}
+#o-rt-thermal-convert.on{border-color:#f59e0b;background:rgba(245,158,11,0.08)}
+#o-rt-thermal-convert.on::after{background:#f59e0b}
 .checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:9px}
 .chk{display:flex;gap:10px;align-items:flex-start;background:var(--bg2);
   border:1.5px solid var(--bd);border-radius:12px;padding:11px 13px;cursor:pointer;
@@ -477,7 +498,7 @@ select.in{cursor:pointer}
 </style>
 </head>
 <body>
-<a class="skip-link" href="#main">Saltar al contenido</a>
+<a class="skip-link" href="#main" data-i18n="skip.link">Skip to content</a>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
   <defs>
@@ -504,11 +525,14 @@ select.in{cursor:pointer}
     <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></symbol>
     <symbol id="i-drone" viewBox="0 0 24 24"><path d="M7 5 4.5 2.5M17 5l2.5-2.5M7 19l-2.5 2.5M17 19l2.5 2.5"/><circle cx="4.5" cy="2.5" r="2"/><circle cx="19.5" cy="2.5" r="2"/><circle cx="4.5" cy="21.5" r="2"/><circle cx="19.5" cy="21.5" r="2"/><rect x="6" y="8" width="12" height="8" rx="2.5"/></symbol>
     <symbol id="i-mountain" viewBox="0 0 24 24"><path d="m8 3 4 8 5-5 5 15H2L8 3z"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></symbol>
   </defs>
 </svg>
 
 <header>
-  <button id="btn-back" class="hidden" onclick="goBack()" title="Volver" aria-label="Volver a las misiones">
+  <button id="btn-back" class="hidden" onclick="goBack()" title="Back" aria-label="Back to missions"
+          data-i18n-title="back.title" data-i18n-aria-label="back.aria">
     <svg class="ic" aria-hidden="true"><use href="#i-back"/></svg>
   </button>
   <svg class="logo" viewBox="0 0 100 100" aria-hidden="true">
@@ -524,21 +548,23 @@ select.in{cursor:pointer}
   </svg>
   <div class="title-block">
     <h1>Raptor</h1>
-    <div class="sub">Pipeline UAV de respuesta rápida · RGB / térmico / multiespectral</div>
+    <div class="sub" data-i18n="header.sub">UAV photogrammetric processing, from a quick look to full detail · RGB / thermal / multispectral</div>
   </div>
   <span style="flex:1"></span>
-  <button id="btn-theme" onclick="toggleTheme()" title="Cambiar entre modo claro y oscuro" aria-label="Cambiar tema">
+  <button id="btn-theme" onclick="toggleTheme()" title="Switch between light and dark mode" aria-label="Switch theme"
+          data-i18n-title="theme.title" data-i18n-aria-label="theme.aria">
     <span id="theme-ic">
       <svg class="ic ic-sun" aria-hidden="true"><use href="#i-sun"/></svg>
       <svg class="ic ic-moon" aria-hidden="true"><use href="#i-moon"/></svg>
     </span>
   </button>
+  <button id="btn-lang" onclick="toggleLang()" title="Switch language / Cambiar idioma" aria-label="Switch language">ES</button>
 </header>
 <main id="main">
 
 <!-- ═══ LANDING ═══ -->
 <section id="v-landing" class="hidden">
-  <div class="hero" role="group" aria-label="Centro de operaciones">
+  <div class="hero" role="group" aria-label="Operations center" data-i18n-aria-label="landing.hero.aria">
     <!-- Firma visual: curvas de nivel. Es el mundo del producto — mapeo
          aéreo del terreno — como geometría, no como adorno de fondo. -->
     <svg class="hero-terrain" viewBox="0 0 640 320" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
@@ -555,21 +581,21 @@ select.in{cursor:pointer}
       </g>
     </svg>
     <div class="hero-copy">
-      <p class="eyebrow">Centro de operaciones</p>
-      <h1>Misiones</h1>
-      <p class="hero-sub">Ortomosaicos RGB, térmicos y multiespectrales de vuelos DJI: procesá, revisá y entregá desde un solo lugar.</p>
+      <p class="eyebrow" data-i18n="landing.eyebrow">Operations center</p>
+      <h1 data-i18n="landing.title">Missions</h1>
+      <p class="hero-sub" data-i18n="landing.sub">RGB, thermal, and multispectral orthomosaics from DJI flights: process, review, and deliver from one place.</p>
       <button class="btn primary hero-cta" onclick="openSetup()">
-        <svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg> Nueva misión
+        <svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg> <span data-i18n="btn.newMission">New mission</span>
       </button>
     </div>
-    <div class="hero-status" role="group" aria-label="Estado de operación">
-      <div class="hs-title">Estado de operación</div>
+    <div class="hero-status" role="group" aria-label="Operation status" data-i18n-aria-label="landing.status.aria">
+      <div class="hs-title" data-i18n="landing.status.title">Operation status</div>
       <!-- aria-live: son los números que alguien en una emergencia mira
            primero y llegan después del fetch — hay que anunciarlos. -->
       <div class="hs-grid" aria-live="polite">
-        <div class="hs-cell"><b id="hs-total">—</b><span>misiones</span></div>
-        <div class="hs-cell live"><b id="hs-running">0</b><span>en proceso</span></div>
-        <div class="hs-cell ok"><b id="hs-ready">0</b><span>con tiles listos</span></div>
+        <div class="hs-cell"><b id="hs-total">—</b><span data-i18n="landing.status.missions">missions</span></div>
+        <div class="hs-cell live"><b id="hs-running">0</b><span data-i18n="landing.status.running">running</span></div>
+        <div class="hs-cell ok"><b id="hs-ready">0</b><span data-i18n="landing.status.ready">with tiles ready</span></div>
       </div>
     </div>
   </div>
@@ -583,25 +609,34 @@ select.in{cursor:pointer}
 
     <div class="setup-col">
       <div class="panel">
-        <h2 class="panel-title" id="setup-title">Nueva misión</h2>
-        <p class="panel-sub">Elegí las fotos del vuelo y los productos a generar. El servidor valida todo antes de arrancar.</p>
+        <h2 class="panel-title" id="setup-title" data-i18n="setup.title.new">New mission</h2>
+        <p class="panel-sub" data-i18n="setup.sub">Choose the flight photos and the products to generate. The server validates everything before starting.</p>
 
-        <div class="form-section">
+        <div class="wiz-steps" id="wiz-steps" role="list" aria-hidden="true">
+          <span class="wiz-dot on" data-dot="1"></span>
+          <span class="wiz-dot" data-dot="2"></span>
+          <span class="wiz-dot" data-dot="3"></span>
+          <span class="wiz-dot" data-dot="4"></span>
+          <span class="wiz-dot" data-dot="5"></span>
+        </div>
+        <div class="wiz-step-label" id="wiz-step-label"></div>
+
+        <div class="form-section" data-step="1">
           <div class="section-label">
-            <svg class="ic" aria-hidden="true"><use href="#i-drone"/></svg> Nombre de la misión
+            <svg class="ic" aria-hidden="true"><use href="#i-drone"/></svg> <span data-i18n="setup.name.label">Mission name</span>
           </div>
           <div class="name-wrap">
-            <input type="text" id="mname" placeholder="p. ej. Barbosa_2026-07-24" autocomplete="off">
+            <input type="text" id="mname" placeholder="e.g. Barbosa_2026-07-24" autocomplete="off" data-i18n-placeholder="setup.name.placeholder">
             <div class="name-msg" id="mname-msg" aria-live="polite"></div>
           </div>
-          <div class="name-hint">Se usará como nombre de carpeta para fotos, reconstrucción y productos.</div>
+          <div class="name-hint" data-i18n="setup.name.hint">Used as the folder name for photos, reconstruction, and products.</div>
         </div>
 
-        <div class="form-section">
+        <div class="form-section" data-step="2">
           <div class="section-label">
-            <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg> Fotos de la misión
+            <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg> <span data-i18n="setup.photos.label">Mission photos</span>
           </div>
-          <p class="panel-sub" style="margin-bottom:0">Agregá la(s) carpeta(s) del vuelo: RGB/térmico (M3T/H20T) y/o multiespectral (M3M), una o las dos. Se detecta automáticamente qué trae cada una.</p>
+          <p class="panel-sub" style="margin-bottom:0" data-i18n="setup.photos.sub">Add the flight folder(s): RGB/thermal (M3T/H20T) and/or multispectral (M3M), one or both. Each folder's contents are detected automatically.</p>
           <!-- Elegir carpeta en el disco del servidor (symlink, cero copia) — esto
                se muestra siempre que el contenedor arrancó con ./raptor webapp
                --import DIR. openFolderPicker() ya no pide de antemano si es RGB/
@@ -610,7 +645,7 @@ select.in{cursor:pointer}
           <div id="pick-add" class="hidden">
             <div class="imported-list" id="il-add"></div>
             <button class="btn sm pick-btn" onclick="openFolderPicker()">
-              <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg> Elegir carpeta…
+              <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg> <span data-i18n="btn.chooseFolder">Choose folder…</span>
             </button>
           </div>
           <!-- Subida por el navegador — solo si NO hay --import: sin carpeta
@@ -618,81 +653,23 @@ select.in{cursor:pointer}
                los dos vuelos: se arrastra o se elige, y se clasifica cada archivo
                por su nombre (mismo criterio que classify()) — no hace falta
                declarar antes qué sensor es. -->
-          <div class="dz" id="dz-add" onclick="document.getElementById('in-add').click()">
-            <input type="file" id="in-add" webkitdirectory multiple>
+          <div class="dz" id="dz-add" onclick="if(event.target.closest('button'))return; document.getElementById('in-add-files').click()">
+            <input type="file" id="in-add-files" multiple accept="image/*,.tif,.tiff,.jpg,.jpeg,.png" style="display:none">
+            <input type="file" id="in-add" webkitdirectory multiple style="display:none">
             <svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg>
-            <div class="t">Arrastrá la carpeta acá, o hacé clic para elegirla</div>
-            <div class="h">RGB/térmico (<code>*_V.JPG</code> · <code>*_W.JPG</code> · <code>*_T.JPG</code>) y multiespectral
-              (<code>*_MS_*.TIF</code> · <code>*_D.JPG</code>), una carpeta por vez.</div>
+            <div class="t" data-i18n="setup.dz.title">Drag photos or folder here, or click to choose</div>
+            <div class="h" data-i18n-html="setup.dz.hint">Standard RGB (JPG/PNG), thermal (<code>*_T.JPG</code>) or multispectral (<code>*_MS_*.TIF</code>). Choose individual files or entire folders.</div>
+            <div style="display:flex;gap:10px;margin-top:12px;justify-content:center;position:relative;z-index:2">
+              <button type="button" class="btn sm" id="btn-pick-files" onclick="event.stopPropagation();document.getElementById('in-add-files').click()">
+                <svg class="ic" aria-hidden="true"><use href="#i-drone"/></svg> <span data-i18n="btn.chooseFiles">Choose photos…</span>
+              </button>
+              <button type="button" class="btn sm" id="btn-pick-dir" onclick="event.stopPropagation();document.getElementById('in-add').click()">
+                <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg> <span data-i18n="btn.chooseFolder">Choose folder…</span>
+              </button>
+            </div>
           </div>
           <div class="chips" id="ch-add"></div>
           <div class="stored hidden" id="st-add"></div>
-        </div>
-
-        <!-- Bloque RGB/térmico — aparece solo cuando se detectan fotos de ese vuelo -->
-        <div id="blk-rt" class="hidden">
-          <div class="form-section">
-            <div class="section-label">
-              <svg class="ic" aria-hidden="true"><use href="#i-layers"/></svg> Productos a generar (RGB / térmico)
-            </div>
-            <div class="opts">
-              <label class="opt" id="o-rt-both">
-                <input type="radio" name="prod" value="rgb+thermal" checked onchange="refreshUI()">
-                <div><div class="ot">Ortomosaico RGB + térmico</div>
-                  <div class="od">Ambos mosaicos, más máscara de confianza y detección de hotspots</div></div>
-              </label>
-              <label class="opt" id="o-rt-rgb">
-                <input type="radio" name="prod" value="rgb" onchange="refreshUI()">
-                <div><div class="ot">Solo ortomosaico RGB</div>
-                  <div class="od">Salta todo el procesamiento térmico (más rápido)</div></div>
-              </label>
-              <label class="opt" id="o-rt-thermal">
-                <input type="radio" name="prod" value="thermal" onchange="refreshUI()">
-                <div><div class="ot">Solo ortomosaico térmico</div>
-                  <div class="od">Salta la reconstrucción RGB (más rápido, sin modelo de superficie)</div></div>
-              </label>
-            </div>
-          </div>
-        </div>
-
-        <!-- Bloque multiespectral — aparece solo cuando se detectan bandas M3M -->
-        <div id="blk-ms" class="hidden">
-          <div class="form-section">
-            <div class="section-label">
-              <svg class="ic" aria-hidden="true"><use href="#i-camera"/></svg> Multiespectral (M3M)
-            </div>
-            <label class="chk" id="o-dband" style="margin-top:0">
-              <input type="checkbox" id="in-dband" onchange="refreshUI()">
-              <div><div class="ct">También el mosaico visible (banda D)</div>
-                <div class="cd">Procesamiento aparte, independiente de las 4 bandas: la cámara RGB propia del M3M, para una vista visual rápida</div></div>
-            </label>
-          </div>
-        </div>
-
-        <!-- Procesamiento previo detectado -->
-        <div id="blk-reuse" class="hidden">
-          <div class="form-section">
-            <div class="section-label">
-              <svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg> Procesamiento previo detectado
-            </div>
-            <div class="note info" style="margin-top:0">
-              <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg></span>
-              <div>Esta misión ya tiene reconstrucciones 3D de ODM: <b id="reuse-list"></b>.
-                Reusarlas salta la parte más lenta del pipeline (SfM + nube de puntos).</div>
-            </div>
-            <div class="opts" style="margin-top:12px">
-              <label class="opt on" id="o-reuse-y">
-                <input type="radio" name="reuse" value="1" checked onchange="refreshUI()">
-                <div><div class="ot">Reusar lo ya reconstruido</div>
-                  <div class="od">Rehace solo recortes, índices, tiles y exportación: minutos en vez de horas</div></div>
-              </label>
-              <label class="opt" id="o-reuse-n">
-                <input type="radio" name="reuse" value="0" onchange="refreshUI()">
-                <div><div class="ot">Empezar de cero</div>
-                  <div class="od">Reconstruye todo otra vez. Usalo si cambiaste o agregaste fotos del vuelo</div></div>
-              </label>
-            </div>
-          </div>
         </div>
 
         <!-- Terreno: decide el algoritmo de reconstrucción (sfm_algorithm),
@@ -704,15 +681,15 @@ select.in{cursor:pointer}
              recortado muy por debajo del área real volada). "Escarpado"
              fuerza reconstrucción incremental incluso en los presets
              rápidos — más lenta que planar, pero no pierde cobertura. -->
-        <div class="form-section">
+        <div class="form-section" data-step="3">
           <div class="section-label">
-            <svg class="ic" aria-hidden="true"><use href="#i-mountain"/></svg> Terreno
+            <svg class="ic" aria-hidden="true"><use href="#i-mountain"/></svg> <span data-i18n="setup.terrain.label">Terrain</span>
           </div>
           <div class="opts">
             <label class="opt" id="o-terr-plano">
               <input type="radio" name="terreno" value="plano" onchange="refreshUI()">
-              <div><div class="ot">Plano</div>
-                <div class="od">Terreno chato o con relieve suave. Vistazo/rápido reconstruyen por homografías — mucho más veloz</div></div>
+              <div><div class="ot" data-i18n="setup.terrain.flat.t">Flat</div>
+                <div class="od" data-i18n="setup.terrain.flat.d">Flat terrain or gentle relief. Glance/fast reconstruct by homography, much faster</div></div>
             </label>
             <!-- Default: la mayoría de las misiones de emergencia real (incendio,
                  montaña, terreno rocoso) NO son planas — "plano" por defecto venía
@@ -720,9 +697,69 @@ select.in{cursor:pointer}
                  salvo que el operador supiera tildar "escarpado" a mano. -->
             <label class="opt on" id="o-terr-escarpado">
               <input type="radio" name="terreno" value="escarpado" checked onchange="refreshUI()">
-              <div><div class="ot">Escarpado</div>
-                <div class="od">Montaña, cañón, terreno rocoso. Fuerza reconstrucción completa en todos los presets — evita perder fotos en silencio</div></div>
+              <div><div class="ot" data-i18n="setup.terrain.steep.t">Steep</div>
+                <div class="od" data-i18n="setup.terrain.steep.d">Mountain, canyon, rocky terrain. Forces full reconstruction on every preset, avoiding silent photo loss</div></div>
             </label>
+          </div>
+        </div>
+
+        <div data-step="4">
+          <!-- Bloque RGB/térmico — aparece solo cuando se detectan fotos de ese
+               vuelo. Con los dos sensores presentes, refreshUI() muestra un
+               enunciado ("Vamos a generar: ...") en vez de una pregunta — ver
+               #rt-statement/#rt-choice más abajo — y solo se ofrece elegir un
+               único sensor detrás de un link secundario, no como tres opciones
+               igual de prominentes cuando en la gran mayoría de los casos la
+               respuesta obvia es "los dos". -->
+          <div id="blk-rt" class="hidden">
+            <div class="form-section">
+              <div class="section-label">
+                <svg class="ic" aria-hidden="true"><use href="#i-layers"/></svg> <span data-i18n="setup.rt.label">Products to generate (RGB / thermal)</span>
+              </div>
+              <div class="note info" id="rt-statement">
+                <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg></span>
+                <div>
+                  <div id="rt-statement-t"></div>
+                  <a href="#" id="rt-choice-link" onclick="toggleRtChoice();return false" data-i18n="setup.rt.chooseOne">Only need one sensor?</a>
+                </div>
+              </div>
+              <div class="opts hidden" id="rt-choice">
+                <label class="opt" id="o-rt-both">
+                  <input type="radio" name="prod" value="rgb+thermal" checked onchange="refreshUI()">
+                  <div><div class="ot" data-i18n="setup.rt.both.t">RGB + thermal orthomosaic</div>
+                    <div class="od" data-i18n="setup.rt.both.d">Both mosaics, plus confidence mask and hotspot detection</div></div>
+                </label>
+                <label class="opt" id="o-rt-rgb">
+                  <input type="radio" name="prod" value="rgb" onchange="refreshUI()">
+                  <div><div class="ot" data-i18n="setup.rt.rgb.t">RGB orthomosaic only</div>
+                    <div class="od" data-i18n="setup.rt.rgb.d">Skips all thermal processing (faster)</div></div>
+                </label>
+                <label class="opt" id="o-rt-thermal">
+                  <input type="radio" name="prod" value="thermal" onchange="refreshUI()">
+                  <div><div class="ot" data-i18n="setup.rt.thermal.t">Thermal orthomosaic only</div>
+                    <div class="od" data-i18n="setup.rt.thermal.d">Skips the RGB reconstruction (faster, no surface model)</div></div>
+                </label>
+                <label class="opt" id="o-rt-thermal-convert">
+                  <input type="radio" name="prod" value="thermal-convert" onchange="refreshUI()">
+                  <div><div class="ot" data-i18n="setup.rt.thermalConvert.t">⚡ Convert thermal images only (R-JPEG → Float32 TIFF)</div>
+                    <div class="od" data-i18n="setup.rt.thermalConvert.d">Skips 3D reconstruction. Calibrates temperature (°C) with EXIF/GPS tags in ~1 minute for external photogrammetry (Agisoft Metashape, Pix4D, DJI Terra)</div></div>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bloque multiespectral — aparece solo cuando se detectan bandas M3M -->
+          <div id="blk-ms" class="hidden">
+            <div class="form-section">
+              <div class="section-label">
+                <svg class="ic" aria-hidden="true"><use href="#i-camera"/></svg> <span data-i18n="setup.ms.label">Multispectral (M3M)</span>
+              </div>
+              <label class="chk" id="o-dband" style="margin-top:0">
+                <input type="checkbox" id="in-dband" onchange="refreshUI()">
+                <div><div class="ct" data-i18n="setup.ms.dband.t">Also the visible mosaic (D band)</div>
+                  <div class="cd" data-i18n="setup.ms.dband.d">Processed separately from the 4 bands: the M3M's own RGB camera, for a quick visual reference</div></div>
+              </label>
+            </div>
           </div>
         </div>
 
@@ -738,84 +775,22 @@ select.in{cursor:pointer}
              activado — antes era un checkbox aparte que había que acordarse
              de tildar), «Estándar» y «Máxima». pintarPresets() filtra la
              respuesta del servidor a esos tres nombres. -->
-        <div class="form-section">
+        <div class="form-section" data-step="5">
           <div class="section-label">
-            <svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg> Calidad y tiempo
+            <svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg> <span data-i18n="setup.quality.label">Quality and time</span>
           </div>
           <div class="preset-grid" id="preset-grid" role="radiogroup"
-               aria-label="Preset de calidad">
-            <div class="preset-cargando">Calculando tiempos para tu vuelo…</div>
+               aria-label="Quality preset" data-i18n-aria-label="setup.quality.aria">
+            <div class="preset-cargando" data-i18n="setup.quality.loading">Calculating times for your flight…</div>
           </div>
           <div class="note info" style="margin-top:12px" id="quality-note">
             <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg></span>
-            <div id="quality-note-t">Calculando…</div>
+            <div id="quality-note-t" data-i18n="setup.quality.calculating">Calculating…</div>
             <!-- Anuncio para lectores de pantalla SOLO del tiempo estimado:
                  el texto completo (modelo + resolución) se re-renderiza en
                  cada clic de preset y anunciarlo entero sería ruido. -->
             <span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)"
                   aria-live="polite" id="quality-note-live"></span>
-          </div>
-        </div>
-
-        <!-- Entrega: dónde, qué, en qué formato y en qué CRS -->
-        <div class="form-section">
-          <div class="section-label">
-            <svg class="ic" aria-hidden="true"><use href="#i-package"/></svg> Entrega de los productos
-          </div>
-          <div class="opts">
-            <label class="opt on" id="o-exp-y">
-              <input type="radio" name="doexport" value="1" checked onchange="refreshUI()">
-              <div><div class="ot">Exportar a una carpeta</div>
-                <div class="od" id="o-exp-y-d">Copia los productos elegidos en el formato y el sistema de referencia que necesites</div></div>
-            </label>
-            <label class="opt" id="o-exp-n">
-              <input type="radio" name="doexport" value="0" onchange="refreshUI()">
-              <div><div class="ot">No exportar</div>
-                <div class="od">Los productos quedan solo en la misión, en la UTM que eligió ODM</div></div>
-            </label>
-          </div>
-
-          <div id="blk-export">
-            <div class="section-label" style="margin-top:20px">Carpeta de destino</div>
-            <input class="in" id="exp-dir" placeholder="/ruta/de/entregas/&lt;misión&gt;">
-            <div class="hint" id="exp-dir-h">Ruta <b>en tu disco</b>, dentro de la carpeta de entregas
-              con la que arrancaste.</div>
-
-            <div class="section-label" style="margin-top:20px">Qué exportar</div>
-            <div class="checks" id="exp-products"></div>
-
-            <div class="grid2">
-              <div>
-                <div class="section-label">Sistema de referencia</div>
-                <select class="in" id="exp-epsg" onchange="onEpsgChange()">
-                  <option value="9377" selected>EPSG:9377 · MAGNA-SIRGAS / Origen-Nacional (recomendado)</option>
-                  <option value="source">La de la misión: UTM WGS84 (sin reproyectar)</option>
-                  <option value="4326">EPSG:4326 · WGS84 lat/lon</option>
-                  <option value="custom">Otro código EPSG…</option>
-                </select>
-                <input class="in hidden" id="exp-epsg-custom" placeholder="p. ej. 32618"
-                       style="margin-top:8px" oninput="checkExport()">
-                <div class="hint" id="exp-epsg-h">Sistema único nacional de Colombia (IGAC). Es el que
-                  esperan las entidades para cartografía oficial.</div>
-              </div>
-              <div>
-                <div class="section-label">Formatos</div>
-                <select class="in" id="exp-rfmt">
-                  <option value="cog" selected>Ráster: GeoTIFF cloud-optimized (COG)</option>
-                  <option value="gtiff">Ráster: GeoTIFF clásico</option>
-                </select>
-                <select class="in" id="exp-vfmt" style="margin-top:8px">
-                  <option value="geojson" selected>Vectorial: GeoJSON</option>
-                  <option value="gpkg">Vectorial: GeoPackage (.gpkg)</option>
-                  <option value="shp">Vectorial: Shapefile</option>
-                  <option value="kml">Vectorial: KML (siempre en WGS84)</option>
-                </select>
-              </div>
-            </div>
-            <div id="exp-note" class="note hidden" style="margin-top:12px" aria-live="polite">
-              <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg></span>
-              <div id="exp-note-t"></div>
-            </div>
           </div>
         </div>
 
@@ -825,40 +800,34 @@ select.in{cursor:pointer}
         </div>
 
         <div class="up hidden" id="upbox" role="status" aria-live="polite">
-          <div class="ut"><span id="uplabel">Subiendo…</span><span id="uppct">0%</span></div>
+          <div class="ut"><span id="uplabel" data-i18n="setup.uploading">Uploading…</span><span id="uppct">0%</span></div>
           <div class="bar"><i id="upbar"></i></div>
         </div>
 
         <div class="row" style="margin-top:24px">
-          <button class="btn primary" id="btn-start" onclick="uploadAndStart()">
-            <svg class="ic" aria-hidden="true"><use href="#i-drone"/></svg> Iniciar procesamiento
+          <button class="btn ghost hidden" id="wiz-back-btn" onclick="wizardBack()" data-i18n="btn.back">Back</button>
+          <button class="btn primary" id="wiz-next-btn" onclick="wizardNext()" data-i18n="btn.next">Next</button>
+          <button class="btn primary hidden" id="btn-start" onclick="uploadAndStart()">
+            <svg class="ic" aria-hidden="true"><use href="#i-drone"/></svg> <span data-i18n="btn.start">Start processing</span>
           </button>
-          <button class="btn ghost" onclick="showLanding()">Cancelar</button>
+          <button class="btn ghost" onclick="showLanding()" data-i18n="btn.cancel">Cancel</button>
         </div>
       </div>
     </div>
 
     <!-- Resumen en vivo de la misión — lo que ya se eligió, de un vistazo,
          sin volver a recorrer el formulario. Se rellena en renderRail(). -->
-    <aside class="rail" id="rail" aria-label="Resumen de la misión">
+    <aside class="rail" id="rail" aria-label="Mission summary" data-i18n-aria-label="rail.aria">
       <div class="panel">
-        <div class="rail-title"><svg class="ic" aria-hidden="true"><use href="#i-layers"/></svg> Resumen de la misión</div>
+        <div class="rail-title"><svg class="ic" aria-hidden="true"><use href="#i-layers"/></svg> <span data-i18n="rail.title">Mission summary</span></div>
         <div class="rail-name" id="rail-name"></div>
         <div class="rail-block">
-          <div class="bl">Fotos detectadas</div>
+          <div class="bl" data-i18n="rail.photosDetected">Photos detected</div>
           <div class="chips" id="ch-rail"></div>
         </div>
         <div class="rail-block">
-          <div class="bl">Productos</div>
+          <div class="bl" data-i18n="rail.products">Products</div>
           <ul class="rail-list" id="rail-products"></ul>
-        </div>
-        <div class="rail-block">
-          <div class="bl">Reconstrucción</div>
-          <div class="rail-line" id="rail-reuse"><svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg><span></span></div>
-        </div>
-        <div class="rail-block">
-          <div class="bl">Entrega</div>
-          <div class="rail-line" id="rail-export"><svg class="ic" aria-hidden="true"><use href="#i-package"/></svg><span></span></div>
         </div>
       </div>
     </aside>
@@ -877,8 +846,8 @@ select.in{cursor:pointer}
 <div class="picker-overlay" id="picker-overlay" onclick="if(event.target===this)closeFolderPicker()">
   <div class="picker">
     <div class="picker-head">
-      <span class="pt" id="picker-title">Elegir carpeta</span>
-      <span class="x" onclick="closeFolderPicker()" title="Cerrar">
+      <span class="pt" id="picker-title" data-i18n="picker.title">Choose folders</span>
+      <span class="x" onclick="closeFolderPicker()" title="Close" data-i18n-title="btn.close">
         <svg class="ic" aria-hidden="true"><use href="#i-x"/></svg>
       </span>
     </div>
@@ -887,8 +856,8 @@ select.in{cursor:pointer}
     <div class="picker-foot">
       <span class="sel-count" id="picker-sel-count"></span>
       <div style="display:flex;gap:8px">
-        <button class="btn sm primary" id="picker-add-sel" onclick="addSelectedFolders()" disabled>Agregar seleccionadas</button>
-        <button class="btn sm" onclick="closeFolderPicker()">Listo</button>
+        <button class="btn sm primary" id="picker-add-sel" onclick="addSelectedFolders()" disabled data-i18n="picker.addSelected">Add selected</button>
+        <button class="btn sm" onclick="closeFolderPicker()" data-i18n="btn.done">Done</button>
       </div>
     </div>
   </div>
@@ -899,16 +868,88 @@ select.in{cursor:pointer}
   <div class="confirm" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
     <div class="confirm-head">
       <span class="pt" id="confirm-title">
-        <svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg> Eliminar misión
+        <svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg> <span data-i18n="confirm.deleteTitle">Delete mission</span>
       </span>
-      <span class="x" onclick="closeConfirm()" title="Cerrar">
+      <span class="x" onclick="closeConfirm()" title="Close" data-i18n-title="btn.close">
         <svg class="ic" aria-hidden="true"><use href="#i-x"/></svg>
       </span>
     </div>
     <div class="confirm-body" id="confirm-body"></div>
     <div class="confirm-foot">
-      <button class="btn" onclick="closeConfirm()">Cancelar</button>
-      <button class="btn danger" id="confirm-ok" onclick="confirmDelete()">Eliminar</button>
+      <button class="btn" onclick="closeConfirm()" data-i18n="btn.cancel">Cancel</button>
+      <button class="btn danger" id="confirm-ok" onclick="confirmDelete()" data-i18n="btn.delete">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- Exportación a demanda: se pide DESPUÉS de que un producto exista de
+     verdad (ver /api/missions/{mission}/export-options), no antes de
+     arrancar la corrida — así se puede exportar hoy un producto y mañana
+     otro, sin haber tenido que decidir todo de entrada. Mismo patrón visual
+     que picker-overlay/picker (reusa esas clases, no duplica CSS). -->
+<div class="picker-overlay" id="export-overlay" onclick="if(event.target===this)closeExportModal()">
+  <div class="picker" style="max-width:640px">
+    <div class="picker-head">
+      <span class="pt" id="xm-title" data-i18n="export.modal.title">Export mission</span>
+      <span class="x" onclick="closeExportModal()" title="Close" data-i18n-title="btn.close">
+        <svg class="ic" aria-hidden="true"><use href="#i-x"/></svg>
+      </span>
+    </div>
+    <div class="picker-list" id="xm-body" style="padding:18px 20px">
+      <div id="xm-disabled" class="note warn hidden">
+        <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-warn"/></svg></span>
+        <div data-i18n="export.modal.notEnabled">Start the container with a deliveries folder mounted to enable export (raptor init sets this up).</div>
+      </div>
+      <div id="xm-form">
+        <div class="section-label" data-i18n="setup.export.destFolder">Destination folder</div>
+        <input class="in" id="xm-dir" placeholder="/path/to/deliveries/&lt;mission&gt;" data-i18n-placeholder="setup.export.destFolder.placeholder">
+        <div class="hint" id="xm-dir-h" data-i18n-html="setup.export.destFolder.hint">Path <b>on your disk</b>, inside the deliveries folder
+          you started with.</div>
+
+        <div class="section-label" style="margin-top:20px" data-i18n="setup.export.what">What to export</div>
+        <div class="checks" id="xm-products"></div>
+
+        <div class="grid2">
+          <div>
+            <div class="section-label" data-i18n="setup.export.crs">Reference system</div>
+            <select class="in" id="xm-epsg" onchange="onExportEpsgChange()">
+              <option value="9377" selected data-i18n="setup.export.crs.9377">EPSG:9377 · MAGNA-SIRGAS / Origen-Nacional (recommended)</option>
+              <option value="source" data-i18n="setup.export.crs.source">The mission's own: UTM WGS84 (no reprojection)</option>
+              <option value="4326" data-i18n="setup.export.crs.4326">EPSG:4326 · WGS84 lat/lon</option>
+              <option value="custom" data-i18n="setup.export.crs.custom">Other EPSG code…</option>
+            </select>
+            <input class="in hidden" id="xm-epsg-custom" placeholder="e.g. 32618" data-i18n-placeholder="setup.export.crs.customPlaceholder"
+                   style="margin-top:8px" oninput="checkExportModal()">
+            <div class="hint" id="xm-epsg-h" data-i18n="epsg.hint.9377">Colombia's national reference system (IGAC). What
+              agencies expect for official cartography.</div>
+          </div>
+          <div>
+            <div class="section-label" data-i18n="setup.export.formats">Formats</div>
+            <select class="in" id="xm-rfmt">
+              <option value="cog" selected data-i18n="setup.export.fmt.cog">Raster: cloud-optimized GeoTIFF (COG)</option>
+              <option value="gtiff" data-i18n="setup.export.fmt.gtiff">Raster: classic GeoTIFF</option>
+            </select>
+            <select class="in" id="xm-vfmt" style="margin-top:8px">
+              <option value="geojson" selected data-i18n="setup.export.fmt.geojson">Vector: GeoJSON</option>
+              <option value="gpkg" data-i18n="setup.export.fmt.gpkg">Vector: GeoPackage (.gpkg)</option>
+              <option value="shp" data-i18n="setup.export.fmt.shp">Vector: Shapefile</option>
+              <option value="kml" data-i18n="setup.export.fmt.kml">Vector: KML (always in WGS84)</option>
+            </select>
+          </div>
+        </div>
+        <div id="xm-note" class="note hidden" style="margin-top:12px" aria-live="polite">
+          <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg></span>
+          <div id="xm-note-t"></div>
+        </div>
+      </div>
+      <div id="xm-done" class="hidden"></div>
+    </div>
+    <div class="picker-foot">
+      <span id="xm-status" class="sel-count"></span>
+      <div style="display:flex;gap:8px">
+        <button class="btn sm primary" id="xm-submit" onclick="submitExportModal()" data-i18n="export.modal.submit">Export</button>
+        <button class="btn sm" onclick="closeExportModal()" data-i18n="btn.done">Done</button>
+      </div>
     </div>
   </div>
 </div>
@@ -922,7 +963,6 @@ select.in{cursor:pointer}
 // (subido o importado) de cada tipo, ver totalFor()/fileKind().
 let sensors = {rt:false, ms:false};
 let stored  = {rgb_thermal:null, multispectral:null};  // ya subido al server
-let odmPrev = {};                    // reconstrucciones ODM existentes
 
 const $ = id => document.getElementById(id);
 const views = ['v-landing','v-setup'];
@@ -938,6 +978,56 @@ function goBack(){
   // Desde el progreso de una corrida EN CURSO se vuelve al listado (la
   // corrida sigue en el servidor); desde el formulario, se cancela.
   showLanding();
+}
+
+// ── Asistente paso a paso ────────────────────────────────────────────
+// Un solo [data-step] visible a la vez, en vez del formulario largo de
+// antes — nombre, fotos, terreno, productos, calidad, en ese orden. El
+// resumen lateral (#rail) no depende de esto: se rellena de renderRail(),
+// que ya se llama en cada cambio del formulario sin importar qué paso se
+// esté mostrando.
+const SETUP_STEPS = 5;
+let setupStep = 1;
+function showStep(n){
+  setupStep = n;
+  document.querySelectorAll('[data-step]').forEach(el=>{
+    el.classList.toggle('hidden', Number(el.getAttribute('data-step')) !== n);
+  });
+  document.querySelectorAll('.wiz-dot').forEach(d=>{
+    const dn = Number(d.getAttribute('data-dot'));
+    d.classList.toggle('on', dn === n);
+    d.classList.toggle('done', dn < n);
+  });
+  const labelKey = ['wiz.step.name','wiz.step.photos','wiz.step.terrain','wiz.step.products','wiz.step.quality'][n-1];
+  $('wiz-step-label').textContent = t('wiz.step.count', {n, total: SETUP_STEPS}) + ' · ' + t(labelKey);
+  $('wiz-back-btn').classList.toggle('hidden', n === 1);
+  $('wiz-next-btn').classList.toggle('hidden', n === SETUP_STEPS);
+  $('btn-start').classList.toggle('hidden', n !== SETUP_STEPS);
+  $('setup-err').classList.add('hidden');
+}
+function wizardBack(){ if(setupStep > 1) showStep(setupStep - 1); }
+function wizardNext(){
+  if(!validateStep(setupStep)) return;
+  if(setupStep < SETUP_STEPS) showStep(setupStep + 1);
+}
+// Solo los pasos 1 y 2 pueden bloquear: nombre vacío, o ninguna foto
+// reconocida todavía. Terreno/productos/calidad siempre tienen un valor
+// por defecto válido, así que nunca frenan el avance.
+function validateStep(n){
+  if(n === 1){
+    const name = $('mname').value.trim();
+    if(!name){ flashNameMsg(t('setup.name.required')); return false; }
+    return true;
+  }
+  if(n === 2){
+    if(!sensors.rt && !sensors.ms){
+      $('setup-err').classList.remove('hidden');
+      $('setup-err-t').textContent = t('setup.photos.required');
+      return false;
+    }
+    return true;
+  }
+  return true;
 }
 
 // ── Tema claro / oscuro ──────────────────────────────────────────────
@@ -968,6 +1058,484 @@ function toggleTheme(){
   applyTheme(t);
 })();
 
+// ── Idioma inglés / español ──────────────────────────────────────────
+// Mismo mecanismo que el tema (misma forma de persistir, mismo patrón de
+// aplicar sobre el DOM), pero el default es SIEMPRE inglés — no se lee
+// navigator.language — y el texto crudo del HTML ya viene en inglés (ver
+// cada elemento con data-i18n): initLang() corre después de la primera
+// pintura, así que dejar el HTML en español de entrada mostraría un
+// parpadeo de español->inglés en el caso más común (usuario nuevo, sin
+// preferencia guardada todavía).
+const LANG_KEY = 'raptor-lang';
+const I18N = {
+  en: {
+    'skip.link': 'Skip to content',
+    'back.title': 'Back',
+    'back.aria': 'Back to missions',
+    'header.sub': 'UAV photogrammetric processing, from a quick look to full detail · RGB / thermal / multispectral',
+    'theme.title': 'Switch between light and dark mode',
+    'theme.aria': 'Switch theme',
+    'landing.hero.aria': 'Operations center',
+    'landing.eyebrow': 'Operations center',
+    'landing.title': 'Missions',
+    'landing.sub': 'RGB, thermal, and multispectral orthomosaics from DJI flights: process, review, and deliver from one place.',
+    'btn.newMission': 'New mission',
+    'landing.status.aria': 'Operation status',
+    'landing.status.title': 'Operation status',
+    'landing.status.missions': 'missions',
+    'landing.status.running': 'running',
+    'landing.status.ready': 'with tiles ready',
+    'setup.title.new': 'New mission',
+    'setup.title.mission': 'Mission: {name}',
+    'setup.sub': 'Choose the flight photos and the products to generate. The server validates everything before starting.',
+    'setup.name.label': 'Mission name',
+    'setup.name.placeholder': 'e.g. Barbosa_2026-07-24',
+    'setup.name.hint': 'Used as the folder name for photos, reconstruction, and products.',
+    'setup.photos.label': 'Mission photos',
+    'setup.photos.sub': "Add the flight folder(s): RGB/thermal (M3T/H20T) and/or multispectral (M3M), one or both. Each folder's contents are detected automatically.",
+    'btn.chooseFolder': 'Choose folder…',
+    'btn.chooseFiles': 'Choose photos…',
+    'setup.dz.title': 'Drag photos or folder here, or click to choose',
+    'setup.dz.hint': 'Standard RGB (JPG/PNG), thermal (<code>*_T.JPG</code>) or multispectral (<code>*_MS_*.TIF</code>). Choose individual files or entire folders.',
+    'setup.rt.label': 'Products to generate (RGB / thermal)',
+    'setup.rt.chooseOne': 'Only need one sensor?',
+    'setup.rt.both.t': 'RGB + thermal orthomosaic',
+    'setup.rt.both.d': 'Both mosaics, plus confidence mask and hotspot detection',
+    'setup.rt.rgb.t': 'RGB orthomosaic only',
+    'setup.rt.rgb.d': 'Skips all thermal processing (faster)',
+    'setup.rt.thermal.t': 'Thermal orthomosaic only',
+    'setup.rt.thermal.d': 'Skips the RGB reconstruction (faster, no surface model)',
+    'setup.rt.thermalConvert.t': '⚡ Convert thermal images only (R-JPEG → Float32 TIFF)',
+    'setup.rt.thermalConvert.d': 'Skips 3D reconstruction. Calibrates temperature (°C) with EXIF/GPS tags in ~1 minute for external photogrammetry (Agisoft Metashape, Pix4D, DJI Terra)',
+    'setup.rt.thermalConvert.bannerTitle': '⚡ Fast Thermal Conversion Mode',
+    'setup.rt.thermalConvert.bannerText': 'No 3D reconstruction required. Extracts radiometric temperature matrix (°C) with orientation and geotags in ~1 minute for external photogrammetry software.',
+    'btn.startThermalConvert': 'Start thermal conversion',
+    'rt.statement.both': "<b>We'll generate:</b> RGB + thermal orthomosaic. Both mosaics, plus confidence mask and hotspot detection.",
+    'rt.statement.rgbOnly': "<b>We'll generate:</b> RGB orthomosaic. No thermal photos were found, so there's nothing else to choose.",
+    'rt.statement.thermalOnly': "<b>We'll generate:</b> thermal orthomosaic. No RGB photos were found, so there's nothing else to choose.",
+    'setup.ms.label': 'Multispectral (M3M)',
+    'setup.ms.dband.t': 'Also the visible mosaic (D band)',
+    'setup.ms.dband.d': "Processed separately from the 4 bands: the M3M's own RGB camera, for a quick visual reference",
+    'setup.terrain.label': 'Terrain',
+    'setup.terrain.flat.t': 'Flat',
+    'setup.terrain.flat.d': 'Flat terrain or gentle relief. Glance/fast reconstruct by homography, much faster',
+    'setup.terrain.steep.t': 'Steep',
+    'setup.terrain.steep.d': 'Mountain, canyon, rocky terrain. Forces full reconstruction on every preset, avoiding silent photo loss',
+    'setup.quality.label': 'Quality and time',
+    'setup.quality.aria': 'Quality preset',
+    'setup.quality.loading': 'Calculating times for your flight…',
+    'setup.quality.calculating': 'Calculating…',
+    'setup.export.destFolder': 'Destination folder',
+    'setup.export.destFolder.placeholder': '/path/to/deliveries/<mission>',
+    'setup.export.destFolder.hint': 'Path <b>on your disk</b>, inside the deliveries folder you started with.',
+    'setup.export.what': 'What to export',
+    'setup.export.crs': 'Reference system',
+    'setup.export.crs.9377': 'EPSG:9377 · MAGNA-SIRGAS / Origen-Nacional (recommended)',
+    'setup.export.crs.source': "The mission's own: UTM WGS84 (no reprojection)",
+    'setup.export.crs.4326': 'EPSG:4326 · WGS84 lat/lon',
+    'setup.export.crs.custom': 'Other EPSG code…',
+    'setup.export.crs.customPlaceholder': 'e.g. 32618',
+    'setup.export.formats': 'Formats',
+    'setup.export.fmt.cog': 'Raster: cloud-optimized GeoTIFF (COG)',
+    'setup.export.fmt.gtiff': 'Raster: classic GeoTIFF',
+    'setup.export.fmt.geojson': 'Vector: GeoJSON',
+    'setup.export.fmt.gpkg': 'Vector: GeoPackage (.gpkg)',
+    'setup.export.fmt.shp': 'Vector: Shapefile',
+    'setup.export.fmt.kml': 'Vector: KML (always in WGS84)',
+    'setup.uploading': 'Uploading…',
+    'btn.start': 'Start processing',
+    'btn.cancel': 'Cancel',
+    'btn.close': 'Close',
+    'btn.done': 'Done',
+    'btn.delete': 'Delete',
+    'btn.back': 'Back',
+    'btn.next': 'Next',
+    'wiz.step.count': 'Step {n} of {total}',
+    'wiz.step.name': 'Mission name',
+    'wiz.step.photos': 'Photos',
+    'wiz.step.terrain': 'Terrain',
+    'wiz.step.products': 'Products',
+    'wiz.step.quality': 'Quality and time',
+    'setup.name.required': 'Enter a name for the mission.',
+    'setup.photos.required': 'Add at least one recognized flight folder before continuing.',
+    'rail.aria': 'Mission summary',
+    'rail.title': 'Mission summary',
+    'rail.photosDetected': 'Photos detected',
+    'rail.products': 'Products',
+    'rail.noName': 'No name yet',
+    'rail.item.rgbThermal': 'RGB + thermal orthomosaic',
+    'rail.item.rgb': 'RGB orthomosaic',
+    'rail.item.thermal': 'Thermal orthomosaic',
+    'rail.item.thermalConvert': '⚡ Thermal conversion only (°C TIFF)',
+    'rail.item.msBands': 'Multispectral (4 bands)',
+    'rail.item.plusDband': ' + D band',
+    'rail.item.none': 'No sensors detected yet',
+    'missions.downloadThermalZip': 'Download converted thermal TIFFs in ZIP (ready for Agisoft / Pix4D / DJI Terra)',
+    'missions.thermalZipShort': 'Thermal TIFFs (.zip)',
+    'picker.title': 'Choose folders',
+    'picker.removeFolder': 'Remove this folder',
+    'picker.addSelected': 'Add selected',
+    'picker.adding': 'Adding…',
+    'picker.needName': 'Enter a name for the mission first.',
+    'picker.upLink': 'Up',
+    'picker.noSubfolders': 'No subfolders here.',
+    'picker.thermalShort': 'therm. ',
+    'picker.dbandShort': 'D band ',
+    'picker.filesCount': '{n} files',
+    'picker.empty': 'empty',
+    'picker.added': '✓ added',
+    'picker.noFlightContent': 'No flight content recognized here',
+    'picker.enterFolder': 'Enter {name}',
+    'picker.couldNotAddList': 'Could not add: {list}',
+    'picker.selectedOne': '{n} folder selected',
+    'picker.selectedMany': '{n} folders selected',
+    'confirm.deleteTitle': 'Delete mission',
+    'confirm.deleteBody': 'Delete mission "{name}"? This removes the uploaded photos, the reconstruction, and all generated products. This cannot be undone.',
+    'chip.thermal': 'thermal',
+    'chip.msBands': 'MS bands',
+    'chip.dband': 'D band',
+    'chip.other': 'other',
+    'chip.missingPrefix': 'missing ',
+    'loading': 'Loading…',
+    'unit.mission': 'mission',
+    'unit.missions': 'missions',
+    'landing.empty.title': "You haven't processed any missions yet.",
+    'landing.empty.cta': 'Start with "New mission"',
+    'landing.empty.instructions': 'and add the flight folder and choose which products to generate.',
+    'tag.tilesReady': 'tiles ready',
+    'tag.productsGenerated': 'products generated',
+    'tag.noProducts': 'no products',
+    'tag.odmSaved': 'ODM reconstruction saved',
+    'btn.viewLive': 'View live',
+    'btn.fixRetry': 'Fix and retry',
+    'btn.geovisor': 'Geovisor',
+    'btn.continue': 'Continue',
+    'badge.running': 'running',
+    'badge.failed': 'failed',
+    'badge.ready': 'ready',
+    'error.loadList': 'Could not load the list.',
+    'error.deleteGeneric': 'could not delete',
+    'error.deletePrefix': 'Could not delete: ',
+    'label.rgbThermal': 'RGB/thermal',
+    'label.multispectral': 'multispectral',
+    'stored.savedOnServer': '<b>{n}</b> file(s) of {label} already saved on the server · ',
+    'stored.clear': 'clear',
+    'export.writtenTo': 'Will be written to <b>{path}</b>',
+    'export.reprojectedTo': ' · reprojected to <b>{crs}</b>',
+    'export.noReproject': ' · without reprojecting',
+    'export.modal.title': 'Export mission',
+    'export.modal.notEnabled': 'Start the container with a deliveries folder mounted to enable export (raptor init sets this up).',
+    'export.modal.submit': 'Export',
+    'export.modal.needFolder': 'Enter a destination folder.',
+    'export.modal.needProduct': 'Check at least one product.',
+    'export.modal.exporting': 'Exporting…',
+    'export.modal.failed': 'Export failed.',
+    'export.modal.done': 'Exported to {dir}.',
+    'btn.export': 'Export',
+    'preset.upTo': 'up to {cm} cm/px',
+    'preset.tactical.title': '⚡ Tactical',
+    'preset.tactical.desc': 'Immediate field response: ultra-fast 2.5D orthomosaic with ODM seamline blending, without dense cloud.',
+    'preset.cartographic.title': '🌐 Cartographic',
+    'preset.cartographic.desc': "Standard mission delivery: full 3D reconstruction, DSM and corrected orthomosaic. This is the default.",
+    'preset.forensic.title': '🔬 Forensic',
+    'preset.forensic.desc': 'Archival and forensic detail: maximum physical resolution the flight can deliver.',
+    'preset.urgency.title': '⚡ Tactical',
+    'preset.urgency.desc': 'Immediate field response: ultra-fast 2.5D orthomosaic with ODM seamline blending, without dense cloud.',
+    'preset.standard.title': '🌐 Cartographic',
+    'preset.standard.desc': "Standard mission delivery: full 3D reconstruction, DSM and corrected orthomosaic. This is the default.",
+    'preset.max.title': '🔬 Forensic',
+    'preset.max.desc': 'Archival and forensic detail: maximum physical resolution the flight can deliver.',
+    'quality.needName': 'Choose a mission name to estimate time and resolution.',
+    'quality.estimateError': 'Could not estimate (does the mission have a name yet?).',
+    'error.readFolder': 'could not read that folder',
+    'error.couldNotAdd': 'could not add',
+    'error.couldNotUpload': 'could not upload {name}',
+    'upload.filesProgress': '{label} · {done}/{total} files',
+    'error.missionName': 'Enter a name for the mission.',
+    'error.noRgbPhotos': 'No RGB photos found in the added files. Add standard JPG photos or the flight folder.',
+    'error.noThermalPhotos': 'You chose a product with thermal but there are no thermal photos (<code>*_T.JPG</code>). Add the folder with the thermal photos, or change the product to "RGB orthomosaic only".',
+    'error.noMsBands': 'The added M3M flight folder has no multispectral bands (<code>*_MS_*.TIF</code>). Check that it is the right folder.',
+    'upload.rgbThermal': 'Uploading RGB/thermal flight',
+    'upload.multispectral': 'Uploading multispectral flight',
+    'upload.starting': 'Starting processing…',
+    'error.couldNotStart': 'could not start processing',
+    'epsg.hint.9377': "Colombia's national reference system (IGAC). What agencies expect for official cartography.",
+    'epsg.hint.source': 'Delivered exactly as ODM produced it, without reprojecting. The most faithful to the original data.',
+    'epsg.hint.4326': 'Geographic coordinates in degrees. Useful for the web, not for measuring areas or distances.',
+    'epsg.hint.custom': 'Any projected or geographic EPSG code that PROJ recognizes.',
+    'exp.rgb.t': 'RGB orthomosaic',
+    'exp.thermal.t': 'Thermal orthomosaic',
+    'exp.thermal.d': 'temperatures in °C',
+    'exp.dsm.t': 'Surface model',
+    'exp.ms.t': 'Multispectral orthomosaic',
+    'exp.ms.d': '4 bands + alpha',
+    'exp.indices.t': 'Vegetation indices',
+    'exp.indices.d': 'NDVI, GNDVI, NDRE, MSAVI2',
+    'exp.classes.t': 'Hotspot and classified indices',
+    'exp.classes.d': 'class rasters',
+    'exp.situation.t': 'Situation summary',
+    'exp.flightPath.t': 'Flight path',
+    'exp.flightPath.d': 'route + captures',
+    'exp.pointclouds.t': 'Point clouds',
+    'time.justNow': 'just now',
+    'time.minAgo': '{n} min ago',
+    'time.hAgo': '{n} h ago',
+    'time.yesterday': 'yesterday',
+    'time.dAgo': '{n} d ago',
+    'doc.title': 'Raptor · Mission center',
+  },
+  es: {
+    'skip.link': 'Saltar al contenido',
+    'back.title': 'Volver',
+    'back.aria': 'Volver a las misiones',
+    'header.sub': 'Procesamiento fotogramétrico UAV, de urgencia a detalle · RGB / térmico / multiespectral',
+    'theme.title': 'Cambiar entre modo claro y oscuro',
+    'theme.aria': 'Cambiar tema',
+    'landing.hero.aria': 'Centro de operaciones',
+    'landing.eyebrow': 'Centro de operaciones',
+    'landing.title': 'Misiones',
+    'landing.sub': 'Ortomosaicos RGB, térmicos y multiespectrales de vuelos DJI: procesa, revisa y entrega desde un solo lugar.',
+    'btn.newMission': 'Nueva misión',
+    'landing.status.aria': 'Estado de operación',
+    'landing.status.title': 'Estado de operación',
+    'landing.status.missions': 'misiones',
+    'landing.status.running': 'en proceso',
+    'landing.status.ready': 'con tiles listos',
+    'setup.title.new': 'Nueva misión',
+    'setup.title.mission': 'Misión: {name}',
+    'setup.sub': 'Elige las fotos del vuelo y los productos a generar. El servidor valida todo antes de arrancar.',
+    'setup.name.label': 'Nombre de la misión',
+    'setup.name.placeholder': 'p. ej. Barbosa_2026-07-24',
+    'setup.name.hint': 'Se usará como nombre de carpeta para fotos, reconstrucción y productos.',
+    'setup.photos.label': 'Fotos de la misión',
+    'setup.photos.sub': 'Agrega la(s) carpeta(s) del vuelo: RGB/térmico (M3T/H20T) y/o multiespectral (M3M), una o las dos. Se detecta automáticamente qué trae cada una.',
+    'btn.chooseFolder': 'Elegir carpeta…',
+    'btn.chooseFiles': 'Elegir fotos…',
+    'setup.dz.title': 'Arrastra las fotos o carpeta aquí, o haz clic para elegir',
+    'setup.dz.hint': 'RGB estándar (JPG/PNG), térmicas (<code>*_T.JPG</code>) o multiespectrales (<code>*_MS_*.TIF</code>). Elige fotos individuales o carpetas completas.',
+    'setup.rt.label': 'Productos a generar (RGB / térmico)',
+    'setup.rt.chooseOne': '¿Solo necesitas un sensor?',
+    'setup.rt.both.t': 'Ortomosaico RGB + térmico',
+    'setup.rt.both.d': 'Ambos mosaicos, más máscara de confianza y detección de hotspots',
+    'setup.rt.rgb.t': 'Solo ortomosaico RGB',
+    'setup.rt.rgb.d': 'Salta todo el procesamiento térmico (más rápido)',
+    'setup.rt.thermal.t': 'Solo ortomosaico térmico',
+    'setup.rt.thermal.d': 'Salta la reconstrucción RGB (más rápido, sin modelo de superficie)',
+    'setup.rt.thermalConvert.t': '⚡ Solo conversión térmica (R-JPEG → GeoTIFF Float32)',
+    'setup.rt.thermalConvert.d': 'Sin reconstrucción 3D. Extrae temperatura calibrada (°C) con GPS/orientación para Agisoft Metashape, Pix4D o DJI Terra en ~1 minuto',
+    'setup.rt.thermalConvert.bannerTitle': '⚡ Modo de conversión rápida',
+    'setup.rt.thermalConvert.bannerText': 'Sin reconstrucción 3D. Extrae y calibra la matriz térmica radiométrica en °C con orientación y geotags en ~1 minuto para fotogrametría externa (Agisoft Metashape, Pix4D, DJI Terra).',
+    'btn.startThermalConvert': 'Iniciar conversión térmica',
+    'rt.statement.both': '<b>Vamos a generar:</b> ortomosaico RGB + térmico. Ambos mosaicos, más máscara de confianza y detección de hotspots.',
+    'rt.statement.rgbOnly': '<b>Vamos a generar:</b> ortomosaico RGB. No se encontraron fotos térmicas, así que no hay otra cosa para elegir.',
+    'rt.statement.thermalOnly': '<b>Vamos a generar:</b> ortomosaico térmico. No se encontraron fotos RGB, así que no hay otra cosa para elegir.',
+    'setup.ms.label': 'Multiespectral (M3M)',
+    'setup.ms.dband.t': 'También el mosaico visible (banda D)',
+    'setup.ms.dband.d': 'Procesamiento aparte, independiente de las 4 bandas: la cámara RGB propia del M3M, para una vista visual rápida',
+    'setup.terrain.label': 'Terreno',
+    'setup.terrain.flat.t': 'Plano',
+    'setup.terrain.flat.d': 'Terreno chato o con relieve suave. Vistazo/rápido reconstruyen por homografías, mucho más veloz',
+    'setup.terrain.steep.t': 'Escarpado',
+    'setup.terrain.steep.d': 'Montaña, cañón, terreno rocoso. Fuerza reconstrucción completa en todos los presets, evita perder fotos en silencio',
+    'setup.quality.label': 'Calidad y tiempo',
+    'setup.quality.aria': 'Preset de calidad',
+    'setup.quality.loading': 'Calculando tiempos para tu vuelo…',
+    'setup.quality.calculating': 'Calculando…',
+    'setup.export.destFolder': 'Carpeta de destino',
+    'setup.export.destFolder.placeholder': '/ruta/de/entregas/<misión>',
+    'setup.export.destFolder.hint': 'Ruta <b>en tu disco</b>, dentro de la carpeta de entregas con la que arrancaste.',
+    'setup.export.what': 'Qué exportar',
+    'setup.export.crs': 'Sistema de referencia',
+    'setup.export.crs.9377': 'EPSG:9377 · MAGNA-SIRGAS / Origen-Nacional (recomendado)',
+    'setup.export.crs.source': 'La de la misión: UTM WGS84 (sin reproyectar)',
+    'setup.export.crs.4326': 'EPSG:4326 · WGS84 lat/lon',
+    'setup.export.crs.custom': 'Otro código EPSG…',
+    'setup.export.crs.customPlaceholder': 'p. ej. 32618',
+    'setup.export.formats': 'Formatos',
+    'setup.export.fmt.cog': 'Ráster: GeoTIFF cloud-optimized (COG)',
+    'setup.export.fmt.gtiff': 'Ráster: GeoTIFF clásico',
+    'setup.export.fmt.geojson': 'Vectorial: GeoJSON',
+    'setup.export.fmt.gpkg': 'Vectorial: GeoPackage (.gpkg)',
+    'setup.export.fmt.shp': 'Vectorial: Shapefile',
+    'setup.export.fmt.kml': 'Vectorial: KML (siempre en WGS84)',
+    'setup.uploading': 'Subiendo…',
+    'btn.start': 'Iniciar procesamiento',
+    'btn.cancel': 'Cancelar',
+    'btn.close': 'Cerrar',
+    'btn.done': 'Listo',
+    'btn.delete': 'Eliminar',
+    'btn.back': 'Atrás',
+    'btn.next': 'Siguiente',
+    'wiz.step.count': 'Paso {n} de {total}',
+    'wiz.step.name': 'Nombre de la misión',
+    'wiz.step.photos': 'Fotos',
+    'wiz.step.terrain': 'Terreno',
+    'wiz.step.products': 'Productos',
+    'wiz.step.quality': 'Calidad y tiempo',
+    'setup.name.required': 'Pon un nombre para la misión.',
+    'setup.photos.required': 'Agrega al menos una carpeta de vuelo reconocida antes de continuar.',
+    'rail.aria': 'Resumen de la misión',
+    'rail.title': 'Resumen de la misión',
+    'rail.photosDetected': 'Fotos detectadas',
+    'rail.products': 'Productos',
+    'rail.noName': 'Sin nombre todavía',
+    'rail.item.rgbThermal': 'Ortomosaico RGB + térmico',
+    'rail.item.rgb': 'Ortomosaico RGB',
+    'rail.item.thermal': 'Ortomosaico térmico',
+    'rail.item.thermalConvert': '⚡ Solo conversión térmica (TIFF °C)',
+    'rail.item.msBands': 'Multiespectral (4 bandas)',
+    'rail.item.plusDband': ' + banda D',
+    'rail.item.none': 'Sin sensores detectados todavía',
+    'missions.downloadThermalZip': 'Descargar TIFFs térmicos convertidos en ZIP (listos para Agisoft / Pix4D / DJI Terra)',
+    'missions.thermalZipShort': 'TIFFs Térmicos (.zip)',
+    'picker.title': 'Elegir carpetas',
+    'picker.removeFolder': 'Sacar esta carpeta',
+    'picker.addSelected': 'Agregar seleccionadas',
+    'picker.adding': 'Agregando…',
+    'picker.needName': 'Pon un nombre para la misión primero.',
+    'picker.upLink': 'Subir',
+    'picker.noSubfolders': 'No hay subcarpetas acá.',
+    'picker.thermalShort': 'térm. ',
+    'picker.dbandShort': 'banda D ',
+    'picker.filesCount': '{n} archivos',
+    'picker.empty': 'vacía',
+    'picker.added': '✓ agregada',
+    'picker.noFlightContent': 'No se reconoce contenido de vuelo acá',
+    'picker.enterFolder': 'Entrar a {name}',
+    'picker.couldNotAddList': 'No se pudo agregar: {list}',
+    'picker.selectedOne': '{n} carpeta seleccionada',
+    'picker.selectedMany': '{n} carpetas seleccionadas',
+    'confirm.deleteTitle': 'Eliminar misión',
+    'confirm.deleteBody': '¿Eliminar la misión «{name}»? Esto borra las fotos subidas, la reconstrucción y todos los productos generados. No se puede deshacer.',
+    'chip.thermal': 'térmicas',
+    'chip.msBands': 'bandas MS',
+    'chip.dband': 'banda D',
+    'chip.other': 'otros',
+    'chip.missingPrefix': 'sin ',
+    'loading': 'Cargando…',
+    'unit.mission': 'misión',
+    'unit.missions': 'misiones',
+    'landing.empty.title': 'Todavía no procesaste ninguna misión.',
+    'landing.empty.cta': 'Empieza con «Nueva misión»',
+    'landing.empty.instructions': 'y agrega la carpeta del vuelo y elige qué productos generar.',
+    'tag.tilesReady': 'tiles listos',
+    'tag.productsGenerated': 'productos generados',
+    'tag.noProducts': 'sin productos',
+    'tag.odmSaved': 'reconstrucción ODM guardada',
+    'btn.viewLive': 'Ver en vivo',
+    'btn.fixRetry': 'Corregir y reintentar',
+    'btn.geovisor': 'Geovisor',
+    'btn.continue': 'Continuar',
+    'badge.running': 'procesando',
+    'badge.failed': 'falló',
+    'badge.ready': 'lista',
+    'error.loadList': 'No se pudo cargar la lista.',
+    'error.deleteGeneric': 'no se pudo eliminar',
+    'error.deletePrefix': 'No se pudo eliminar: ',
+    'label.rgbThermal': 'RGB/térmico',
+    'label.multispectral': 'multiespectral',
+    'stored.savedOnServer': '<b>{n}</b> archivo(s) de {label} ya guardados en el servidor · ',
+    'stored.clear': 'vaciar',
+    'export.writtenTo': 'Se escribirá en <b>{path}</b>',
+    'export.reprojectedTo': ' · reproyectado a <b>{crs}</b>',
+    'export.noReproject': ' · sin reproyectar',
+    'export.modal.title': 'Exportar misión',
+    'export.modal.notEnabled': 'Arranca el contenedor con una carpeta de entregas montada para habilitar la exportación (raptor init la configura).',
+    'export.modal.submit': 'Exportar',
+    'export.modal.needFolder': 'Pon una carpeta de destino.',
+    'export.modal.needProduct': 'Marca al menos un producto.',
+    'export.modal.exporting': 'Exportando…',
+    'export.modal.failed': 'La exportación falló.',
+    'export.modal.done': 'Exportado a {dir}.',
+    'btn.export': 'Exportar',
+    'preset.upTo': 'hasta {cm} cm/px',
+    'preset.tactical.title': '⚡ Táctico',
+    'preset.tactical.desc': 'Respuesta inmediata en campo: ortomosaico 2.5D ultrarrápido con ODM seamline blending, sin nube densa.',
+    'preset.cartographic.title': '🌐 Cartográfico',
+    'preset.cartographic.desc': 'La entrega normal de una misión: reconstrucción 3D completa, DSM y ortomosaico corregido. Es el valor por defecto.',
+    'preset.forensic.title': '🔬 Forense',
+    'preset.forensic.desc': 'Peritaje y archivo: el máximo detalle físico que dé el vuelo sin simplificaciones.',
+    'preset.urgency.title': '⚡ Táctico',
+    'preset.urgency.desc': 'Respuesta inmediata en campo: ortomosaico 2.5D ultrarrápido con ODM seamline blending, sin nube densa.',
+    'preset.standard.title': '🌐 Cartográfico',
+    'preset.standard.desc': 'La entrega normal de una misión: reconstrucción 3D completa, DSM y ortomosaico corregido. Es el valor por defecto.',
+    'preset.max.title': '🔬 Forense',
+    'preset.max.desc': 'Peritaje y archivo: el máximo detalle físico que dé el vuelo sin simplificaciones.',
+    'quality.needName': 'Elige un nombre de misión para estimar tiempo y resolución.',
+    'quality.estimateError': 'No se pudo estimar (¿la misión ya tiene nombre?).',
+    'error.readFolder': 'no se pudo leer esa carpeta',
+    'error.couldNotAdd': 'no se pudo agregar',
+    'error.couldNotUpload': 'no se pudo subir {name}',
+    'upload.filesProgress': '{label} · {done}/{total} archivos',
+    'error.missionName': 'Pon un nombre para la misión.',
+    'error.noRgbPhotos': 'No se encontraron fotos RGB entre los archivos agregados. Agrega fotos JPG estándar o la carpeta del vuelo.',
+    'error.noThermalPhotos': 'Elegiste un producto con térmico pero no hay fotos térmicas (<code>*_T.JPG</code>). Agrega la carpeta con las térmicas, o cambia el producto a «Solo ortomosaico RGB».',
+    'error.noMsBands': 'La carpeta agregada del vuelo M3M no tiene bandas multiespectrales (<code>*_MS_*.TIF</code>). Revisa que sea la carpeta correcta.',
+    'upload.rgbThermal': 'Subiendo vuelo RGB/térmico',
+    'upload.multispectral': 'Subiendo vuelo multiespectral',
+    'upload.starting': 'Iniciando procesamiento…',
+    'error.couldNotStart': 'no se pudo iniciar el procesamiento',
+    'epsg.hint.9377': 'Sistema único nacional de Colombia (IGAC). Es el que esperan las entidades para cartografía oficial.',
+    'epsg.hint.source': 'Se entrega tal cual la produjo ODM, sin reproyectar. Es lo más fiel al dato original.',
+    'epsg.hint.4326': 'Coordenadas geográficas en grados. Útil para web, no para medir áreas o distancias.',
+    'epsg.hint.custom': 'Cualquier código EPSG proyectado o geográfico que reconozca PROJ.',
+    'exp.rgb.t': 'Ortomosaico RGB',
+    'exp.thermal.t': 'Ortomosaico térmico',
+    'exp.thermal.d': 'temperaturas en °C',
+    'exp.dsm.t': 'Modelo de superficie',
+    'exp.ms.t': 'Ortomosaico multiespectral',
+    'exp.ms.d': '4 bandas + alpha',
+    'exp.indices.t': 'Índices de vegetación',
+    'exp.indices.d': 'NDVI, GNDVI, NDRE, MSAVI2',
+    'exp.classes.t': 'Hotspot e índices clasificados',
+    'exp.classes.d': 'rásters de clases',
+    'exp.situation.t': 'Resumen de situación',
+    'exp.flightPath.t': 'Ruta de vuelo',
+    'exp.flightPath.d': 'recorrido + capturas',
+    'exp.pointclouds.t': 'Nubes de puntos',
+    'time.justNow': 'recién',
+    'time.minAgo': 'hace {n} min',
+    'time.hAgo': 'hace {n} h',
+    'time.yesterday': 'ayer',
+    'time.dAgo': 'hace {n} d',
+    'doc.title': 'Raptor · Centro de misiones',
+  },
+};
+let LANG = 'en';
+// {n} / {name} / {dir} / etc: reemplazo de placeholders simple, a propósito
+// sin librería — este archivo no tiene build step, todo corre tal cual en
+// el navegador.
+function t(key, vars){
+  let s = (I18N[LANG] && I18N[LANG][key]) || I18N.en[key] || key;
+  if(vars) for(const k in vars) s = s.split('{'+k+'}').join(vars[k]);
+  return s;
+}
+function applyLang(lang){
+  LANG = lang === 'es' ? 'es' : 'en';
+  document.documentElement.setAttribute('lang', LANG);
+  document.title = t('doc.title');
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.getAttribute('data-i18n')); });
+  document.querySelectorAll('[data-i18n-html]').forEach(el => { el.innerHTML = t(el.getAttribute('data-i18n-html')); });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.setAttribute('placeholder', t(el.getAttribute('data-i18n-placeholder'))); });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => { el.setAttribute('title', t(el.getAttribute('data-i18n-title'))); });
+  document.querySelectorAll('[data-i18n-aria-label]').forEach(el => { el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria-label'))); });
+  const btn = document.getElementById('btn-lang'); if (btn) btn.textContent = LANG === 'en' ? 'ES' : 'EN';
+  try { localStorage.setItem(LANG_KEY, LANG); } catch (e) {}
+}
+function toggleLang(){
+  applyLang(LANG === 'en' ? 'es' : 'en');
+  // data-i18n cubre el texto estático, pero el panel de calidad viene
+  // armado por el servidor en el idioma que se le pidió (scripts/hardware.py
+  // ::estimate_message) — sin repintarlo acá se queda en el idioma viejo
+  // hasta el próximo cambio del formulario.
+  if(currentView === 'v-setup') refreshQualityEstimate();
+}
+(function initLang(){
+  let l = null;
+  try { l = localStorage.getItem(LANG_KEY); } catch (e) {}
+  applyLang(l === 'es' ? 'es' : 'en'); // default is ALWAYS English, do not read navigator.language
+})();
+
 // ═══════════════════════════════════════════════════════════════════
 // Clasificación de archivos — mismos sufijos que docker/setup-data.sh.
 // Se hace en el navegador para dar feedback ANTES de subir nada (el
@@ -977,10 +1545,10 @@ function classify(files){
   const c = {rgb:0, thermal:0, ms:0, dband:0, otros:0, total:0};
   for(const f of files){
     const u = f.name.toUpperCase();
-    if(u.endsWith('_V.JPG') || u.endsWith('_W.JPG')) c.rgb++;
-    else if(u.endsWith('_T.JPG')) c.thermal++;
-    else if(u.includes('_MS_') && u.endsWith('.TIF')) c.ms++;
-    else if(u.endsWith('_D.JPG')) c.dband++;
+    if(u.endsWith('_T.JPG') || u.endsWith('_T.JPEG') || u.endsWith('_T.TIF') || u.endsWith('_T.TIFF')) c.thermal++;
+    else if(u.includes('_MS_') && (u.endsWith('.TIF') || u.endsWith('.TIFF'))) c.ms++;
+    else if(u.endsWith('_D.JPG') || u.endsWith('_D.JPEG')) c.dband++;
+    else if(u.endsWith('.JPG') || u.endsWith('.JPEG') || u.endsWith('.PNG') || u.endsWith('.TIF') || u.endsWith('.TIFF')) c.rgb++;
     else c.otros++;
     c.total++;
   }
@@ -991,12 +1559,12 @@ function renderChips(el, c, expect){
   if(!c || !c.total){ el.innerHTML=''; return; }
   const p = [];
   if(c.rgb)     p.push(`<span class="chip rgb"><i class="dot"></i>${c.rgb} RGB</span>`);
-  if(c.thermal) p.push(`<span class="chip ther"><i class="dot"></i>${c.thermal} térmicas</span>`);
-  if(c.ms)      p.push(`<span class="chip ms"><i class="dot"></i>${c.ms} bandas MS</span>`);
-  if(c.dband)   p.push(`<span class="chip rgb"><i class="dot"></i>${c.dband} banda D</span>`);
-  if(c.otros)   p.push(`<span class="chip other"><i class="dot"></i>${c.otros} otros</span>`);
+  if(c.thermal) p.push(`<span class="chip ther"><i class="dot"></i>${c.thermal} ${t('chip.thermal')}</span>`);
+  if(c.ms)      p.push(`<span class="chip ms"><i class="dot"></i>${c.ms} ${t('chip.msBands')}</span>`);
+  if(c.dband)   p.push(`<span class="chip rgb"><i class="dot"></i>${c.dband} ${t('chip.dband')}</span>`);
+  if(c.otros)   p.push(`<span class="chip other"><i class="dot"></i>${c.otros} ${t('chip.other')}</span>`);
   for(const e of (expect||[])){
-    if(!c[e.k]) p.push(`<span class="chip warn"><svg class="ci" aria-hidden="true"><use href="#i-warn"/></svg> sin ${e.n}</span>`);
+    if(!c[e.k]) p.push(`<span class="chip warn"><svg class="ci" aria-hidden="true"><use href="#i-warn"/></svg> ${t('chip.missingPrefix')}${e.n}</span>`);
   }
   el.innerHTML = p.join('');
 }
@@ -1007,8 +1575,8 @@ function renderChips(el, c, expect){
 // sin que el usuario tenga que declarar antes cuál es cuál.
 function fileKind(name){
   const u = name.toUpperCase();
-  if(u.endsWith('_V.JPG') || u.endsWith('_W.JPG') || u.endsWith('_T.JPG')) return 'rt';
-  if((u.includes('_MS_') && u.endsWith('.TIF')) || u.endsWith('_D.JPG')) return 'ms';
+  if((u.includes('_MS_') && (u.endsWith('.TIF') || u.endsWith('.TIFF'))) || u.endsWith('_D.JPG') || u.endsWith('_D.JPEG')) return 'ms';
+  if(u.endsWith('.JPG') || u.endsWith('.JPEG') || u.endsWith('.PNG') || u.endsWith('.TIF') || u.endsWith('.TIFF')) return 'rt';
   return null; // sidecar/otros — no se sube (el servidor tampoco los usa)
 }
 
@@ -1051,20 +1619,26 @@ function showLanding(){ show('v-landing'); loadMissions(); }
 // tiempo del centro de operaciones. Nada de relojes: solo la distancia.
 function fechaRelativa(ts){
   const diff = Date.now() - ts;
-  if(diff < 60*1000) return 'recién';
-  if(diff < 3600*1000) return 'hace ' + Math.round(diff/60000) + ' min';
-  if(diff < 24*3600*1000) return 'hace ' + Math.round(diff/3600000) + ' h';
-  if(diff < 48*3600*1000) return 'ayer';
-  if(diff < 30*24*3600*1000) return 'hace ' + Math.round(diff/(24*3600*1000)) + ' d';
-  return new Date(ts).toLocaleDateString('es-CO', {day:'2-digit', month:'short', year:'numeric'});
+  if(diff < 60*1000) return t('time.justNow');
+  if(diff < 3600*1000) return t('time.minAgo', {n: Math.round(diff/60000)});
+  if(diff < 24*3600*1000) return t('time.hAgo', {n: Math.round(diff/3600000)});
+  if(diff < 48*3600*1000) return t('time.yesterday');
+  if(diff < 30*24*3600*1000) return t('time.dAgo', {n: Math.round(diff/(24*3600*1000))});
+  return new Date(ts).toLocaleDateString(LANG === 'es' ? 'es-CO' : 'en-US', {day:'2-digit', month:'short', year:'numeric'});
 }
 
 async function loadMissions(){
   const box = $('mlist');
-  box.innerHTML = '<div class="empty">Cargando…</div>';
+  box.innerHTML = `<div class="empty">${t('loading')}</div>`;
   try{
     const d = await (await fetch('/api/missions')).json();
-    $('mcount').textContent = d.missions.length ? d.missions.length + ' misión(es)' : '';
+    if(!d.active){
+      try{
+        const rs = await (await fetch('/geovisor/outputs/resume_status.json?t='+Date.now(), {cache:'no-store'})).json();
+        if(rs && rs.running && rs.mission) d.active = rs.mission;
+      }catch(_){}
+    }
+    $('mcount').textContent = d.missions.length ? `${d.missions.length} ${d.missions.length===1?t('unit.mission'):t('unit.missions')}` : '';
     // Panel de estado de operación: números reales del endpoint.
     const total = d.missions.length, running = d.missions.filter(m=>m.name===d.active).length;
     const ready = d.missions.filter(m=>m.has_tiles && m.ok !== false && m.name !== d.active).length;
@@ -1074,8 +1648,8 @@ async function loadMissions(){
     setHS('hs-ready', ready);
     if(!d.missions.length){
       box.innerHTML = `<div class="empty"><svg class="ic" aria-hidden="true"><use href="#i-drone"/></svg>
-        Todavía no procesaste ninguna misión.<br>
-        <span class="go">Empieza con «Nueva misión»</span> y agregá la carpeta del vuelo y elegí qué productos generar.</div>`;
+        ${t('landing.empty.title')}<br>
+        <span class="go">${t('landing.empty.cta')}</span> ${t('landing.empty.instructions')}</div>`;
       return;
     }
     box.innerHTML = d.missions.map(m=>{
@@ -1087,8 +1661,8 @@ async function loadMissions(){
       // corrido). m.ok===false es "corrió y falló"; undefined/null es
       // "nunca corrió", que no es lo mismo.
       const failed  = !running && m.ok === false;
-      const tags = [ m.has_tiles?'tiles listos':(m.has_outputs?'productos generados':'sin productos'),
-                     m.has_processing?'reconstrucción ODM guardada':null ].filter(Boolean).join(' · ');
+      const tags = [ m.has_tiles?t('tag.tilesReady'):(m.has_outputs?t('tag.productsGenerated'):t('tag.noProducts')),
+                     m.has_processing?t('tag.odmSaved'):null ].filter(Boolean).join(' · ');
       // Fecha relativa de la última actividad (subida/reconstrucción) — el
       // backend manda mtime (epoch) en /api/missions.
       const fecha = m.mtime ? fechaRelativa(m.mtime*1000) : '';
@@ -1103,35 +1677,40 @@ async function loadMissions(){
       // este chequeo el botón mandaba al geovisor (mapa estático, sin forma
       // de reintentar) en vez de a la pantalla donde vive "Reusar lo ya
       // reconstruido". Bug real, reportado en vivo.
-      if(running)          btn = `<button class="btn sm primary" onclick="location.href='/view/${encodeURIComponent(m.name)}'">Ver en vivo</button>`;
-      else if(failed)      btn = `<button class="btn sm" onclick="openSetup('${m.name}')">Corregir y reintentar</button>`;
-      else if(m.has_tiles) btn = `<button class="btn sm primary" onclick="location.href='/view/${encodeURIComponent(m.name)}'">Geovisor</button>`;
-      else                 btn = `<button class="btn sm" onclick="openSetup('${m.name}')">Continuar</button>`;
+      if(running)          btn = `<button class="btn sm primary" onclick="location.href='/view/${encodeURIComponent(m.name)}'">${t('btn.viewLive')}</button>`;
+      else if(failed)      btn = `<button class="btn sm" onclick="openSetup('${m.name}')">${t('btn.fixRetry')}</button>`;
+      else if(m.has_tiles) btn = `<button class="btn sm primary" onclick="location.href='/view/${encodeURIComponent(m.name)}'">${t('btn.geovisor')}</button>`;
+      else                 btn = `<button class="btn sm" onclick="openSetup('${m.name}')">${t('btn.continue')}</button>`;
       // Sin borrar mientras corre: activate_mission() la tiene symlinkeada a
       // processing/outputs/tiles — borrar el directorio debajo la dejaría
       // escribiendo a la nada.
       const delBtn = running ? '' :
-        `<button class="btn sm ghost" onclick="deleteMission('${m.name}')" title="Eliminar misión" aria-label="Eliminar misión ${m.name}"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg></button>`;
+        `<button class="btn sm ghost" onclick="deleteMission('${m.name}')" title="${t('confirm.deleteTitle')}" aria-label="${t('confirm.deleteTitle')} ${m.name}"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg></button>`;
+      // Exportar solo tiene sentido con algo ya generado, y no mientras esta
+      // misión es la que está corriendo (outputs/ todavía se está escribiendo).
+      const expBtn = (!running && (m.has_tiles || m.has_outputs))
+        ? `<button class="btn sm" onclick="openExportModal('${m.name}')">${t('btn.export')}</button>` : '';
+      const thZipBtn = (!running && m.has_thermal_converted)
+        ? `<a class="btn sm ghost" href="/api/missions/${encodeURIComponent(m.name)}/thermal-tiffs-zip" title="${t('missions.downloadThermalZip')}" download style="display:inline-flex;align-items:center;gap:5px;text-decoration:none"><svg class="ic" style="width:13px;height:13px" aria-hidden="true"><use href="#i-download"/></svg> ${t('missions.thermalZipShort')}</a>` : '';
       return `<article class="mission">
         <div class="mission-top"><div class="nm">${m.name}
-          ${running?'<span class="badge run">procesando</span>':''}
-          ${failed ?'<span class="badge fail">falló</span>':''}
-          ${(!running && !failed && m.has_tiles)?'<span class="badge ok">lista</span>':''}</div>
+          ${running?`<span class="badge run">${t('badge.running')}</span>`:''}
+          ${failed ?`<span class="badge fail">${t('badge.failed')}</span>`:''}
+          ${(!running && !failed && m.has_tiles)?`<span class="badge ok">${t('badge.ready')}</span>`:''}</div>
           ${delBtn}</div>
         ${fecha?`<div class="date"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg>${fecha}</div>`:''}
         <div class="tg"><svg class="ic" aria-hidden="true"><use href="#i-map"/></svg>${tags}</div>
-        <div class="foot"><div class="row">${btn}</div></div>
+        <div class="foot"><div class="row" style="flex-wrap:wrap;gap:6px">${btn}${expBtn}${thZipBtn}</div></div>
       </article>`;
     }).join('');
-  }catch(e){ box.innerHTML = '<div class="empty">No se pudo cargar la lista.</div>'; }
+  }catch(e){ box.innerHTML = `<div class="empty">${t('error.loadList')}</div>`; }
 }
 
 // ── Borrado con modal de confirmación (en vez del confirm() nativo) ────
 let pendingDelete = null;
 function deleteMission(name){
   pendingDelete = name;
-  $('confirm-body').innerHTML = `¿Eliminar la misión «<b>${name}</b>»? Esto borra las fotos subidas, ` +
-    `la reconstrucción y todos los productos generados. No se puede deshacer.`;
+  $('confirm-body').innerHTML = t('confirm.deleteBody', {name: `<b>${name}</b>`});
   $('confirm-overlay').classList.add('open');
   // El foco va al botón destructivo: Enter elimina, Esc cancela (como el
   // confirm() nativo que reemplaza este modal).
@@ -1154,14 +1733,14 @@ async function confirmDelete(){
   try{
     const r = await fetch(`/api/missions/${encodeURIComponent(name)}`, {method:'DELETE'});
     if(!r.ok){
-      let msg = 'no se pudo eliminar';
+      let msg = t('error.deleteGeneric');
       try{ msg = (await r.json()).detail || msg; }catch(e){}
       throw new Error(msg);
     }
     closeConfirm();
     loadMissions();
   }catch(e){
-    $('confirm-body').innerHTML = `<span style="color:var(--err)">No se pudo eliminar: ${e.message}</span>`;
+    $('confirm-body').innerHTML = `<span style="color:var(--err)">${t('error.deletePrefix')}${e.message}</span>`;
   }
 }
 
@@ -1172,18 +1751,18 @@ async function openSetup(name){
   show('v-setup');
   $('setup-err').classList.add('hidden');
   $('upbox').classList.add('hidden');
-  $('in-add').value = ''; addedFiles = []; $('in-dband').checked = false;
-  stored = {rgb_thermal:null, multispectral:null}; odmPrev = {};
-  // La carpeta de entrega vuelve a seguir al nombre de la misión hasta que el
-  // usuario la escriba a mano (ver expDirTouched).
-  expDirTouched = false;
-  expChecked = new Set(EXPORT_CATALOG.filter(p=>!EXPORT_DEFAULT_OFF.has(p.k)).map(p=>p.k));
+  $('in-add').value = '';
+  const _inFiles = $('in-add-files'); if(_inFiles) _inFiles.value = '';
+  addedFiles = []; $('in-dband').checked = false;
+  stored = {rgb_thermal:null, multispectral:null};
+  setupStep = 1;
+  showStep(1);
 
   if(name){
-    $('setup-title').textContent = 'Misión: ' + name;
+    $('setup-title').textContent = t('setup.title.mission', {name});
     $('mname').value = name;
   }else{
-    $('setup-title').textContent = 'Nueva misión';
+    $('setup-title').textContent = t('setup.title.new');
     $('mname').value = 'mision_' + new Date().toISOString().slice(0,10);
   }
   // También para una misión NUEVA: /status no depende de que la misión exista
@@ -1204,18 +1783,10 @@ $('mname').addEventListener('input', ()=>{
 });
 
 async function loadStatus(name){
-  if(!name){ stored={rgb_thermal:null,multispectral:null}; odmPrev={}; return; }
+  if(!name){ stored={rgb_thermal:null,multispectral:null}; return; }
   try{
     const s = await (await fetch(`/api/missions/${encodeURIComponent(name)}/status`)).json();
-    stored = s.uploads; odmPrev = s.odm;
-    // La exportación solo existe si se arrancó con una carpeta del host
-    // montada (./raptor webapp --export DIR): sin eso los productos no tienen
-    // a dónde salir y ofrecerla sería una promesa vacía. El destino por
-    // defecto que devuelve el servidor es una ruta del HOST, dentro de esa
-    // carpeta — se respeta mientras el usuario no la escriba a mano.
-    expEnabled = !!s.export_enabled;
-    expHostRoot = s.export_host_root || '';
-    if(!expDirTouched && s.default_export_dir) $('exp-dir').value = s.default_export_dir;
+    stored = s.uploads;
     impEnabled = !!s.import_enabled;
     impHostRoot = s.import_host_root || '';
     imported = s.imported || {rgb_thermal:[], multispectral:[]};
@@ -1225,10 +1796,7 @@ async function loadStatus(name){
     if(s.uploads.rgb_thermal.total && !s.uploads.rgb_thermal.thermal)
       document.querySelector('input[name=prod][value=rgb]').checked = true;
   }catch(e){
-    // Sin respuesta del servidor no se puede afirmar que la exportación esté
-    // disponible: se asume que no, en vez de dejar un valor viejo.
-    stored={rgb_thermal:null,multispectral:null}; odmPrev={};
-    expEnabled = false; expHostRoot = '';
+    stored={rgb_thermal:null,multispectral:null};
     impEnabled = false; impHostRoot = '';
     imported = {rgb_thermal:[], multispectral:[]};
   }
@@ -1238,7 +1806,7 @@ function refreshUI(){
   // Ya no se declara el sensor de antemano — se DERIVA de lo que trae lo
   // agregado (subido o importado): apenas hay contenido reconocido de un
   // tipo, ese bloque aparece solo. sensors.rt/ms se sigue leyendo en un
-  // montón de lugares (selectedMode(), EXPORT_CATALOG, uploadAndStart()...)
+  // montón de lugares (selectedMode(), uploadAndStart()...)
   // así que se recalculan acá en vez de tocar cada uno de esos sitios.
   const cRT = totalFor('rgb_thermal');
   const cMS = totalFor('multispectral');
@@ -1272,13 +1840,13 @@ function refreshUI(){
   if(impEnabled) renderImportedList('il-add');
 
   // "ya guardado en el servidor" — deja claro qué NO hace falta volver a subir
-  const guardado = [['rgb_thermal','RGB/térmico'],['multispectral','multiespectral']]
+  const guardado = [['rgb_thermal',t('label.rgbThermal')],['multispectral',t('label.multispectral')]]
     .filter(([kind])=>stored[kind] && stored[kind].total);
   if(guardado.length){
     $('st-add').classList.remove('hidden');
     $('st-add').innerHTML = guardado.map(([kind,label])=>
-      `<b>${stored[kind].total}</b> archivo(s) de ${label} ya guardados en el servidor · ` +
-      `<a href="#" onclick="clearUploads('${kind}');return false" style="color:var(--tx2)">vaciar</a>`
+      t('stored.savedOnServer', {n: stored[kind].total, label}) +
+      `<a href="#" onclick="clearUploads('${kind}');return false" style="color:var(--tx2)">${t('stored.clear')}</a>`
     ).join('<br>');
   }else $('st-add').classList.add('hidden');
 
@@ -1292,41 +1860,78 @@ function refreshUI(){
   const thOpt = $('o-rt-thermal'), noRgb = cRT.total>0 && cRT.rgb===0;
   thOpt.classList.toggle('dis', noRgb || noTher);
   thOpt.querySelector('input').disabled = noRgb || noTher;
-  if(noRgb && !noTher) document.querySelector('input[name=prod][value=rgb+thermal]').checked = true;
+  const thConvOpt = $('o-rt-thermal-convert');
+  if(thConvOpt){
+    thConvOpt.classList.toggle('dis', noTher);
+    thConvOpt.querySelector('input').disabled = noTher;
+  }
+  if(noRgb && !noTher){
+    const curVal = document.querySelector('input[name=prod]:checked')?.value;
+    if(curVal !== 'thermal' && curVal !== 'thermal-convert') {
+      document.querySelector('input[name=prod][value=thermal-convert]').checked = true;
+    }
+  }
   document.querySelectorAll('.opt input[name=prod]').forEach(i=>
     i.closest('.opt').classList.toggle('on', i.checked));
 
   document.querySelectorAll('.opt input[name=terreno]').forEach(i=>
     i.closest('.opt').classList.toggle('on', i.checked));
 
-  // Reusar ODM previo (reemplaza el viejo checkbox SKIP_ODM)
-  const prev = Object.entries(odmPrev||{}).filter(([,v])=>v).map(([k])=>
-    ({rgb:'RGB', thermal:'térmico', multispectral:'multiespectral', dband:'banda D'}[k]||k));
-  $('blk-reuse').classList.toggle('hidden', !prev.length);
-  if(prev.length) $('reuse-list').textContent = prev.join(', ');
-  document.querySelectorAll('.opt input[name=reuse]').forEach(i=>
-    i.closest('.opt').classList.toggle('on', i.checked));
-
-  // Entrega: la lista de productos depende de los sensores y del modo, así que
-  // se re-renderiza con cada cambio del formulario.
-  // Sin carpeta del host montada, la exportación se muestra deshabilitada con
-  // la instrucción exacta para habilitarla — en vez de ofrecer un destino que
-  // desaparecería al cerrar el contenedor.
-  const yEl = document.querySelector('input[name=doexport][value="1"]');
-  $('o-exp-y').classList.toggle('dis', !expEnabled);
-  yEl.disabled = !expEnabled;
-  if(!expEnabled){
-    document.querySelector('input[name=doexport][value="0"]').checked = true;
-    $('o-exp-y-d').innerHTML = 'Arranca con <code>./raptor webapp --export /ruta/de/entregas</code> ' +
-      'para poder escribir en tu disco.';
-  }else{
-    $('o-exp-y-d').textContent = `Copia los productos a ${expHostRoot} en el formato y el sistema de referencia que necesites`;
+  // Manejo de modo de conversión térmica vs reconstrucción 3D:
+  const isConv = selectedMode() === 'thermal-convert';
+  const secQuality = document.querySelector('div[data-step="5"]');
+  if(secQuality){
+    let banner = $('thermal-convert-banner');
+    if(!banner){
+      banner = document.createElement('div');
+      banner.id = 'thermal-convert-banner';
+      banner.className = 'note info';
+      banner.style.marginTop = '12px';
+      secQuality.appendChild(banner);
+    }
+    const pGrid = $('preset-grid');
+    const qNote = $('quality-note');
+    if(isConv){
+      banner.classList.remove('hidden');
+      banner.innerHTML = `<span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg></span>
+        <div><b>${t('setup.rt.thermalConvert.bannerTitle')}</b><br>
+        ${t('setup.rt.thermalConvert.bannerText')}</div>`;
+      if(pGrid) pGrid.classList.add('hidden');
+      if(qNote) qNote.classList.add('hidden');
+    }else{
+      banner.classList.add('hidden');
+      if(pGrid) pGrid.classList.remove('hidden');
+      if(qNote) qNote.classList.remove('hidden');
+    }
   }
-  document.querySelectorAll('.opt input[name=doexport]').forEach(i=>
-    i.closest('.opt').classList.toggle('on', i.checked));
-  $('blk-export').classList.toggle('hidden', !exporting());
-  renderExportProducts();
-  if(exporting()) checkExport(); else $('exp-note').classList.add('hidden');
+  const btnStartTxt = $('btn-start').querySelector('span');
+  if(btnStartTxt){
+    btnStartTxt.textContent = isConv ? t('btn.startThermalConvert') : t('btn.start');
+  }
+
+  // Con ambos sensores presentes hay algo que elegir: se muestra un enunciado
+  // ("Vamos a generar...") en vez de la pregunta, con un link para revelar las
+  // tres opciones si de verdad quiere un solo sensor. Con uno solo presente no
+  // hay nada que elegir: se fija el radio correspondiente por JS y no se
+  // muestra ningún choice — mostrarlo sería ofrecer opciones que fallarían.
+  if(sensors.rt){
+    if(cRT.rgb>0 && cRT.thermal>0){
+      $('rt-statement-t').innerHTML = t('rt.statement.both');
+      $('rt-choice-link').classList.remove('hidden');
+    }else if(cRT.rgb>0){
+      document.querySelector('input[name=prod][value=rgb]').checked = true;
+      $('rt-statement-t').innerHTML = t('rt.statement.rgbOnly');
+      $('rt-choice-link').classList.add('hidden');
+      $('rt-choice').classList.add('hidden');
+    }else{
+      const cur = document.querySelector('input[name=prod]:checked')?.value;
+      if(cur !== 'thermal' && cur !== 'thermal-convert') {
+        document.querySelector('input[name=prod][value=thermal]').checked = true;
+      }
+      $('rt-statement-t').innerHTML = t('rt.statement.thermalOnly');
+      $('rt-choice-link').classList.remove('hidden');
+    }
+  }
 
   $('btn-start').disabled = !sensors.rt && !sensors.ms;
   // El total de fotos que ve el mensaje de calidad depende del modo y de qué
@@ -1336,10 +1941,15 @@ function refreshUI(){
   renderRail();
 }
 
+function toggleRtChoice(){
+  $('rt-choice-link').classList.add('hidden');
+  $('rt-choice').classList.remove('hidden');
+}
+
 // ── Resumen lateral: lo que ya se eligió, de un vistazo ────────────────
 function renderRail(){
   const name = $('mname').value.trim();
-  $('rail-name').textContent = name || 'Sin nombre todavía';
+  $('rail-name').textContent = name || t('rail.noName');
 
   const cRT = totalFor('rgb_thermal'), cMS = totalFor('multispectral');
   renderChips($('ch-rail'), {rgb:cRT.rgb, thermal:cRT.thermal, ms:cMS.ms, dband:cMS.dband,
@@ -1347,26 +1957,14 @@ function renderRail(){
 
   const items = [];
   const mode = selectedMode();
-  if(mode==='rgb+thermal') items.push('Ortomosaico RGB + térmico');
-  else if(mode==='rgb')    items.push('Ortomosaico RGB');
-  else if(mode==='thermal')items.push('Ortomosaico térmico');
-  if(sensors.ms) items.push('Multiespectral (4 bandas)' + ($('in-dband').checked ? ' + banda D' : ''));
-  if(!items.length) items.push('Sin sensores detectados todavía');
+  if(mode==='rgb+thermal') items.push(t('rail.item.rgbThermal'));
+  else if(mode==='rgb')    items.push(t('rail.item.rgb'));
+  else if(mode==='thermal')items.push(t('rail.item.thermal'));
+  else if(mode==='thermal-convert') items.push(t('rail.item.thermalConvert'));
+  if(sensors.ms) items.push(t('rail.item.msBands') + ($('in-dband').checked ? t('rail.item.plusDband') : ''));
+  if(!items.length) items.push(t('rail.item.none'));
   $('rail-products').innerHTML = items.map(i=>
     `<li><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>${i}</li>`).join('');
-
-  const prev = Object.entries(odmPrev||{}).filter(([,v])=>v).length;
-  const reuseEl = document.querySelector('input[name=reuse]:checked');
-  const reuse = (!$('blk-reuse').classList.contains('hidden') && reuseEl && reuseEl.value==='1');
-  $('rail-reuse').innerHTML =
-    `<svg class="ic" aria-hidden="true"><use href="#i-refresh"/></svg><span>` +
-    (prev ? (reuse ? 'Reusar reconstrucción previa' : 'Reconstruir desde cero')
-          : 'Sin reconstrucción previa') + `</span>`;
-
-  const exp = exporting()
-    ? `${selectedExportProducts().length} producto(s) → ${$('exp-dir').value.trim() || 'sin carpeta'}`
-    : 'Sin exportar (solo queda en la misión)';
-  $('rail-export').innerHTML = `<svg class="ic" aria-hidden="true"><use href="#i-package"/></svg><span>${exp}</span>`;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1378,31 +1976,40 @@ function renderRail(){
 // ═══════════════════════════════════════════════════════════════════
 // Preset elegido. Cambia al tocar una tarjeta; el default lo marca el
 // servidor (PRESET_DEFAULT en scripts/hardware.py), no una copia acá.
-let presetElegido = 'estandar';
+let presetElegido = 'cartografico';
 
-// El servidor sigue calculando los CINCO presets de scripts/hardware.py
-// (rápido y alta quedan disponibles por CLI/API, ver ./raptor run --help),
-// pero acá se muestran solo 3 — cinco tramos de calidad es demasiada
-// decisión en medio de una emergencia. «vistazo» se relabelea como
 // «Urgencia»: unifica el preset MÁS el submuestreo 1-de-cada-3, que antes
 // eran dos controles separados (un preset + un checkbox aparte, fácil de
 // olvidar tildar). El nombre real que viaja al servidor sigue siendo
 // 'vistazo' — es SOLO relabeling de UI; ver el subsample automático en
 // el armado del FormData, más abajo, que deriva de presetElegido==='vistazo'.
-const PRESETS_UI_VISIBLES = ['vistazo', 'estandar', 'maxima'];
+// titulo/para_que son funciones (no strings fijos) para que se puedan seguir
+// leyendo del idioma activo en cada repintado, no solo del que estaba
+// activo cuando se declaró este objeto.
 const PRESET_UI_OVERRIDE = {
+  tactico: {
+    titulo: ()=>t('preset.tactical.title'),
+    para_que: ()=>t('preset.tactical.desc'),
+  },
+  cartografico: {
+    titulo: ()=>t('preset.cartographic.title'),
+    para_que: ()=>t('preset.cartographic.desc'),
+  },
+  forense: {
+    titulo: ()=>t('preset.forensic.title'),
+    para_que: ()=>t('preset.forensic.desc'),
+  },
   vistazo: {
-    titulo: '⚡ Urgencia',
-    // Multiespectral queda AFUERA del submuestreo (ver docker/entrypoint.sh,
-    // junto a "python3 scripts/subsample_photos.py"): medido en vivo, con
-    // menos fotos sus bandas monocromáticas no encadenan un SfM incremental
-    // completo — RGB/térmico terminan con 99% de sus fotos reconstruidas,
-    // multiespectral se quedaba en 15% (ortomosaico recortado a una
-    // fracción chica del vuelo real). Tarda más que RGB/térmico, pero llega
-    // completo.
-    para_que: 'Respuesta inmediata: RGB y térmico procesan 1 de cada 3 fotos, corta el SfM casi a la tercera parte. ' +
-      'Multiespectral reconstruye completo (submuestrearlo lo fragmenta) — tarda más, pero no se recorta el mosaico. ' +
-      'Las originales quedan intactas y la próxima corrida las restaura solas.',
+    titulo: ()=>t('preset.tactical.title'),
+    para_que: ()=>t('preset.tactical.desc'),
+  },
+  estandar: {
+    titulo: ()=>t('preset.cartographic.title'),
+    para_que: ()=>t('preset.cartographic.desc'),
+  },
+  maxima: {
+    titulo: ()=>t('preset.forensic.title'),
+    para_que: ()=>t('preset.forensic.desc'),
   },
 };
 
@@ -1410,17 +2017,16 @@ function pintarPresets(opciones){
   const grid = $('preset-grid');
   grid.innerHTML = '';
   for(const o of opciones){
-    if(!PRESETS_UI_VISIBLES.includes(o.nombre)) continue;
     const ui = PRESET_UI_OVERRIDE[o.nombre] || {};
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'preset-card' + (o.nombre === presetElegido ? ' sel' : '');
     b.setAttribute('role','radio');
     b.setAttribute('aria-checked', o.nombre === presetElegido ? 'true' : 'false');
-    b.innerHTML = `<span class="pc-titulo">${ui.titulo || o.titulo}</span>`
+    b.innerHTML = `<span class="pc-titulo">${ui.titulo ? ui.titulo() : o.titulo}</span>`
                 + `<span class="pc-tiempo">${o.tiempo_texto}</span>`
-                + `<span class="pc-para">${ui.para_que || o.para_que}</span>`
-                + `<span class="pc-res">hasta ${o.res_cm} cm/px</span>`;
+                + `<span class="pc-para">${ui.para_que ? ui.para_que() : o.para_que}</span>`
+                + `<span class="pc-res">${t('preset.upTo', {cm: o.res_cm})}</span>`;
     b.addEventListener('click', ()=>{
       presetElegido = o.nombre;
       refreshQualityEstimate();
@@ -1435,7 +2041,7 @@ function refreshQualityEstimate(){
   qualityTimer = setTimeout(async ()=>{
     const name = $('mname').value.trim();
     const note = $('quality-note'), noteT = $('quality-note-t');
-    if(!name){ noteT.textContent = 'Elige un nombre de misión para estimar tiempo y resolución.'; return; }
+    if(!name){ noteT.textContent = t('quality.needName'); return; }
     try{
       const mode = selectedMode();
       // n_photos sale de acá, no del servidor: el navegador ya sabe cuántas
@@ -1452,7 +2058,8 @@ function refreshQualityEstimate(){
       if(sensors.ms) n_photos += ms.ms;
       const params = new URLSearchParams({preset:presetElegido, mode,
                                           terreno:selectedTerreno(),
-                                          has_multispectral:sensors.ms, n_photos});
+                                          has_multispectral:sensors.ms, n_photos,
+                                          lang:LANG});
       const m = await (await fetch(`/api/missions/${encodeURIComponent(name)}/quality-estimate?${params}`)).json();
       // El servidor devuelve los CINCO presets con su tiempo para este
       // vuelo: se repintan todos, no solo el elegido, así la comparación
@@ -1461,7 +2068,7 @@ function refreshQualityEstimate(){
       noteT.innerHTML = `${m.modelo_texto}<br><br>${m.resolucion_texto}<br><br>${m.tiempo_texto}`;
       const live = $('quality-note-live'); if(live) live.textContent = m.tiempo_texto;
     }catch(e){
-      noteT.textContent = 'No se pudo estimar (¿la misión ya tiene nombre?).';
+      noteT.textContent = t('quality.estimateError');
     }
   }, 350);
 }
@@ -1470,6 +2077,13 @@ $('in-add').addEventListener('change', ()=>{
   addFilesToForm(Array.from($('in-add').files));
   $('in-add').value = ''; // permite volver a elegir la MISMA carpeta si hace falta sumar algo más
 });
+const _inAddFiles = $('in-add-files');
+if(_inAddFiles){
+  _inAddFiles.addEventListener('change', ()=>{
+    addFilesToForm(Array.from(_inAddFiles.files));
+    _inAddFiles.value = '';
+  });
+}
 
 // Recorre recursivamente lo arrastrado (carpetas incluidas). Un <input
 // webkitdirectory> ya da la lista plana de una carpeta entera con un solo
@@ -1534,127 +2148,162 @@ function selectedTerreno(){
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Entrega: qué productos, dónde, en qué formato y CRS
+// Exportación a demanda: modal aparte, disparado desde el botón "Exportar"
+// de una misión ya con productos generados (ver loadMissions()) — ya no se
+// decide nada de esto durante el setup. Qué productos se OFRECEN lo decide
+// el servidor (/api/missions/{m}/export-options: solo lo que de verdad
+// existe en outputs/ de ESA misión), acá solo viven las etiquetas.
 // ═══════════════════════════════════════════════════════════════════
-// `avail` decide si el producto puede existir CON LA CONFIGURACIÓN ACTUAL.
-// Los que no, se muestran deshabilitados en vez de ocultarse: así queda claro
-// qué habría que activar para obtenerlos, en vez de que desaparezcan sin
-// explicación. Las claves son las mismas de CATALOG en export_products.py.
-// confidence (máscara RGB ∩ térmico) NO está acá a propósito: es un producto
-// interno del pipeline (recorta hotspot/severidad), no algo que un usuario
-// final entregue — sigue existiendo en outputs/, solo se sacó de la lista
-// exportable.
-// esModoTermico(): 'rgb+thermal' y 'thermal' generan el ortomosaico térmico
-// por igual — la diferencia entre ambos es solo si se reconstruye o no el
-// RGB, no si hay térmico.
-const esModoTermico = ()=>selectedMode()==='rgb+thermal'||selectedMode()==='thermal';
-const EXPORT_CATALOG = [
-  {k:'rgb',           t:'Ortomosaico RGB',        d:'rgb_orthomosaic.tif',    avail:()=>sensors.rt&&selectedMode()!=='thermal'},
-  {k:'thermal',       t:'Ortomosaico térmico',    d:'temperaturas en °C',     avail:esModoTermico},
-  // Modo solo térmico sin multiespectral: ningún proyecto de la misión pide
-  // --dsm (ver el comentario en docker/entrypoint.sh) — no hay modelo de
-  // superficie que ofrecer.
-  {k:'dsm',           t:'Modelo de superficie',   d:'dsm.tif',                avail:()=>!(selectedMode()==='thermal'&&!sensors.ms)},
-  {k:'multispectral', t:'Ortomosaico multiespectral', d:'4 bandas + alpha',   avail:()=>sensors.ms},
-  {k:'indices',       t:'Índices de vegetación',  d:'NDVI, GNDVI, NDRE, MSAVI2', avail:()=>sensors.ms},
-  {k:'classes',       t:'Severidad y hotspots',   d:'rásters de clases',      avail:()=>sensors.ms&&esModoTermico()},
-  {k:'area',          t:'Área afectada',          d:'polígono vectorial',     avail:()=>sensors.ms&&esModoTermico()},
-  {k:'situation',     t:'Resumen de situación',   d:'situation.json',         avail:()=>sensors.ms&&esModoTermico()},
-  {k:'flight_path',   t:'Ruta de vuelo',          d:'recorrido + capturas',   avail:()=>true},
-  {k:'pointclouds',   t:'Nubes de puntos',        d:'COPC (.copc.laz)',       avail:()=>true},
-];
+const EXPORT_LABELS = {
+  rgb:           {t:()=>t('exp.rgb.t'),        d:()=>'rgb_orthomosaic.tif'},
+  thermal:       {t:()=>t('exp.thermal.t'),    d:()=>t('exp.thermal.d')},
+  dsm:           {t:()=>t('exp.dsm.t'),        d:()=>'dsm.tif'},
+  multispectral: {t:()=>t('exp.ms.t'),         d:()=>t('exp.ms.d')},
+  indices:       {t:()=>t('exp.indices.t'),    d:()=>t('exp.indices.d')},
+  classes:       {t:()=>t('exp.classes.t'),    d:()=>t('exp.classes.d')},
+  situation:     {t:()=>t('exp.situation.t'),  d:()=>'situation.json'},
+  flight_path:   {t:()=>t('exp.flightPath.t'), d:()=>t('exp.flightPath.d')},
+  pointclouds:   {t:()=>t('exp.pointclouds.t'),d:()=>'COPC (.copc.laz)'},
+};
 // Marcados por defecto solo los productos de decisión directa (ortomosaicos,
-// índices, severidad, área afectada) — dsm/flight_path/pointclouds/situation
-// siguen ofrecidos (el usuario los tilda si los quiere) pero no vienen
-// tildados de entrada: son insumos técnicos, no lo primero que alguien busca
-// en una entrega.
+// índices, hotspot) — dsm/flight_path/pointclouds/situation siguen ofrecidos
+// pero no vienen tildados de entrada: son insumos técnicos, no lo primero
+// que alguien busca en una entrega.
 const EXPORT_DEFAULT_OFF = new Set(['dsm', 'flight_path', 'pointclouds', 'situation']);
-let expChecked = new Set(EXPORT_CATALOG.filter(p=>!EXPORT_DEFAULT_OFF.has(p.k)).map(p=>p.k));
 
-function exporting(){
-  if(!expEnabled) return false;
-  const el = document.querySelector('input[name=doexport]:checked');
-  return !el || el.value === '1';
+const EPSG_HINT_KEYS = {
+  '9377':   'epsg.hint.9377',
+  'source': 'epsg.hint.source',
+  '4326':   'epsg.hint.4326',
+  'custom': 'epsg.hint.custom',
+};
+
+let xmMission = '';
+let xmAvailable = [];
+let xmChecked = new Set();
+
+async function openExportModal(missionName){
+  xmMission = missionName;
+  xmChecked = new Set();
+  $('xm-title').textContent = t('export.modal.title') + ' — ' + missionName;
+  $('xm-done').classList.add('hidden');
+  $('xm-done').innerHTML = '';
+  $('xm-note').classList.add('hidden');
+  $('xm-dir').value = '';
+  setExportModalStatus('');
+  $('export-overlay').classList.add('open');
+  try{
+    const r = await (await fetch(`/api/missions/${encodeURIComponent(missionName)}/export-options`)).json();
+    xmAvailable = r.available_products || [];
+    $('xm-disabled').classList.toggle('hidden', !!r.export_enabled);
+    $('xm-form').classList.toggle('hidden', !r.export_enabled);
+    if(r.export_enabled){
+      $('xm-dir').value = r.default_export_dir || '';
+      xmChecked = new Set(xmAvailable.filter(k=>!EXPORT_DEFAULT_OFF.has(k)));
+      renderExportModalProducts();
+    }
+  }catch(e){
+    xmAvailable = [];
+    $('xm-disabled').classList.remove('hidden');
+    $('xm-form').classList.add('hidden');
+  }
 }
 
-function renderExportProducts(){
-  const box = $('exp-products');
-  box.innerHTML = EXPORT_CATALOG.map(p=>{
-    const ok = p.avail();
-    const on = ok && expChecked.has(p.k);
-    return `<label class="chk ${on?'on':''} ${ok?'':'dis'}">
-      <input type="checkbox" ${on?'checked':''} ${ok?'':'disabled'}
-             onchange="toggleExportProduct('${p.k}',this.checked)">
-      <div><div class="ct">${p.t}</div><div class="cd">${ok?p.d:'no aplica a esta configuración'}</div></div>
+function closeExportModal(){
+  $('export-overlay').classList.remove('open');
+}
+
+function renderExportModalProducts(){
+  $('xm-products').innerHTML = xmAvailable.map(k=>{
+    const lbl = EXPORT_LABELS[k];
+    const on = xmChecked.has(k);
+    return `<label class="chk ${on?'on':''}">
+      <input type="checkbox" ${on?'checked':''} onchange="toggleExportModalProduct('${k}',this.checked)">
+      <div><div class="ct">${lbl.t()}</div><div class="cd">${lbl.d()}</div></div>
     </label>`;
   }).join('');
 }
 
-function toggleExportProduct(k, on){
-  if(on) expChecked.add(k); else expChecked.delete(k);
-  renderExportProducts();
+function toggleExportModalProduct(k, on){
+  if(on) xmChecked.add(k); else xmChecked.delete(k);
+  renderExportModalProducts();
 }
 
-function selectedExportProducts(){
-  return EXPORT_CATALOG.filter(p=>p.avail() && expChecked.has(p.k)).map(p=>p.k);
+function xmSelectedEpsg(){
+  const v = $('xm-epsg').value;
+  return v === 'custom' ? $('xm-epsg-custom').value.trim() : v;
 }
 
-function selectedEpsg(){
-  const v = $('exp-epsg').value;
-  return v === 'custom' ? $('exp-epsg-custom').value.trim() : v;
-}
-
-const EPSG_HINTS = {
-  '9377':   'Sistema único nacional de Colombia (IGAC). Es el que esperan las entidades para cartografía oficial.',
-  'source': 'Se entrega tal cual la produjo ODM, sin reproyectar. Es lo más fiel al dato original.',
-  '4326':   'Coordenadas geográficas en grados. Útil para web, no para medir áreas o distancias.',
-  'custom': 'Cualquier código EPSG proyectado o geográfico que reconozca PROJ.',
-};
-
-function onEpsgChange(){
-  const v = $('exp-epsg').value;
-  $('exp-epsg-custom').classList.toggle('hidden', v !== 'custom');
-  $('exp-epsg-h').textContent = EPSG_HINTS[v] || '';
-  checkExport();
+function onExportEpsgChange(){
+  const v = $('xm-epsg').value;
+  $('xm-epsg-custom').classList.toggle('hidden', v !== 'custom');
+  $('xm-epsg-h').textContent = EPSG_HINT_KEYS[v] ? t(EPSG_HINT_KEYS[v]) : '';
+  checkExportModal();
 }
 
 // Comprobación en vivo de la carpeta y el EPSG: el error más probable acá es
 // una ruta del host que no está montada en el contenedor, y descubrirlo recién
-// al final de una corrida de una hora sería justo lo que la validación previa
-// existe para evitar.
-let expTimer = null;
-function checkExport(){
-  clearTimeout(expTimer);
-  expTimer = setTimeout(async ()=>{
-    const name = $('mname').value.trim();
-    const dir  = $('exp-dir').value.trim();
-    const note = $('exp-note'), noteT = $('exp-note-t');
-    if(!name || !dir || !exporting()){ note.classList.add('hidden'); return; }
+// al terminar de completar el formulario sería justo lo que esta validación
+// en vivo existe para evitar.
+let xmTimer = null;
+function checkExportModal(){
+  clearTimeout(xmTimer);
+  xmTimer = setTimeout(async ()=>{
+    const dir = $('xm-dir').value.trim();
+    const note = $('xm-note'), noteT = $('xm-note-t');
+    if(!dir){ note.classList.add('hidden'); return; }
     try{
       const fd = new FormData();
       fd.append('export_dir', dir);
-      fd.append('export_epsg', selectedEpsg());
-      const r = await fetch(`/api/missions/${encodeURIComponent(name)}/check-export`,
+      fd.append('export_epsg', xmSelectedEpsg());
+      const r = await fetch(`/api/missions/${encodeURIComponent(xmMission)}/check-export`,
                             {method:'POST', body:fd});
       const d = await r.json();
       note.classList.remove('hidden','ok','err');
       if(d.ok){
         note.classList.add('ok');
-        noteT.innerHTML = `Se escribirá en <b>${d.resolved}</b>` +
-          (d.crs_name ? ` · reproyectado a <b>${d.crs_name}</b>` : ' · sin reproyectar');
+        noteT.innerHTML = t('export.writtenTo', {path: d.resolved}) +
+          (d.crs_name ? t('export.reprojectedTo', {crs: d.crs_name}) : t('export.noReproject'));
       }else{
         note.classList.add('err');
         noteT.innerHTML = d.errors.join(' ');
       }
-      renderRail();
     }catch(e){ note.classList.add('hidden'); }
   }, 450);
 }
-let expDirTouched = false;
-let expEnabled = false;     // ¿se arrancó con una carpeta del host montada?
-let expHostRoot = '';       // qué carpeta del host es esa
-$('exp-dir').addEventListener('input', ()=>{ expDirTouched = true; checkExport(); });
-$('exp-epsg-custom').addEventListener('input', checkExport);
+$('xm-dir').addEventListener('input', checkExportModal);
+$('xm-epsg-custom').addEventListener('input', checkExportModal);
+
+function setExportModalStatus(msg){ $('xm-status').textContent = msg; }
+
+async function submitExportModal(){
+  const dir = $('xm-dir').value.trim();
+  if(!dir){ setExportModalStatus(t('export.modal.needFolder')); return; }
+  if(!xmChecked.size){ setExportModalStatus(t('export.modal.needProduct')); return; }
+  $('xm-submit').disabled = true;
+  setExportModalStatus(t('export.modal.exporting'));
+  try{
+    const fd = new FormData();
+    fd.append('export_dir', dir);
+    fd.append('export_products', Array.from(xmChecked).join(','));
+    fd.append('export_raster_format', $('xm-rfmt').value);
+    fd.append('export_vector_format', $('xm-vfmt').value);
+    fd.append('export_epsg', xmSelectedEpsg());
+    const r = await fetch(`/api/missions/${encodeURIComponent(xmMission)}/export`,
+                          {method:'POST', body:fd});
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.detail || t('export.modal.failed'));
+    $('xm-form').classList.add('hidden');
+    $('xm-done').classList.remove('hidden');
+    $('xm-done').innerHTML = `<div class="note ok"><span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg></span>
+      <div>${t('export.modal.done', {dir: d.host_dir || dir})}</div></div>`;
+    setExportModalStatus('');
+  }catch(e){
+    setExportModalStatus(e.message || t('export.modal.failed'));
+  }finally{
+    $('xm-submit').disabled = false;
+  }
+}
 
 // ── Importar carpetas ya presentes en el disco del servidor (mismo equipo:
 // sin esto habría que subirlas por el navegador para volver a escribirlas
@@ -1672,7 +2321,7 @@ let imported = {rgb_thermal:[], multispectral:[]};   // carpetas ya agregadas, p
 // tiene sentido mostrárselas separadas por sensor acá.
 function renderImportedList(elId){
   const el = $(elId);
-  const KIND_LABEL = {rgb_thermal:'RGB/térmico', multispectral:'multiespectral'};
+  const KIND_LABEL = {rgb_thermal:t('label.rgbThermal'), multispectral:t('label.multispectral')};
   const list = [
     ...(imported.rgb_thermal||[]).map(f=>({...f, kind:'rgb_thermal'})),
     ...(imported.multispectral||[]).map(f=>({...f, kind:'multispectral'})),
@@ -1681,7 +2330,7 @@ function renderImportedList(elId){
   el.innerHTML = list.map(f => `<div class="imported-item">
     <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg><span class="p" title="${f.host_path}">${f.host_path}</span>
     <span class="tag">${KIND_LABEL[f.kind]}</span>
-    <span class="rm" onclick="removeImported('${f.kind}','${f.name.replace(/'/g,"\\'")}')" title="Sacar esta carpeta">
+    <span class="rm" onclick="removeImported('${f.kind}','${f.name.replace(/'/g,"\\'")}')" title="${t('picker.removeFolder')}">
       <svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></span>
   </div>`).join('');
 }
@@ -1698,18 +2347,21 @@ async function removeImported(kind, name){
 // propio hint (rgb/thermal/ms/dband) y de ahí sale a qué balde va cuando se
 // tilda (ver kindFromHint()).
 let pickerPath = '';
-// Selección DENTRO de la carpeta que se está mirando ahora mismo — host_path
-// → kind. Se vacía al navegar (ver browseTo()): elegir varias a la vez es
-// para carpetas HERMANAS en el mismo listado (el caso real: una SD con
-// 100MEDIA/101MEDIA/102MEDIA todas al mismo nivel), no un carrito que
-// sobrevive saltos de carpeta — eso complicaría el picker sin que nadie lo
-// haya pedido.
+// host_path → kind, de TODO lo tildado en esta sesión del picker — sobrevive
+// navegar a otra carpeta (ver browseTo()), a propósito: el caso real es una
+// misión con carpetas de vuelo en ubicaciones distintas (no todas hermanas
+// bajo el mismo padre — p.ej. varias sub-rutas de un mismo vuelo M3M
+// guardadas en subcarpetas separadas), así que elegir una, navegar a otra
+// carpeta y elegir otra tiene que sumar, no perder la primera. Se vacía solo
+// al abrir el picker de cero (openFolderPicker()) o después de agregar
+// (addSelectedFolders()) — no en cada browseTo().
 let pickerSelected = new Map();
 
 function openFolderPicker(){
   const mission = $('mname').value.trim();
-  if(!mission){ flashNameMsg('Poné un nombre para la misión primero.'); return; }
+  if(!mission){ flashNameMsg(t('picker.needName')); return; }
   pickerPath = '';
+  pickerSelected = new Map();
   $('picker-overlay').classList.add('open');
   browseTo('');
 }
@@ -1739,13 +2391,12 @@ function kindFromHint(h){
 
 async function browseTo(path){
   const list = $('picker-list');
-  list.innerHTML = '<div class="picker-empty">Cargando…</div>';
-  pickerSelected = new Map();
+  list.innerHTML = `<div class="picker-empty">${t('loading')}</div>`;
   updatePickerFooter();
   try{
     const r = await fetch(`/api/import/browse?path=${encodeURIComponent(path)}`);
     const d = await r.json();
-    if(!r.ok) throw new Error(d.detail || 'no se pudo leer esa carpeta');
+    if(!r.ok) throw new Error(d.detail || t('error.readFolder'));
     pickerPath = d.host_path;
     renderPicker(d);
   }catch(e){
@@ -1755,7 +2406,7 @@ async function browseTo(path){
 
 function updatePickerFooter(){
   const n = pickerSelected.size;
-  $('picker-sel-count').textContent = n ? `${n} carpeta${n===1?'':'s'} seleccionada${n===1?'':'s'}` : '';
+  $('picker-sel-count').textContent = n ? t(n===1?'picker.selectedOne':'picker.selectedMany', {n}) : '';
   $('picker-add-sel').disabled = n === 0;
 }
 
@@ -1763,13 +2414,13 @@ function renderPicker(d){
   // Migas de pan: solo raíz → acá (no hace falta la cadena completa para
   // orientarse, y evita rearmar el árbol entero del lado del cliente).
   const crumbs = [];
-  if(d.parent !== null) crumbs.push(`<a onclick="browseTo('${d.parent.replace(/'/g,"\\'")}')"><svg class="ic" style="width:.85em;height:.85em" aria-hidden="true"><use href="#i-chev-up"/></svg> Subir</a>`);
+  if(d.parent !== null) crumbs.push(`<a onclick="browseTo('${d.parent.replace(/'/g,"\\'")}')"><svg class="ic" style="width:.85em;height:.85em" aria-hidden="true"><use href="#i-chev-up"/></svg> ${t('picker.upLink')}</a>`);
   crumbs.push(`<span>${d.host_path}</span>`);
   $('picker-crumbs').innerHTML = crumbs.join('<span style="color:var(--tx3)"> · </span>');
 
   const list = $('picker-list');
   if(!d.entries.length){
-    list.innerHTML = '<div class="picker-empty">No hay subcarpetas acá.</div>';
+    list.innerHTML = `<div class="picker-empty">${t('picker.noSubfolders')}</div>`;
     return;
   }
   const yaAgregadas = new Set([
@@ -1778,8 +2429,8 @@ function renderPicker(d){
   ]);
   list.innerHTML = d.entries.map(e=>{
     const h = e.hint;
-    const hintTxt = h.total ? `${h.rgb?h.rgb+' RGB ':''}${h.thermal?h.thermal+' térm. ':''}${h.ms?h.ms+' MS ':''}${h.dband?h.dband+' banda D ':''}${!h.rgb&&!h.thermal&&!h.ms&&!h.dband?h.total+' archivos':''}`.trim()
-                             : 'vacía';
+    const hintTxt = h.total ? `${h.rgb?h.rgb+' RGB ':''}${h.thermal?h.thermal+' '+t('picker.thermalShort'):''}${h.ms?h.ms+' MS ':''}${h.dband?h.dband+' '+t('picker.dbandShort'):''}${!h.rgb&&!h.thermal&&!h.ms&&!h.dband?t('picker.filesCount',{n:h.total}):''}`.trim()
+                             : t('picker.empty');
     const added = yaAgregadas.has(e.host_path);
     const kind = kindFromHint(h);
     const hp = e.host_path.replace(/'/g,"\\'");
@@ -1787,15 +2438,19 @@ function renderPicker(d){
     // se deja entrar igual (puede ser una carpeta intermedia con
     // subcarpetas adentro) pero no se puede tildar directamente.
     // Checkbox en vez de un botón que agrega al toque: así se puede tildar
-    // VARIAS carpetas hermanas (p.ej. 100MEDIA/101MEDIA/102MEDIA de una SD)
-    // en el mismo listado y mandarlas juntas con "Agregar seleccionadas",
-    // en vez de un viaje al servidor por carpeta.
-    const check = added ? `<span class="hint" style="color:var(--ok);flex-shrink:0">✓ agregada</span>`
-      : kind ? `<input type="checkbox" class="sel" data-hp="${hp}" data-kind="${kind}">`
-      : `<input type="checkbox" class="sel" disabled title="No se reconoce contenido de vuelo acá">`;
+    // VARIAS carpetas — hermanas en el mismo listado (p.ej.
+    // 100MEDIA/101MEDIA/102MEDIA de una SD) o de listados distintos
+    // navegando entre medio (pickerSelected sobrevive el salto, ver su
+    // comentario) — y mandarlas todas juntas con "Agregar seleccionadas",
+    // en vez de un viaje al servidor por carpeta. Se pre-tilda si ya estaba
+    // marcada de una navegación anterior.
+    const yaTildada = pickerSelected.has(e.host_path);
+    const check = added ? `<span class="hint" style="color:var(--ok);flex-shrink:0">${t('picker.added')}</span>`
+      : kind ? `<input type="checkbox" class="sel" data-hp="${hp}" data-kind="${kind}"${yaTildada?' checked':''}>`
+      : `<input type="checkbox" class="sel" disabled title="${t('picker.noFlightContent')}">`;
     return `<div class="picker-row ${added?'added':''}">
       <svg class="ic" onclick="browseTo('${hp}')" aria-hidden="true"><use href="#i-folder"/></svg>
-      <span class="nm" onclick="browseTo('${hp}')" title="Entrar a ${e.name}">${e.name}</span>
+      <span class="nm" onclick="browseTo('${hp}')" title="${t('picker.enterFolder',{name:e.name})}">${e.name}</span>
       <span class="hint">${hintTxt}</span>
       ${check}
     </div>`;
@@ -1814,7 +2469,7 @@ async function addSelectedFolders(){
   const btn = $('picker-add-sel');
   const entradas = [...pickerSelected.entries()];
   if(!entradas.length) return;
-  btn.disabled = true; btn.textContent = 'Agregando…';
+  btn.disabled = true; btn.textContent = t('picker.adding');
   const fallidas = [];
   // Secuencial, no Promise.all: cada POST es un symlink (rápido), y así el
   // orden de "cuál falló" queda claro en vez de N requests concurrentes
@@ -1825,17 +2480,23 @@ async function addSelectedFolders(){
     try{
       const r = await fetch(`/api/missions/${encodeURIComponent(mission)}/import-local`, {method:'POST', body:fd});
       const j = await r.json();
-      if(!r.ok) throw new Error(j.detail || 'no se pudo agregar');
+      if(!r.ok) throw new Error(j.detail || t('error.couldNotAdd'));
     }catch(e){
       fallidas.push(hostPath.split('/').pop());
     }
   }
-  btn.textContent = 'Agregar seleccionadas';
+  btn.textContent = t('picker.addSelected');
+  // Se vacía DESPUÉS de mandarlas: lo recién agregado pasa a mostrarse como
+  // "✓ agregada" (yaAgregadas, derivado del estado real de la misión) en vez
+  // de quedar como una selección fantasma que ya no tiene checkbox al que
+  // volver — sin esto el contador del pie quedaba inflado con carpetas que
+  // ya no se podían destildar.
+  pickerSelected = new Map();
   await loadStatus(mission); refreshUI();
   await browseTo(pickerPath);   // re-renderiza esta misma carpeta con el estado "✓ agregada" al día
   if(fallidas.length){
     $('picker-list').insertAdjacentHTML('afterbegin',
-      `<div class="picker-empty" style="color:var(--err)">No se pudo agregar: ${fallidas.join(', ')}</div>`);
+      `<div class="picker-empty" style="color:var(--err)">${t('picker.couldNotAddList', {list: fallidas.join(', ')})}</div>`);
   }
 }
 
@@ -1851,7 +2512,7 @@ async function uploadFiles(mission, kind, fileList, cb){
       const fd = new FormData();
       fd.append('mission', mission); fd.append('kind', kind); fd.append('file', f);
       const r = await fetch('/api/upload', {method:'POST', body:fd});
-      if(!r.ok) throw new Error(`no se pudo subir ${f.name}`);
+      if(!r.ok) throw new Error(t('error.couldNotUpload', {name: f.name}));
       cb(++done, files.length);
     }
   };
@@ -1861,7 +2522,7 @@ async function uploadFiles(mission, kind, fileList, cb){
 function setUpload(label, done, total){
   $('upbox').classList.remove('hidden');
   const pct = total ? Math.round(done/total*100) : 0;
-  $('uplabel').textContent = `${label} · ${done}/${total} archivos`;
+  $('uplabel').textContent = t('upload.filesProgress', {label, done, total});
   $('uppct').textContent = pct + '%';
   $('upbar').style.width = pct + '%';
 }
@@ -1877,63 +2538,44 @@ async function uploadAndStart(){
   const mission = $('mname').value.trim();
   const mode = selectedMode();
   const hasMS = sensors.ms;
-  if(!mission) return setupError('Pon un nombre para la misión.');
+  if(!mission) return setupError(t('error.missionName'));
 
   const fRT = filesForKind('rgb_thermal');
   const fMS = filesForKind('multispectral');
   const cRT = totalFor('rgb_thermal'), cMS = totalFor('multispectral');
   // Chequeos locales (instantáneos, antes de subir un solo byte)
-  if(sensors.rt && !cRT.rgb)
-    return setupError('La carpeta agregada del vuelo M3T/H20T no tiene fotos RGB (<code>*_V.JPG</code> / <code>*_W.JPG</code>). '
-      + 'Revisá que sea la carpeta correcta.');
-  if((mode === 'rgb+thermal' || mode === 'thermal') && !cRT.thermal)
-    return setupError('Elegiste un producto con térmico pero no hay fotos térmicas (<code>*_T.JPG</code>). '
-      + 'Agrega la carpeta con las térmicas, o cambia el producto a «Solo ortomosaico RGB».');
-  if(sensors.ms && !cMS.ms)
-    return setupError('La carpeta agregada del vuelo M3M no tiene bandas multiespectrales (<code>*_MS_*.TIF</code>). '
-      + 'Revisá que sea la carpeta correcta.');
-  if(exporting()){
-    if(!$('exp-dir').value.trim())
-      return setupError('Elegiste exportar pero no indicaste la carpeta de destino. '
-        + 'Pon una ruta, o cambia la entrega a «No exportar».');
-    if(!selectedExportProducts().length)
-      return setupError('Elegiste exportar pero no marcaste ningún producto. '
-        + 'Marca al menos uno, o cambia la entrega a «No exportar».');
-    if($('exp-epsg').value === 'custom' && !$('exp-epsg-custom').value.trim())
-      return setupError('Elegiste «Otro código EPSG» pero no escribiste ninguno. '
-        + 'Pon el código (p. ej. <code>32618</code>) o elige una de las opciones de la lista.');
+  if(mode === 'thermal-convert'){
+    if(!cRT.thermal)
+      return setupError(t('error.noThermalPhotos'));
+  }else{
+    if(sensors.rt && !cRT.rgb)
+      return setupError(t('error.noRgbPhotos'));
+    if((mode === 'rgb+thermal' || mode === 'thermal') && !cRT.thermal)
+      return setupError(t('error.noThermalPhotos'));
   }
+  if(sensors.ms && !cMS.ms)
+    return setupError(t('error.noMsBands'));
 
   const btn = $('btn-start'); btn.disabled = true;
   try{
-    if(fRT.length) await uploadFiles(mission,'rgb_thermal',fRT,(d,t)=>setUpload('Subiendo vuelo RGB/térmico',d,t));
-    if(fMS.length) await uploadFiles(mission,'multispectral',fMS,(d,t)=>setUpload('Subiendo vuelo multiespectral',d,t));
+    if(fRT.length) await uploadFiles(mission,'rgb_thermal',fRT,(d,n)=>setUpload(t('upload.rgbThermal'),d,n));
+    if(fMS.length) await uploadFiles(mission,'multispectral',fMS,(d,n)=>setUpload(t('upload.multispectral'),d,n));
 
-    $('uplabel').textContent = 'Iniciando procesamiento…'; $('uppct').textContent = '';
-    const reuseEl = document.querySelector('input[name=reuse]:checked');
-    const reuse = ($('blk-reuse').classList.contains('hidden') || !reuseEl) ? '0' : reuseEl.value;
+    $('uplabel').textContent = t('upload.starting'); $('uppct').textContent = '';
     const fd = new FormData();
     fd.append('mode', mode);
     fd.append('has_multispectral', hasMS ? 'true':'false');
     fd.append('dband', (hasMS && !$('o-dband').classList.contains('hidden') && $('in-dband').checked) ? 'true':'false');
-    fd.append('reuse_odm', reuse === '1' ? 'true':'false');
     fd.append('preset', presetElegido);
     fd.append('terreno', selectedTerreno());
     // «Urgencia» (ver pintarPresets/PRESET_UI_OVERRIDE) ES el preset
     // 'vistazo' con submuestreo SIEMPRE activado — ya no es un checkbox
     // aparte que se pudiera dejar destildado por error.
     fd.append('subsample', presetElegido === 'vistazo' ? '3' : '0');
-    if(exporting()){
-      fd.append('export_dir', $('exp-dir').value.trim());
-      fd.append('export_products', selectedExportProducts().join(','));
-      fd.append('export_raster_format', $('exp-rfmt').value);
-      fd.append('export_vector_format', $('exp-vfmt').value);
-      fd.append('export_epsg', selectedEpsg());
-    }
     const r = await fetch(`/api/missions/${encodeURIComponent(mission)}/start`, {method:'POST', body:fd});
     if(!r.ok){
       let d; try{ d = JSON.parse(await r.text()); }catch(_){ d = null; }
-      throw new Error(d && d.detail ? d.detail : 'no se pudo iniciar el procesamiento');
+      throw new Error(d && d.detail ? d.detail : t('error.couldNotStart'));
     }
     // Arrancó: en vez de mostrar una pantalla de progreso PROPIA acá, se
     // navega directo al geovisor integrado — /view/ ya activó los symlinks
@@ -1950,10 +2592,9 @@ async function uploadAndStart(){
 }
 
 // Entrada directa a "agregar multiespectral" desde el geovisor: una misión
-// sin datos MS no puede mostrar área afectada/severidad/hotspot-recortado/
-// índices (necesitan NDVI), y el geovisor linkea acá en vez de dejar esas
-// capas mudas sin explicación — ver el botón "➕ Agregar vuelo multiespectral"
-// en geovisor/index.html.
+// sin datos MS no puede mostrar índices de vegetación (necesitan NDVI), y el
+// geovisor linkea acá en vez de dejar esas capas mudas sin explicación — ver
+// el botón "➕ Agregar vuelo multiespectral" en geovisor/index.html.
 (function abrirDesdeGeovisor(){
   const p = new URLSearchParams(location.search);
   const mision = p.get('mission');

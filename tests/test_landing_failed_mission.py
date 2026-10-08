@@ -21,7 +21,7 @@ def _js():
 def _bloque_boton():
     js = _js()
     ini = js.index("let btn = '';")
-    fin = js.index("\n", js.index("Continuar</button>`;", ini)) + 1
+    fin = js.index("\n", js.index("btn.continue')}</button>`;", ini)) + 1
     return js[ini:fin]
 
 

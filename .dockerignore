@@ -23,3 +23,5 @@ projects/
 .freebuff/
 .pytest_cache/
 .claude/
+.agents/
+node_modules/

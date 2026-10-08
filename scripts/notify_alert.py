@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Alerta de focos activos / área afectada — para que el puesto de mando se
-entere sin tener que abrir el geovisor.
+"""Alerta de focos activos — para que el puesto de mando se entere sin tener
+que abrir el geovisor.
 
 Se llama DESPUÉS de cada situation-summary (ver docker/entrypoint.sh). Si
-situation.json reporta focos activos (hotspots_activos > 0) o área afectada,
-escribe outputs/alert.json (siempre) y, si ALERT_WEBHOOK_URL está definida,
-hace un POST con el payload a ese webhook (Slack/Telegram/Teams/Genérico —
-cualquiera que acepte un JSON por POST).
+situation.json reporta focos activos (hotspots_activos > 0), escribe
+outputs/alert.json (siempre) y, si ALERT_WEBHOOK_URL está definida, hace un
+POST con el payload a ese webhook (Slack/Telegram/Teams/Genérico — cualquiera
+que acepte un JSON por POST).
 
 Nunca rompe el pipeline: el entrypoint la llama con `|| true`, y los errores
 de red se loguean y se ignoran — la alerta es un extra, no un requisito.
@@ -36,20 +36,17 @@ def main():
         s = json.load(f)
 
     n_focos = s.get("hotspots_activos") or 0
-    area = s.get("area_ha")
-    activo = n_focos > 0 or (area not in (None, 0))
-    if not activo:
-        print("  📡 sin focos activos ni área detectada — no se genera alerta")
+    if n_focos <= 0:
+        print("  📡 sin focos activos — no se genera alerta")
         return 0
 
     payload = {
-        "evento": "focos_activos" if n_focos > 0 else "area_afectada",
+        "evento": "focos_activos",
         "mision": os.environ.get("RAPTOR_MISSION", "mision"),
         "captura": s.get("captura"),
     }
-    for k in ("hotspots_activos", "area_ha", "severidad", "temp_max",
-              "temp_promedio", "confianza", "cobertura_pct", "solo_termico",
-              "area_volada_km2", "alerta_cobertura_baja"):
+    for k in ("hotspots_activos", "temp_max", "temp_promedio", "confianza",
+              "cobertura_pct", "area_volada_km2", "alerta_cobertura_baja"):
         if k in s:
             payload[k] = s[k]
     if s.get("hotspots"):

@@ -88,34 +88,35 @@ class TestZoomRange:
 
 class TestCapasDisponibles:
     """El signal que usa el geovisor (app.js, CAPAS_DISPONIBLES) para no
-    ofrecer en el panel severidad/hotspot/índices clasificados cuando la
-    misión no tiene los datos de origen."""
+    ofrecer en el panel hotspot/índices clasificados cuando la misión no
+    tiene los datos de origen. La capa "severidad" (y severidad_class.tif)
+    fue eliminada por completo junto con la funcionalidad de área
+    afectada — hotspot_termico es ahora la única capa de impacto."""
 
     def test_sin_impacto_la_lista_no_los_incluye(self, correr):
-        """Un DSM solo (sin severidad/hotspot/índices) no debe listar
-        ninguno de esos tres — es el caso de una misión sin resultados de
-        impacto todavía, o que nunca los va a tener (sin multiespectral)."""
+        """Un DSM solo (sin hotspot/índices) no debe listar ninguno de
+        esos dos — es el caso de una misión sin resultados de impacto
+        todavía, o que nunca los va a tener (sin térmico)."""
         _dsm()
         correr()
         b = _bounds()["capas_disponibles"]
-        assert not ({"severidad", "hotspot_termico", "ndvi_class"} & set(b)), b
+        assert not ({"hotspot_termico", "ndvi_class"} & set(b)), b
 
     def test_solo_lista_lo_que_realmente_existe(self, correr):
         _dsm()
         os.makedirs("outputs/indices", exist_ok=True)
-        _raster("outputs/severidad_class.tif", 0.1)
-        # SIN termico_hotspot_class.tif ni los índices clasificados: no deben
-        # aparecer aunque estén en el mismo loop de generate_tiles.py.
+        _raster("outputs/termico_hotspot_class.tif", 0.1)
+        # SIN los índices clasificados: no deben aparecer aunque estén en el
+        # mismo loop de generate_tiles.py.
         correr()
         b = _bounds()
-        assert "severidad" in b["capas_disponibles"]
-        assert "hotspot_termico" not in b["capas_disponibles"]
+        assert "hotspot_termico" in b["capas_disponibles"]
         assert "ndvi_class" not in b["capas_disponibles"]
 
     @pytest.mark.parametrize("presentes,esperado", [
-        (["severidad_class.tif"], {"severidad"}),
-        (["severidad_class.tif", "termico_hotspot_class.tif"], {"severidad", "hotspot_termico"}),
+        (["termico_hotspot_class.tif"], {"hotspot_termico"}),
         (["indices/ndvi_class.tif"], {"ndvi_class"}),
+        (["termico_hotspot_class.tif", "indices/ndvi_class.tif"], {"hotspot_termico", "ndvi_class"}),
     ])
     def test_combinaciones_de_insumos(self, correr, presentes, esperado):
         _dsm()
@@ -123,7 +124,7 @@ class TestCapasDisponibles:
         for rel in presentes:
             _raster(f"outputs/{rel}", 0.1)
         correr()
-        todas = {"severidad", "hotspot_termico", "ndvi_class", "gndvi_class", "ndre_class", "msavi2_class"}
+        todas = {"hotspot_termico", "ndvi_class", "gndvi_class", "ndre_class", "msavi2_class"}
         assert set(_bounds()["capas_disponibles"]) & todas == esperado
 
     def test_rgb_thermal_hillshade_tambien_se_reportan(self, correr):

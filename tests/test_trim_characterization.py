@@ -1,17 +1,15 @@
-"""Caracterización de los cuatro trim_*: RED DE SEGURIDAD DEL REFACTOR.
-
-`trim_rgb`, `trim_multispectral`, `trim_thermal_native` y `trim_dsm` repiten el
-mismo bloque de ~25 líneas (mapeo a grilla gruesa + pisos adaptativos +
-fill_holes + vuelta a grilla fina). Deduplicarlo es la deuda #4 del plan de
-mejora, y es exactamente el tipo de cambio que puede alterar el resultado sin
-que nada falle.
+"""Caracterización de los cuatro trim_*: RED DE SEGURIDAD DEL REFACTOR, y
+prueba del comportamiento que reemplazó al recorte por solape (reportado en
+vivo: el mosaico térmico se estaba recortando mucho más de lo que la
+cobertura real del vuelo justificaba).
 
 Estos tests fijan el COMPORTAMIENTO OBSERVABLE de las cuatro funciones sobre
 una misión sintética: cuántos píxeles sobreviven y con qué forma exacta
-(hash de la máscara). Si el refactor cambia un solo píxel, fallan.
-
-No pretenden que los números sean "correctos" en sentido absoluto — son lo que
-el código hace HOY, que es justo lo que un refactor debe preservar.
+(hash de la máscara), más un par de invariantes estructurales del casco
+convexo (recorta MENOS que el piso de solape viejo, nunca agrega área que
+el alpha de ODM no tenía). Si un refactor cambia un solo píxel del golden,
+falla — no pretende que el número sea "correcto" en sentido absoluto, es lo
+que el código hace HOY, que es justo lo que un refactor debe preservar.
 """
 import hashlib
 import json
@@ -38,14 +36,17 @@ def _huella(mask):
 
 @pytest.fixture
 def mision(tmp_path, monkeypatch):
-    """Misión sintética completa con los cuatro productos y sus tres
-    reconstruction.json, con las constantes del módulo apuntadas ahí."""
+    """Misión sintética completa con los cuatro productos y su
+    reconstruction.json compartido, con las constantes del módulo apuntadas
+    ahí."""
     d = tmp_path
     gt, W, H = extent_para()
     rng = np.random.default_rng(42)
 
     # Alpha de ODM: un disco central (lo "bien reconstruido") con un fleco
-    # irregular alrededor, que es lo que los pisos de solape deben recortar.
+    # irregular alrededor — antes era lo que los pisos de solape recortaban;
+    # ahora sirve para comprobar que el casco convexo NO lo recorta tan
+    # agresivo (alcanza con que una sola foto haya cubierto la celda).
     yy, xx = np.mgrid[0:H, 0:W]
     r = np.sqrt((yy - H / 2) ** 2 + (xx - W / 2) ** 2)
     cuerpo = r < min(W, H) * 0.42
@@ -62,9 +63,8 @@ def mision(tmp_path, monkeypatch):
     # Cotas BAJAS a propósito: las poses de OpenSfM son topocéntricas con
     # origen en reference_lla, así que la Z de las cámaras (50 m) y la del DSM
     # tienen que estar en el mismo marco. Con un DSM en cotas absolutas (~1900)
-    # y cámaras a Z=50, _rgb_camera_overlap proyecta los rayos HACIA ARRIBA y
-    # las huellas caen fuera del raster — el solape da 0 y los pisos dejan de
-    # recortar sin que nada falle.
+    # y cámaras a Z=50, las huellas se proyectarían con una Z de referencia
+    # totalmente distinta a la de las cámaras.
     dsm = np.where(alpha_bool, 2 + rng.random((H, W)) * 3, np.nan).astype(np.float32)
     dsm_p = escribir_raster(str(d / "dsm.tif"), dsm, gt, nodata=float("nan"))
 
@@ -80,11 +80,7 @@ def mision(tmp_path, monkeypatch):
     ms_src = escribir_raster(str(d / "ms_odm.tif"), ms, gt, alpha_last=True,
                              band_names=["Green", "Red", "RedEdge", "NIR", "alpha"])
 
-    # Cámaras oblicuas en el borde del vuelo (primera y última fila) -> el piso
-    # NADIR tiene qué recortar, que es su razón de ser.
-    oblicuas = set(range(10)) | set(range(90, 100))
-    recon = reconstruccion(str(d / "opensfm" / "reconstruction.json"),
-                           oblicuas=oblicuas)
+    recon = reconstruccion(str(d / "opensfm" / "reconstruction.json"))
 
     monkeypatch.setattr(T, "RGB_ODM_SRC", rgb_src)
     monkeypatch.setattr(T, "RGB_PATH", str(d / "out_rgb.tif"))
@@ -95,6 +91,12 @@ def mision(tmp_path, monkeypatch):
     monkeypatch.setattr(T, "MS_PATH", str(d / "out_ms.tif"))
     for c in ("RGB_RECON", "MS_RECON", "THNAT_RECON"):
         monkeypatch.setattr(T, c, recon)
+    # HULL_*_PATH por defecto son relativos ("outputs/hull_rgb.geojson") —
+    # sandboxeados igual que el resto, si no _footprint_hull_mask crea un
+    # "outputs/" de verdad en el cwd de donde corra pytest.
+    monkeypatch.setattr(T, "HULL_RGB_PATH", str(d / "hull_rgb.geojson"))
+    monkeypatch.setattr(T, "HULL_THERMAL_PATH", str(d / "hull_thermal.geojson"))
+    monkeypatch.setattr(T, "HULL_MS_PATH", str(d / "hull_multispectral.geojson"))
     return d
 
 
@@ -144,55 +146,105 @@ class TestCaracterizacion:
             f"obtenido: {json.dumps(got, indent=2, sort_keys=True)}\n"
             "Si el cambio es intencional, borrá tests/golden/trim_masks.json y regeneralo.")
 
-    def test_los_pisos_de_solape_realmente_recortan(self, mision, capsys):
-        """GUARDA DE LA GUARDA. Con un vuelo sintético de huella demasiado
-        grande, las cámaras cubren el raster entero por igual, los pisos no
-        descartan ni un píxel y el golden de arriba pasa a medir solo a
-        _reliability_crop — dejando sin proteger justo el bloque que se
-        deduplica. Pasó de verdad al escribir estos tests. Este test falla si
-        el vuelo sintético se vuelve a desafinar."""
-        T.trim_rgb()
-        T.trim_thermal_native()
-        T.trim_multispectral()
-        salida = capsys.readouterr().out
-        for etiqueta in ("piso de solape RGB", "piso de solape térmico", "piso de solape MS"):
-            linea = next(l for l in salida.splitlines() if etiqueta in l)
-            quitados = int(linea.split("−")[1].split()[0].replace(",", ""))
-            assert quitados > 0, f"«{etiqueta}» no descartó nada: {linea}"
-        # RGB no comparte camino con los otros tres: su piso nadir es DURO, no
-        # adaptativo (señal ya validada con datos reales — ver el comentario de
-        # REL_MIN_NADIR_RGB). Sobre esta misión sintética los cuatro dan el
-        # mismo recorte, así que sin esto un refactor podría pasarlo a la vía
-        # adaptativa y el golden no lo notaría.
-        assert "piso NADIR (≥" in salida, \
-            "el piso nadir duro de RGB tiene que seguir reportándose aparte"
-
     def test_el_recorte_solo_quita_area_nunca_agrega(self, mision):
         """Invariante estructural, independiente de los números concretos:
-        ninguno de los cuatro puede marcar como válido un píxel que no lo era."""
+        ninguno de los cuatro puede marcar como válido un píxel que no lo era
+        en el alpha original de ODM."""
         ds = gdal.Open(T.RGB_ODM_SRC)
         alpha_orig = ds.GetRasterBand(4).ReadAsArray() == 255
         ds = None
         T.trim_rgb()
         assert not (_mask_de(T.RGB_PATH, 4) & ~alpha_orig).any()
 
+    def test_el_casco_convexo_conserva_la_mayor_parte_del_alpha(self, mision):
+        """La razón de ser del cambio: el casco convexo exige UNA sola foto
+        cubriendo la celda (no varias superpuestas como el piso de solape
+        viejo), así que sobre esta misión sintética (vuelo denso, huellas que
+        cubren de sobra el disco+fleco del alpha) el recorte final tiene que
+        conservar la mayoría del alpha original — el disco+fleco de la
+        fixture es un patrón aleatorio independiente de las huellas reales
+        de cámara, así que no coincide pixel a pixel con el casco, pero
+        tiene que quedar bien por encima del ~40-60% típico que dejaba el
+        piso de solape + recorte de confiabilidad de antes."""
+        ds = gdal.Open(T.RGB_ODM_SRC)
+        alpha_orig = ds.GetRasterBand(4).ReadAsArray() == 255
+        ds = None
+        T.trim_rgb()
+        final = _mask_de(T.RGB_PATH, 4)
+        assert final.sum() / alpha_orig.sum() > 0.75, (
+            "el casco convexo debería conservar bastante más del alpha "
+            "original en un vuelo en grilla denso — si conserva mucho "
+            "menos, algo volvió a exigir solape entre fotos en vez de una "
+            "sola huella")
+
+    def test_area_lejos_del_vuelo_queda_afuera(self, mision):
+        """El casco convexo SÍ tiene un límite real: un alpha "bien
+        reconstruido" muy por fuera de donde volaron las cámaras (imposible
+        en una misión real, pero deliberado acá para poner a prueba el
+        límite) tiene que quedar recortado igual — el casco no es "conservar
+        todo"."""
+        ds = gdal.Open(T.RGB_ODM_SRC)
+        gt = ds.GetGeoTransform()
+        full = ds.ReadAsArray()
+        ds = None
+        # Una franja de alpha=255 pegada al borde superior del raster, a
+        # varios cientos de metros del cuerpo del vuelo (extent_para ya deja
+        # 50 m de margen — esto va bien por fuera de eso).
+        full[3, :5, :] = 255
+        rgb_lejos = str(mision / "rgb_odm_lejos.tif")
+        escribir_raster(rgb_lejos, full, gt, dtype=gdal.GDT_Byte, alpha_last=True)
+        T.RGB_ODM_SRC = rgb_lejos
+        T.trim_rgb()
+        final = _mask_de(T.RGB_PATH, 4)
+        assert not final[:5, :].any(), \
+            "una franja lejos de toda huella de cámara no debería sobrevivir al casco convexo"
+
+    def test_franja_de_una_sola_foto_sin_solape_se_conserva(self, mision):
+        """El bug real que motivó el cambio: una franja cubierta por UNA sola
+        foto (sin ninguna otra superpuesta) tenía que sobrevivir al casco
+        convexo — con el piso de solape viejo, esa franja quedaba SIEMPRE
+        afuera (exigía varias fotos por celda, ver REL_MIN_OVERLAP_RGB=15).
+        Vuelo de una sola fila (todas las cámaras alineadas): en los bordes
+        angostos del corredor fotografiado el solape entre pasadas vecinas es
+        cero por construcción — es exactamente la franja de una sola foto
+        que había que dejar de recortar."""
+        gt, W, H = extent_para(n_lado=1)
+        recon_fila = reconstruccion(str(mision / "opensfm_fila" / "reconstruction.json"),
+                                    n_lado=1)
+        # Alpha=255 en TODO el raster: lo único que decide qué sobrevive acá
+        # es el casco convexo, no el alpha.
+        rgb = np.zeros((4, H, W), np.uint8)
+        rgb[:3] = 100
+        rgb[3] = 255
+        rgb_src = escribir_raster(str(mision / "rgb_fila.tif"), rgb, gt,
+                                  dtype=gdal.GDT_Byte, alpha_last=True)
+        T.RGB_ODM_SRC = rgb_src
+        T.RGB_PATH = str(mision / "out_fila.tif")
+        T.RGB_RECON = recon_fila
+        T.trim_rgb()
+        final = _mask_de(T.RGB_PATH, 4)
+        assert final.sum() > 0, \
+            "la única foto de este vuelo sintético tiene que dejar ALGO adentro del casco"
+
     def test_sin_reconstruction_json_no_falla_y_avisa(self, mision, capsys):
-        """Degradación explícita: sin poses no hay piso de solape, pero el
-        recorte de confiabilidad tiene que correr igual."""
+        """Degradación explícita: sin poses no hay huellas que calcular, pero
+        el recorte tiene que correr igual (se queda con el alpha crudo de
+        ODM, sin el recorte extra por casco convexo)."""
         for c in ("RGB_RECON", "MS_RECON", "THNAT_RECON"):
             setattr(T, c, str(mision / "no_existe.json"))
         T.trim_rgb()
-        assert "sin piso de solape" in capsys.readouterr().out
+        assert "sin recorte por casco convexo" in capsys.readouterr().out
         assert os.path.isfile(T.RGB_PATH)
 
-    def test_el_solape_se_alinea_con_la_crs_del_raster(self, mision):
-        """Regresión del bug P0 #3: con el EPSG fijo, un raster fuera de la
-        zona 18N daba solape 0 en todas partes sin lanzar error."""
+    def test_el_casco_se_alinea_con_la_crs_del_raster(self, mision):
+        """Regresión del bug P0 #3 original (piso de solape con EPSG fijo):
+        con una zona UTM fija, un raster fuera de esa zona ponía las huellas
+        a cientos de kilómetros de distancia sin lanzar ningún error. Acá el
+        equivalente es que la máscara del casco NO puede terminar vacía."""
         ds = gdal.Open(T.RGB_ODM_SRC)
         gt, proj = ds.GetGeoTransform(), ds.GetProjection()
         W, H = ds.RasterXSize, ds.RasterYSize
         ds = None
-        ov, _, _, _ = T._rgb_camera_overlap(gt, W, H, recon_path=T.RGB_RECON,
-                                            proj_wkt=proj)
-        assert ov is not None and ov.max() > 0, \
+        mask = T._footprint_hull_mask(T.RGB_RECON, gt, W, H, proj)
+        assert mask is not None and mask.any(), \
             "las huellas de cámara tienen que caer sobre el raster"

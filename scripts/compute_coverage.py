@@ -51,23 +51,33 @@ PRODUCTOS = {
 
 
 def _hull_vuelo():
-    """Convex hull (EPSG:4326) de los puntos de la ruta de vuelo, o None."""
+    """Convex hull (EPSG:4326) de los puntos de la ruta de vuelo, o None.
+    Prioriza las geometrías tipo Point (posiciones de captura de fotos) para
+    evitar que tránsitos largos entre despegue y zona de misión inflen el hull
+    y disparen falsas alertas de baja cobertura."""
     if not os.path.isfile(FLIGHT_PATH):
         return None
     ds = ogr.Open(FLIGHT_PATH)
     try:
         lyr = ds.GetLayer()
-        pts = []
+        points_mp = ogr.Geometry(ogr.wkbMultiPoint)
+        lines_mp = ogr.Geometry(ogr.wkbMultiPoint)
         for feat in lyr:
             g = feat.GetGeometryRef()
-            if g is not None:
-                pts.append(g.Clone())
-        if not pts:
+            if g is None:
+                continue
+            gt = g.GetGeometryType()
+            if gt in (ogr.wkbPoint, ogr.wkbPoint25D):
+                points_mp.AddGeometry(g.Clone())
+            elif gt in (ogr.wkbLineString, ogr.wkbLineString25D):
+                for i in range(g.GetPointCount()):
+                    pt = ogr.Geometry(ogr.wkbPoint)
+                    pt.AddPoint(g.GetX(i), g.GetY(i))
+                    lines_mp.AddGeometry(pt)
+        target_mp = points_mp if not points_mp.IsEmpty() else lines_mp
+        if target_mp.IsEmpty():
             return None
-        mp = ogr.Geometry(ogr.wkbMultiPoint)
-        for p in pts:
-            mp.AddGeometry(p)
-        hull = mp.ConvexHull()
+        hull = target_mp.ConvexHull()
         return hull if hull and not hull.IsEmpty() else None
     finally:
         ds = None

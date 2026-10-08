@@ -1,99 +1,44 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════════
-# Entrypoint del contenedor ÚNICO de producción (imagen raptor,
-# construida FROM opendronemap/odm:gpu — ODM y el post-procesamiento
-# propio viven en el mismo filesystem, sin docker-in-docker).
+# Entrypoint del contenedor único de producción (FROM opendronemap/odm:gpu:
+# ODM y el post-procesamiento propio en el mismo filesystem, sin
+# docker-in-docker).
 #
-# Uso por DEFECTO (webapp interactiva — subir fotos, elegir parámetros,
-# ver progreso en vivo y el geovisor al terminar, todo por navegador):
-#   docker run --rm --gpus all -p 8080:8080 raptor:latest
-#   → abrir http://localhost:8080
+#   raptor:latest              webapp interactiva (default) → :8080
+#   raptor:latest run          pipeline batch, sin interacción
+#   raptor:latest serve        solo geovisor sobre outputs ya existentes
+#   raptor:latest shell        debug
 #
-# Uso CLI/batch (scripts/automatización, sin interacción — agregar el
-# argumento `run` al final es OBLIGATORIO desde que `webapp` es el default):
-#   docker run --rm --gpus all \
-#     -v /ruta/a/la/mision:/input \
-#     -v /ruta/de/salida:/app/outputs \
-#     -v /ruta/de/tiles:/app/geovisor/tiles \
-#     -e MODE=rgb+thermal \
-#     -p 8080:8080 \
-#     raptor:latest run
+# Batch necesita /input montado (y /input_ms para el vuelo multiespectral
+# del M3M, que es otro dron: si no está montado, ese módulo ni se toca).
 #
-# Otros modos: `serve` (solo levantar el geovisor sobre processing/outputs
-# ya existentes), `shell` (debug).
-#
-# Multiespectral (DJI M3M u otro dron distinto, misma zona): montar un
-# SEGUNDO volumen aparte de /input (es otro vuelo/sensor, no se mezcla) —
-#   -v /ruta/vuelo-multiespectral:/input_ms
-# Si /input_ms no está montado, este módulo ni se toca (cero impacto en
-# misiones RGB+térmico existentes).
-#
-# Térmico: se procesa con el renderizador NATIVO de ODM (malla 3D +
-# textura + ortofoto real), no un blending heurístico propio — ver
-# scripts/prepare_thermal_native_odm.py.
-#
-# GPU: pasá `--gpus all` SIEMPRE que la máquina lo permita — es la única
-# forma de que la etapa densa (cuando corre) sea rápida. Sin el runtime de
-# NVIDIA montado, el binario de reconstrucción densa ni siquiera carga —
-#   DensifyPointCloud: error while loading shared libraries: libcuda.so.1
-# — y la corrida muere con "Child returned 127" en la etapa openmvs, o sea
-# DESPUÉS de haber pagado todo el SfM. Comprobado en vivo.
-#
-# Que ODM "detecta nvidia-smi y cae a CPU" es cierto para elegir el ALGORITMO
-# (usa la ruta CPU de OpenMVS), pero no evita el enlace dinámico contra
-# libcuda del propio ejecutable. `--gpus all` en una máquina sin GPU es
-# inofensivo si el runtime está instalado; si no lo está, el chequeo de más
-# abajo avisa ANTES de empezar en vez de reventar horas después — PERO solo
-# para los sensores que de verdad van a tocar la etapa densa: RGB en
-# vistazo/rápido (--fast-orthophoto) y banda D (que siempre lo usa) no la
-# necesitan, así que una corrida donde esos sean los únicos sensores activos
-# no exige CUDA aunque falte.
+# GPU: pasá `--gpus all` SIEMPRE que la máquina lo permita. Sin NVIDIA el
+# binario de reconstrucción densa ni carga (libcuda.so.1) y la corrida muere
+# con "Child returned 127" DESPUÉS de pagar todo el SfM — por eso se chequea
+# al arrancar, no cuando explota. Los presets con fast_orthophoto no la usan.
 #
 # Variables de entorno:
-#   MODE            rgb | rgb+thermal | none  (default: rgb+thermal)
-#                    `none` = esta misión NO tiene vuelo RGB/térmico (solo
-#                    multiespectral M3M) — requiere MS_SOURCE_DIR.
-#   SOURCE_DIR       carpeta fuente de imágenes (default: /input)
-#   MS_SOURCE_DIR    carpeta fuente multiespectral (default: /input_ms;
-#                    el módulo corre SOLO si este directorio existe)
-#   SKIP_ODM        1 = saltar SfM/MVS (reusar processing/ ya existente)
-#   PORT            puerto del geovisor         (default: 8080)
-#   SERVE           1 = levantar el geovisor al terminar (default: 1)
-#   VERBOSE         1 = mostrar TODA la salida cruda (ODM + scripts), sin
-#                       filtrar. Por defecto (0) solo se ve una barra de
-#                       progreso por etapa; el log completo de cada una
-#                       queda en outputs/logs/ y se vuelca entero si falla.
-#   MAX_CONCURRENCY fuerza el nº de hilos de ODM (por defecto se calcula
-#                    según la RAM disponible, ver safe_concurrency()). Bajalo
-#                    si el proceso muere sin mensaje por falta de memoria.
-#   PRESET          vistazo | rapido | estandar (default) | alta | maxima.
-#                    Elige POR USO Y TIEMPO, no por un número abstracto:
-#                      vistazo   ver algo utilizable en minutos, en emergencia
-#                      rapido    respuesta operativa el mismo día
-#                      estandar  la entrega normal de una misión
-#                      alta      análisis fino y medición sobre el DSM
-#                      maxima    archivo y peritaje
-#                    Cada preset fija el detalle del modelo de superficie (qué
-#                    tan bien se resuelven copas de árboles y bordes), el techo
-#                    de resolución del ortomosaico/DSM (nunca más fino que el
-#                    GSD real del vuelo), cuántos features se extraen por foto
-#                    y qué algoritmo de SfM se usa. Tabla completa en
-#                    scripts/hardware.py; `python3 scripts/hardware.py estimate
-#                    --photos N` muestra los cinco con su tiempo estimado para
-#                    ese número de fotos, sin arrancar nada.
-#   QUALITY         (heredado) entero 0-100. Se mapea al preset equivalente
-#                    para no romper corridas y scripts que ya lo pasan.
+#   MODE            rgb | rgb+thermal | thermal | none   (default rgb+thermal)
+#                    `none` = misión sin vuelo RGB/térmico (solo M3M).
+#   SOURCE_DIR      fuente de imágenes            (default /input)
+#   MS_SOURCE_DIR   fuente multiespectral         (default /input_ms)
+#   DBAND           1 = además la banda D del M3M (opt-in)
+#   SUB_SAMPLE      N>=2: procesar 1 de cada N fotos (modo urgencia)
+#   SKIP_ODM        1 = reusar processing/ ya reconstruido
+#   PRESET          vistazo | rapido | estandar | alta | maxima
+#                    (QUALITY 0-100 se sigue aceptando y se mapea al preset)
+#   TERRENO         plano | escarpado — escarpado fuerza SfM incremental
+#   MAX_CONCURRENCY fuerza los hilos de ODM (default: según RAM disponible)
+#   RAPTOR_ODM_PARALELO  cuántas reconstrucciones a la vez (default: auto)
+#   PORT / SERVE / VERBOSE
 #
-# Exportación de la entrega (opcional — sin EXPORT_DIR no se exporta nada):
-#   EXPORT_DIR            carpeta destino de los productos finales
-#   EXPORT_PRODUCTS       qué exportar, claves separadas por coma; "all" = todo
-#                          (rgb, thermal, dsm, multispectral, indices, classes,
-#                           confidence, area, flight_path, situation, pointclouds)
-#   EXPORT_RASTER_FORMAT  cog (default) | gtiff
-#   EXPORT_VECTOR_FORMAT  geojson (default) | gpkg | shp | kml
-#   EXPORT_EPSG           EPSG destino (9377 = MAGNA-SIRGAS / Origen-Nacional,
-#                          el sistema único nacional de Colombia) o "source"
-#                          para entregar en la UTM que eligió ODM.
+# Entrega opcional (sin EXPORT_DIR no se exporta nada):
+#   EXPORT_DIR, EXPORT_PRODUCTS ("all" o claves separadas por coma),
+#   EXPORT_RASTER_FORMAT (cog|gtiff), EXPORT_VECTOR_FORMAT
+#   (geojson|gpkg|shp|kml), EXPORT_EPSG (9377 nacional, o "source").
+#
+# La tabla de presets/terrenos vive en scripts/hardware.py — fuente única
+# compartida con la webapp y el CLI.
 # ═══════════════════════════════════════════════════════════════════
 set -euo pipefail
 cd /app
@@ -137,39 +82,12 @@ PRESET="${PRESET:-${QUALITY:-estandar}}"
 TERRENO="${TERRENO:-plano}"
 export MODE VERBOSE
 
-# ── Calidad (0-100) ─────────────────────────────────────────────────
-# Controla el DETALLE DEL MODELO DE SUPERFICIE (pc-quality/feature-quality) —
-# lo que decide si una copa de árbol se resuelve en la malla o la superficie
-# sale lisa y el árbol se desplaza al proyectarlo (la causa real de "no
-# parece true-ortho") — y también el TECHO de resolución que se le pide al
-# ortomosaico y al DSM. Ninguno de los dos puede superar el GSD real del
-# vuelo: ODM lo mide de la reconstrucción y recorta cualquier pedido más fino
-# (opendm/gsd.py::cap_resolution) — pedir 1cm a un vuelo cuyo GSD real es 9cm
-# no da más detalle, solo píxeles más chicos. SÍ puede pedirse un techo más
-# GRUESO que el GSD real a propósito: reduce el total de píxeles del ráster
-# final, y eso acelera de verdad el renderizado, el recorte de bordes, los
-# tiles y la exportación COG — todos proporcionales al tamaño del ráster.
-#
-# La tabla vive en un solo lugar: scripts/hardware.py (fuente única — la
-# webapp y el CLI leen la misma, así el mensaje que se le muestra al usuario
-# ANTES de arrancar corresponde exactamente a lo que corre después).
-# Todo el perfil en UNA sola llamada (`--shell` devuelve una línea por campo,
-# en orden fijo). Antes eran seis invocaciones de python3 seguidas, una por
-# campo, solo para poder arrancar.
-#
-# MATCHER_NEIGHBORS: 0 = grafo completo (cada foto contra TODAS las demás) —
-# estuvo hardcodeado sin importar la calidad elegida, así que hasta el preset
-# más rápido pagaba el matching más caro posible en vuelos de cientos de fotos.
-# MIN_FEATURES: cuántos features por foto. También estuvo hardcodeado (12000,
-# 8000 en térmico) pese a ser una de las dos sub-etapas más caras del SfM.
-# SFM_ALGORITHM: `planar` en los presets rápidos — asume vuelo nadir a altura
-# fija y ataca la reconstrucción incremental, que es secuencial por diseño y
-# se llevó 4 h 27 min de las 10 h de la banda D de barbosa-picodegallo.
-# HYBRID_BA: bundle adjustment local por foto agregada, global completo cada
-# 100. Sin esto el costo de cada foto crece con la reconstrucción ya armada.
-# FAST_ORTHOPHOTO_RGB: en vistazo/rápido, el RGB salta DensifyPointCloud (MVS)
-# igual que banda D — confirmado en vivo, esa sola etapa se llevó ~11 de
-# ~15h en una reconstrucción de 1199 fotos con GPU de laptop. Ver _odm_args.
+# ── Perfil de calidad ───────────────────────────────────────────────
+# La tabla completa (qué significa cada campo y por qué su valor) vive en
+# scripts/hardware.py: fuente única que leen también la webapp y el CLI, así
+# el tiempo que se le promete al usuario ANTES de arrancar es el que corre
+# después. Acá solo se lee el perfil ya resuelto — `--shell` devuelve una
+# línea por campo, en orden fijo, en una sola invocación de python3.
 if ! _PRESET_TXT=$(python3 scripts/hardware.py preset "$PRESET" --terreno "$TERRENO" --shell 2>&1); then
   echo "$_PRESET_TXT"; exit 1
 fi
@@ -208,8 +126,8 @@ resumen_al_salir() {
 }
 trap resumen_al_salir EXIT
 
-if [[ "$MODE" != "rgb" && "$MODE" != "rgb+thermal" && "$MODE" != "thermal" && "$MODE" != "none" ]]; then
-  echo "❌ ERROR: MODE debe ser 'rgb', 'rgb+thermal', 'thermal' o 'none' (recibido: $MODE)"; exit 1
+if [[ "$MODE" != "rgb" && "$MODE" != "rgb+thermal" && "$MODE" != "thermal" && "$MODE" != "thermal-convert" && "$MODE" != "none" ]]; then
+  echo "❌ ERROR: MODE debe ser 'rgb', 'rgb+thermal', 'thermal', 'thermal-convert' o 'none' (recibido: $MODE)"; exit 1
 fi
 
 RUN_MULTISPECTRAL=0
@@ -224,15 +142,17 @@ RUN_MULTISPECTRAL=0
 # processing/thermal_native_odm), así que saltarse uno no le hace falta al
 # otro para nada — confirmado al agregar el módulo de banda D, que hace lo
 # mismo con el M3M.
+# MODE=thermal-convert: solo convierte R-JPEG a GeoTIFF Float32 calibrado
+# en °C para procesar en fotogrametría externa (Agisoft Metashape, Pix4D, Terra).
 RUN_RGB=1
-[[ "$MODE" == "none" || "$MODE" == "thermal" ]] && RUN_RGB=0
+[[ "$MODE" == "none" || "$MODE" == "thermal" || "$MODE" == "thermal-convert" ]] && RUN_RGB=0
 # Corre el vuelo RGB/térmico completo en rgb+thermal Y en thermal — en
 # thermal no se reconstruye el RGB, pero SOURCE_DIR sigue siendo la misma
 # carpeta del vuelo y hay que organizarla igual para llegar a las fotos
 # térmicas.
 RUN_THERMAL=0
 [[ "$MODE" == "rgb+thermal" || "$MODE" == "thermal" ]] && RUN_THERMAL=1
-if [[ "$RUN_RGB" -eq 0 && "$RUN_THERMAL" -eq 0 && "$RUN_MULTISPECTRAL" -eq 0 ]]; then
+if [[ "$RUN_RGB" -eq 0 && "$RUN_THERMAL" -eq 0 && "$RUN_MULTISPECTRAL" -eq 0 && "$MODE" != "thermal-convert" ]]; then
   echo "❌ ERROR: MODE=none (sin vuelo RGB/térmico) requiere un vuelo multiespectral"
   echo "   en MS_SOURCE_DIR ('$MS_SOURCE_DIR'), pero ese directorio no existe."
   exit 1
@@ -241,9 +161,9 @@ fi
 case "${1:-run}" in
   serve)
     # Ver una misión ya procesada. Es la misma webapp: sirve el geovisor en
-    # /geovisor/ y además trae el HUD de progreso, el muestreo por punto y la
-    # edición del polígono de área afectada. Había un servidor aparte para
-    # esto (geovisor/serve.py) que reimplementaba una parte de lo mismo.
+    # /geovisor/ y además trae el HUD de progreso y el muestreo por punto.
+    # Había un servidor aparte para esto (geovisor/serve.py) que
+    # reimplementaba una parte de lo mismo.
     export RAPTOR_RUNS_ROOT="${RAPTOR_RUNS_ROOT:-/app/runs}"
     exec python3 -m webapp.main "$PORT"
     ;;
@@ -270,8 +190,12 @@ case "${1:-run}" in
     # solo contar, y así no interfiere si después se corre `run` de verdad
     # sobre el mismo montaje). Lo usa ./raptor run para mostrar el mensaje
     # antes de lanzar la corrida real.
-    N_RGB=0; N_TH=0; N_MS=0
-    [[ -d "$SOURCE_DIR" ]] && N_RGB=$(find -L "$SOURCE_DIR" -type f \( -iname "*_V.JPG" -o -iname "*_W.JPG" \) 2>/dev/null | wc -l)
+    if [[ -d "$SOURCE_DIR" ]]; then
+      N_RGB=$(find -L "$SOURCE_DIR" -type f \( -iname "*_V.JPG" -o -iname "*_W.JPG" \) 2>/dev/null | wc -l)
+      if [[ "$N_RGB" -eq 0 ]]; then
+        N_RGB=$(find -L "$SOURCE_DIR" -type f \( -iname "*.JPG" -o -iname "*.JPEG" -o -iname "*.PNG" \) ! -iname "*_T.*" ! -iname "*_D.*" ! -iname "*_MS_*" 2>/dev/null | wc -l)
+      fi
+    fi
     [[ -d "$SOURCE_DIR" ]] && N_TH=$(find -L "$SOURCE_DIR" -type f -iname "*_T.JPG" 2>/dev/null | wc -l)
     [[ -d "$MS_SOURCE_DIR" ]] && N_MS=$(find -L "$MS_SOURCE_DIR" -type f -iname "*_MS_NIR.TIF" 2>/dev/null | wc -l)
     # Modo urgencia (SUB_SAMPLE=N): ODM va a procesar 1 de cada N, así que la
@@ -321,7 +245,7 @@ _DENSIFY=/code/SuperBuild/install/bin/DensifyPointCloud
 if [[ "$SKIP_ODM" -eq 0 \
       && ( ( "$RUN_RGB" -eq 1 && "$FAST_ORTHOPHOTO_RGB" != "1" ) \
            || ( "$RUN_THERMAL" -eq 1 && "$FAST_ORTHOPHOTO_THERMAL" != "1" ) \
-           || "$RUN_MULTISPECTRAL" -eq 1 ) \
+           || ( "$RUN_MULTISPECTRAL" -eq 1 && "$FAST_ORTHOPHOTO_RGB" != "1" ) ) \
       && -x "$_DENSIFY" ]] && ldd "$_DENSIFY" 2>/dev/null | grep -q "libcuda.so.1 => not found"; then
   echo "❌ ERROR: falta el runtime de CUDA dentro del contenedor."
   echo "   La reconstrucción densa (DensifyPointCloud) está enlazada contra"
@@ -378,13 +302,23 @@ if [[ "$ORG_FAILED" -eq 1 ]]; then
   exit 1
 fi
 
-if [[ "$RUN_RGB" -eq 1 || "$RUN_THERMAL" -eq 1 ]]; then
+if [[ "$MODE" == "thermal-convert" ]]; then
+  TH_COUNT=$(ls data/termica_mosaico/*_T.JPG 2>/dev/null | wc -l || true)
+  if [[ "$TH_COUNT" -eq 0 ]]; then
+    echo "❌ ERROR: MODE=thermal-convert pero no hay imágenes térmicas (*_T.JPG) en ${SOURCE_DIR}."
+    exit 1
+  fi
+  echo "   Térmico: ${TH_COUNT} imágenes (modo conversión directa)"
+elif [[ "$RUN_RGB" -eq 1 || "$RUN_THERMAL" -eq 1 ]]; then
   # RGB siempre se exige acá aunque MODE=thermal no lo reconstruya: es la
   # misma carpeta del vuelo M3T/H20T, y su ausencia señala "carpeta
   # equivocada" tanto como en cualquier otro modo (mismo criterio que
   # webapp/main.py::_validate() y el chequeo del lado del navegador).
   RGB_COUNT=$(ls data/rgb_mosaico/*_V.JPG data/rgb_mosaico/*_W.JPG 2>/dev/null | wc -l || true)
-  [[ "$RGB_COUNT" -eq 0 ]] && { echo "❌ ERROR: No hay imágenes RGB (*_V.JPG / *_W.JPG) en ${SOURCE_DIR}"; exit 1; }
+  if [[ "$RGB_COUNT" -eq 0 ]]; then
+    RGB_COUNT=$(find data/rgb_mosaico -maxdepth 1 -type f \( -iname "*.JPG" -o -iname "*.JPEG" -o -iname "*.PNG" -o -iname "*.TIF" -o -iname "*.TIFF" \) 2>/dev/null | wc -l || true)
+  fi
+  [[ "$RGB_COUNT" -eq 0 ]] && { echo "❌ ERROR: No hay imágenes RGB en ${SOURCE_DIR}"; exit 1; }
   echo "   RGB: ${RGB_COUNT} imágenes"
 
   if [[ "$RUN_THERMAL" -eq 1 ]]; then
@@ -416,19 +350,126 @@ elif [[ "$DBAND" -eq 1 ]]; then
   echo "  ⚠ Se pidió el mosaico de banda D pero no hay archivos *_D.JPG — se omite."
 fi
 
-# Ruta de vuelo ACÁ, apenas las fotos están organizadas — no más abajo,
-# después de sdk-convert/denoise-thermal/prepare-thermal-native. Esos tres
-# pasos leen R-JPEG térmico y son lentos de verdad (sdk-convert invoca un
-# binario del SDK de DJI por foto: ~20-40 min reales para unas 200 fotos),
-# pero export_flight_path.py NO los necesita — lee GPS/tiempo directo del
-# EXIF de data/{rgb,termica,multiespectral}_mosaico (ver su docstring), que
-# ya están completos acá arriba. Antes esto corría después de esos tres
-# pasos: el geovisor se abría temprano tal como está pensado, pero se
-# quedaba sin nada real que mostrar durante toda esa demora — el propio
-# comentario de más abajo decía "da algo real que mirar... durante la hora
-# que tarda ODM" sin contar que ya faltaba una demora previa de la que la
-# ruta de vuelo es independiente.
-make flight-path
+# Ruta de vuelo EN SEGUNDO PLANO, apenas las fotos están organizadas.
+# export_flight_path.py lee GPS/tiempo del EXIF de
+# data/{rgb,termica,multiespectral}_mosaico (ya completos acá arriba), así
+# que no necesita nada de la preparación ni de ODM — y nada de la
+# reconstrucción la necesita a ella: sus únicos consumidores
+# (compute_flight_quality, compute_coverage, situation-summary,
+# export-products) corren mucho después, en el análisis cruzado.
+#
+# Corría SINCRÓNICA acá y era puro tiempo serial al frente de la corrida:
+# medido en vivo, 10 min 54 s sobre 2335 fotos con TODO lo demás parado
+# esperándola — el 7% de una misión de 2 h 46 min, antes de que el primer
+# sensor empezara siquiera a preparar. Se lanza al fondo y se cosecha antes
+# del análisis cruzado (ver _wait_flight_path más abajo), que es el primero
+# que de verdad la necesita.
+mkdir -p outputs/logs
+_FLIGHT_PATH_STATUS="outputs/logs/.flight_path_status"
+rm -f "$_FLIGHT_PATH_STATUS"
+(
+  set +e
+  make flight-path
+  echo "$?" > "$_FLIGHT_PATH_STATUS"
+) &
+_PID_FLIGHT_PATH=$!
+_FLIGHT_PATH_OK=1
+_wait_flight_path() {
+  if [[ -n "${_PID_FLIGHT_PATH:-}" ]]; then
+    wait "$_PID_FLIGHT_PATH" 2>/dev/null || true
+    _PID_FLIGHT_PATH=""
+  fi
+  while [[ ! -f "$_FLIGHT_PATH_STATUS" ]]; do sleep 0.2; done
+  if [[ "$(cat "$_FLIGHT_PATH_STATUS" 2>/dev/null)" == "0" ]]; then
+    _FLIGHT_PATH_OK=1
+  else
+    _FLIGHT_PATH_OK=0
+    PIPELINE_HAD_FAILURE=1
+    echo "❌ ERROR: falló la ruta de vuelo (outputs/flight_path.geojson)."
+  fi
+}
+
+if [[ "$MODE" == "thermal-convert" ]]; then
+  echo ""
+  echo "═══ RAPTOR: Modo Solo Conversión Térmica (R-JPEG → GeoTIFF Float32 / °C) ═══"
+  echo "   Extrayendo datos radiométricos para Agisoft Metashape, Pix4D o DJI Terra..."
+  mkdir -p outputs/thermal_converted outputs/logs
+
+  # Ejecutar conversión usando DJI Thermal SDK
+  make sdk-convert
+
+  # Copiar TIFFs convertidos a outputs/thermal_converted
+  cp -a preprocessing/thermal_dji_sdk/*.tif outputs/thermal_converted/ 2>/dev/null || true
+  N_CONV=$(ls outputs/thermal_converted/*.tif 2>/dev/null | wc -l || echo 0)
+
+  # Esperar a que termine la ruta de vuelo
+  _wait_flight_path
+
+  # Generar LEEME para software de fotogrametría
+  cat <<'EOF' > outputs/thermal_converted/LEEME_FOTOGRAMETRIA.txt
+================================================================================
+RAPTOR - IMÁGENES TÉRMICAS RADIOMÉTRICAS CONVERTIDAS (Float32 / °C)
+================================================================================
+Estas imágenes fueron convertidas directamente desde los R-JPEG de DJI usando
+el DJI Thermal SDK v1.8 y etiquetadas con metadatos EXIF / GPS completos.
+
+ESPECIFICACIONES:
+- Formato: GeoTIFF Float32 (1 banda, valores en grados Celsius °C).
+- Metadatos EXIF embebidos en cada TIFF:
+  * Posición GPS completa (Latitud, Longitud, Altitud WGS84 y Altitud Relativa).
+  * Orientación del gimbal y del dron (Yaw, Pitch, Roll).
+  * Marca, modelo de cámara y distancia focal (Make, Model, FocalLength).
+  * Fecha y hora precisa de captura (DateTimeOriginal, SubSecTimeOriginal).
+
+COMPATIBILIDAD CON SOFTWARE DE FOTOGRAMETRÍA:
+1. Agisoft Metashape:
+   - Importar carpeta 'thermal_converted' como Photos / Cameras.
+   - Metashape detectará automáticamente las coordenadas GPS y ángulos de orientación.
+   - En Camera Calibration, seleccionar tipo de cámara (Frame) y calibrar normalmente.
+   - Al construir el Ortomosaico, seleccionar la banda Float32 para mantener los valores
+     de temperatura en °C.
+2. Pix4Dmapper / Pix4Dmatic:
+   - Crear proyecto seleccionando las imágenes de esta carpeta.
+   - Seleccionar plantilla térmica o procesar como cámara estándar con geotags.
+3. DJI Terra / DroneDeploy / WebODM:
+   - Cargar los archivos .tif como conjunto de imágenes aéreas.
+4. QGIS / ArcGIS:
+   - Cada archivo individual puede cargarse como capa ráster con escala de temperatura.
+================================================================================
+EOF
+
+  echo "   Empaquetando outputs/termicas_convertidas_tiff.zip..."
+  (cd outputs && zip -q -r termicas_convertidas_tiff.zip thermal_converted/)
+
+  python3 -c "
+import json, time, os, glob
+tifs = glob.glob('outputs/thermal_converted/*.tif')
+summary = {
+    'ok': True,
+    'modo': 'thermal-convert',
+    'total_convertidos': len(tifs),
+    'fecha': time.strftime('%Y-%m-%d %H:%M:%S'),
+    'salidas': [
+        'outputs/termicas_convertidas_tiff.zip',
+        'outputs/thermal_converted/',
+        'outputs/flight_path.geojson'
+    ]
+}
+with open('outputs/run_summary.json', 'w') as f:
+    json.dump(summary, f, indent=2)
+"
+
+  if [[ -n "${EXPORT_DIR:-}" && -d "${EXPORT_DIR:-}" ]]; then
+    echo "   Copiando productos a carpeta de entrega: $EXPORT_DIR"
+    cp -a outputs/termicas_convertidas_tiff.zip "$EXPORT_DIR/" 2>/dev/null || true
+    cp -a outputs/thermal_converted "$EXPORT_DIR/" 2>/dev/null || true
+  fi
+
+  echo ""
+  echo "✅ Conversión térmica completada: ${N_CONV} imágenes procesadas."
+  echo "   Descarga ZIP disponible: outputs/termicas_convertidas_tiff.zip"
+  exit 0
+fi
 
 # Hardware detectado + qué implica el preset elegido, ANTES de arrancar ODM.
 # Mismo texto que puede pedirse sin lanzar nada:
@@ -463,27 +504,13 @@ print('⏱️  ' + m['tiempo_texto'])
 [[ "$SUB_SAMPLE" -gt 1 ]] && echo "   ⚡ Modo urgencia: se procesarán 1 de cada $SUB_SAMPLE fotos — las originales quedan intactas en la fuente."
 echo ""
 
-# ── Concurrencia acotada por MEMORIA (detección automática de hardware) ──
-# ODM documenta su propio consumo: "Peak memory requirement is ~1GB per thread
-# and 2 megapixel image resolution" (--max-concurrency), y por defecto usa TODOS
-# los núcleos. Escala con el tamaño de imagen, así que para un sensor de N MP el
-# pico por hilo es ~N/2 GB.
-#
-# Esto protegía originalmente solo al band alignment del multiespectral
-# (opendm/multispectral.py::compute_alignment_matrices, que carga DOS imágenes
-# completas por hilo — con las bandas del M3M a 5 MP, ~2.5 GB por hilo, y en
-# una máquina de 20 núcleos eso pedía ~50 GB con el kernel matando el proceso
-# sin dejar ninguna traza). Pero CUALQUIER etapa de ODM usa todos los núcleos
-# si no se le dice lo contrario — el mismo riesgo existe en RGB (fotos de
-# ~12 MP) y en térmico, así que ahora se acota a las tres. También se usa
-# más abajo para la preparación en paralelo (RGB/multiespectral/térmico),
-# antes de que ODM siquiera arranque.
-#
-# La cuenta vive en scripts/hardware.py (única fuente — bash no puede hacer
-# esta aritmética con megapíxeles fraccionarios como los del sensor térmico,
-# 0.33 MP, sin arrastrar errores de redondeo). Delegar además la deja
-# reusable desde la webapp (Python) para el mismo mensaje de estimación de
-# tiempo que ve el usuario antes de arrancar.
+# ── Concurrencia acotada por MEMORIA ────────────────────────────────
+# ODM documenta ~1 GB por hilo cada 2 MP y por defecto usa todos los núcleos:
+# en una máquina grande con fotos grandes eso se traduce en decenas de GB y
+# el kernel mata el proceso sin dejar traza (pasó con el band alignment del
+# M3M). La cuenta vive en scripts/hardware.py — bash no puede hacer esta
+# aritmética con megapíxeles fraccionarios sin arrastrar redondeo, y así la
+# reusa también la webapp para estimar tiempos.
 safe_concurrency() {
   python3 scripts/hardware.py concurrency "${1:-2}"
 }
@@ -570,34 +597,20 @@ _odm_invocar() {
 }
 
 run_odm() {
-  # $3/$4: concurrencia liviana (SfM completo) / "segura" (MVS) — separadas
-  # porque ODM solo permite UN --max-concurrency por invocación de run.py,
-  # así que para que cada etapa use la que le corresponde hace falta partir
-  # la corrida en dos invocaciones.
+  # $3/$4: concurrencia liviana (SfM) / "segura" (MVS). ODM solo acepta UN
+  # --max-concurrency por invocación, así que para darle a cada fase la suya
+  # hay que partir la corrida en dos.
   #
   # DÓNDE SE PARTE, Y POR QUÉ AHÍ (esto estuvo mal y costó horas por misión):
-  # el único lugar que escribe opensfm/config.yaml —con la línea
-  # `processes: %s % args.max_concurrency`, que es la concurrencia que usan
-  # DE VERDAD detect_features/match_features/reconstruct/undistort— es
-  # OSFMContext.setup() en opendm/osfm.py, y a esa función la llama la etapa
-  # **opensfm** (stages/run_opensfm.py:32), NO la etapa dataset. Además solo
-  # (re)escribe el config si image_list.txt todavía no existe.
-  #
-  # Con el corte anterior (`--end-with dataset` / `--rerun-from opensfm`) la
-  # fase 1 no llegaba nunca a crear image_list.txt, así que era la FASE 2 la
-  # que escribía el config — con la concurrencia PESADA. O sea: el split
-  # hacía exactamente lo contrario de lo que buscaba. Medido en vivo sobre
-  # una máquina de 20 núcleos: `processes: 2` en RGB y `processes: 6` en
-  # multiespectral, con las dos sub-etapas perfectamente paralelizables
-  # (features y undistort) tardando 215 min en banda D y 285 min en
-  # multiespectral.
-  #
-  # Corte correcto: fase 1 termina EN opensfm (ahí se escribe el config, con
-  # la concurrencia liviana, y corre todo el SfM), fase 2 retoma en openmvs.
-  # La fase 2 vuelve a visitar la etapa opensfm pero con rerun=False y con
-  # image_list.txt ya existente → no reescribe el config, así que el ajuste
-  # de la fase 1 sobrevive. OpenMVS sí lee args.max_concurrency directo de
-  # ESTA invocación (stages/openmvs.py), no de config.yaml.
+  # el único lugar que escribe opensfm/config.yaml —con la concurrencia que
+  # de verdad usan detect_features/match/reconstruct/undistort— es
+  # OSFMContext.setup(), y lo llama la etapa **opensfm**, no la etapa dataset;
+  # y solo lo (re)escribe si image_list.txt todavía no existe. Con el corte
+  # anterior (`--end-with dataset`) la fase 1 nunca creaba image_list.txt, así
+  # que era la fase 2 —la PESADA— la que fijaba el config: el split hacía
+  # exactamente lo contrario de lo que buscaba. Cortando EN opensfm, la fase 2
+  # revisita la etapa sin rerun y con image_list.txt ya presente, así que no
+  # pisa el ajuste de la fase 1. OpenMVS lee args.max_concurrency directo.
   local label="$1" name="$2" light_conc="$3" heavy_conc="$4"; shift 4
   local logfile="outputs/logs/odm_${label}.log"
   # Log FRESCO por corrida, truncado acá y no en el filtro: las dos fases
@@ -657,22 +670,35 @@ run_odm() {
 # ejecutar (o no) cada bloque.
 DO_THERMAL=0; [[ "$RUN_THERMAL" -eq 1 ]] && DO_THERMAL=1
 DO_MS=0;      [[ "$RUN_MULTISPECTRAL" -eq 1 ]] && DO_MS=1
-# Área afectada + severidad necesita AMBAS señales: el brillo multiespectral y
-# la anomalía térmica son las dos que separan quemado de suelo desnudo o vías.
-DO_AREA=0;    [[ "$DO_MS" -eq 1 && "$DO_THERMAL" -eq 1 ]] && DO_AREA=1
 DO_ENTREGA=0; [[ -n "${EXPORT_DIR:-}" ]] && DO_ENTREGA=1
 # confidence-mask es "RGB ∩ térmico" — confidence_mask.py abre
 # outputs/rgb_orthomosaic.tif sin chequear que exista, y en MODE=thermal
 # (RUN_RGB=0) nunca existe. Sin este gate, toda misión solo-térmico
 # terminaba en un traceback acá mismo, después de horas de ODM.
-DO_CONFIANZA=0; [[ "$RUN_RGB" -eq 1 && "$DO_THERMAL" -eq 1 ]] && DO_CONFIANZA=1
+#
+# Además de eso: confidence_mask.tif no lo usa NADA más en el pipeline —
+# no aparece en
+# coincide el nombre con un indicador de calidad de vuelo sin relación). Su
+# único consumidor real es la exportación opcional a la carpeta de entrega
+# (EXPORT_PRODUCTS=confidence). Calcularlo siempre que hay RGB+térmico,
+# tenga o no sentido para ESTA corrida, es trabajo tirado en el caso común
+# (sin entrega, o con entrega mismo pero sin pedir ese producto puntual)
+# — reportado en vivo. Se gatea también contra eso.
+_export_incluye() {
+  local clave="$1" lista="${EXPORT_PRODUCTS:-all}"
+  [[ ",${lista}," == *",all,"* || ",${lista}," == *",${clave},"* ]]
+}
+DO_CONFIANZA=0
+if [[ "$RUN_RGB" -eq 1 && "$DO_THERMAL" -eq 1 && "$DO_ENTREGA" -eq 1 ]] && _export_incluye confidence; then
+  DO_CONFIANZA=1
+fi
 # Reconstrucción + recorte + exportación: UNA sola etapa en el contador
 # aunque adentro corran varios sensores en simultáneo (mismo criterio que ya
 # usaba el recorte) — el detalle real se ve en los sub-encabezados que cada
 # make target ya imprime por su cuenta.
 DO_TRIM=0; [[ "$RUN_RGB" -eq 1 || "$DO_THERMAL" -eq 1 || "$DO_MS" -eq 1 || "$DO_DBAND" -eq 1 ]] && DO_TRIM=1
 
-STAGE_FLAGS=("$DO_TRIM" "$DO_CONFIANZA" "$DO_AREA" 1 1 "$DO_ENTREGA")
+STAGE_FLAGS=("$DO_TRIM" "$DO_CONFIANZA" 1 1 "$DO_ENTREGA")
 TOTAL_STAGES=0
 for _f in "${STAGE_FLAGS[@]}"; do TOTAL_STAGES=$((TOTAL_STAGES + _f)); done
 
@@ -713,7 +739,9 @@ _odm_mp() {
       # real que solape RGB con otro sensor bajo este modo.
       if [[ "$FAST_ORTHOPHOTO_RGB" == "1" ]]; then echo 6.15; else echo 12.3; fi ;;
     thermal)       echo 0.33 ;;   # 640x512
-    multispectral) echo 5 ;;      # bandas del M3M
+    # Mismo criterio que RGB: sin etapa densa el pico de memoria por hilo cae
+    # (ya no hay depthmaps a resolución nativa simultáneos).
+    multispectral) if [[ "$FAST_ORTHOPHOTO_RGB" == "1" ]]; then echo 2.5; else echo 5; fi ;;
     dband)         echo 5 ;;      # cámara RGB del M3M
   esac
 }
@@ -747,6 +775,10 @@ _odm_prep() {
 # pueden devolver desde una función sin arrastrar arrays anidados, que
 # bash no tiene.
 _odm_args() {
+  local EXTREME=""
+  if [[ "${PRESET_NOMBRE:-}" == "vistazo" || "${PRESET_NOMBRE:-}" == "tactico" ]]; then
+    EXTREME="--mesh-size 20000 --mesh-octree-depth 7"
+  fi
   case "$1" in
     rgb)
       # --dsm: el modelo de superficie de la misión sale de acá cuando hay
@@ -760,7 +792,8 @@ _odm_args() {
            "--dsm --dem-resolution $ODM_RES_CM --crop 0 --dem-gapfill-steps 3"\
            "--min-num-features $MIN_FEATURES --matcher-neighbors $MATCHER_NEIGHBORS"\
            "--pc-quality $PC_QUALITY --sfm-algorithm $SFM_ALGORITHM --skip-report"\
-           "$([[ "$FAST_ORTHOPHOTO_RGB" == "1" ]] && echo --fast-orthophoto)" ;;
+           "$([[ "$FAST_ORTHOPHOTO_RGB" == "1" ]] && echo --fast-orthophoto)"\
+           "$EXTREME" ;;
     thermal)
       # --radiometric-calibration camera: dispara la conversión Kelvin×100→°C
       # nativa de ODM para DJI H20T (opendm/thermal.py) sobre los TIFF que
@@ -779,16 +812,24 @@ _odm_args() {
            "--orthophoto-resolution $ODM_RES_CM --crop 0"\
            "--min-num-features $MIN_FEATURES --matcher-neighbors $MATCHER_NEIGHBORS"\
            "--pc-quality $PC_QUALITY --sfm-algorithm $SFM_ALGORITHM --skip-report"\
-           "$([[ "$FAST_ORTHOPHOTO_THERMAL" == "1" ]] && echo --fast-orthophoto)" ;;
+           "$([[ "$FAST_ORTHOPHOTO_THERMAL" == "1" ]] && echo --fast-orthophoto)"\
+           "$EXTREME" ;;
     multispectral)
       # --radiometric-calibration camera+sun: usa el sensor de sol embebido en
       # cada banda (DJI M3M) para calibrar a reflectancia sin panel físico.
       # ODM agrupa las 4 bandas por captura vía el tag XMP Camera:BandName —
       # nada que armar de nuestro lado, ya viene correcto en los TIFF del M3M.
+      # --fast-orthophoto con el mismo criterio que RGB/térmico (lo fija el
+      # preset): ningún producto multiespectral consume la nube densa —
+      # ortomosaico e índices (NDVI/GNDVI/NDRE/MSAVI2) salen igual de la
+      # dispersa. Sin esto el multiespectral quedaba como nuevo camino
+      # crítico apenas RGB dejó de correr MVS: 60 min contra los ~50 de RGB.
       echo "--feature-quality $FEAT_QUALITY --radiometric-calibration camera+sun"\
            "--dsm --dem-resolution $ODM_RES_CM --crop 0 --dem-gapfill-steps 3"\
            "--min-num-features $MIN_FEATURES --matcher-neighbors $MATCHER_NEIGHBORS"\
-           "--pc-quality $PC_QUALITY --sfm-algorithm $SFM_ALGORITHM --skip-report" ;;
+           "--pc-quality $PC_QUALITY --sfm-algorithm $SFM_ALGORITHM --skip-report"\
+           "$([[ "$FAST_ORTHOPHOTO_RGB" == "1" ]] && echo --fast-orthophoto)"\
+           "$EXTREME" ;;
     dband)
       # Sin --dsm: el objetivo es un mosaico visible RÁPIDO para análisis
       # preliminar, no un modelo de superficie — si la misión también tiene
@@ -817,17 +858,18 @@ _odm_args() {
 # siguiente sensor en cola ya puede entrar a reconstruir.
 _odm_post() {
   case "$1" in
-    rgb)     make clean-dsm && make trim-edges-dsm && make trim-edges-rgb ;;
+    rgb)
+      make clean-dsm && make trim-edges-dsm && make trim-edges-rgb
+      ;;
     thermal)
       make trim-edges-thermal
       # Resumen de situación TEMPRANO: apenas el térmico está recortado se
-      # generan el hotspot y situation.json (modo solo-térmico) para que el
-      # geovisor muestre los focos activos mientras los demás sensores
-      # siguen reconstruyendo — en una emergencia los focos llegan antes.
-      # El análisis cruzado (etapa 5) corre estrictamente DESPUÉS de todas
-      # las cadenas de sensor, así que cuando hay multiespectral
-      # compute-severity reemplaza este hotspot por el recortado al área
-      # detectada y situation.json por el resumen completo — nunca al revés.
+      # generan el hotspot y situation.json para que el geovisor muestre los
+      # focos activos mientras los demás sensores siguen reconstruyendo — en
+      # una emergencia los focos llegan antes. El análisis cruzado (etapa 5)
+      # corre estrictamente DESPUÉS de todas las cadenas de sensor y los
+      # vuelve a generar (ver más abajo) una vez que flight_path.geojson está
+      # garantizado listo, por si esta primera pasada corrió antes de tiempo.
       make compute-thermal-hotspot
       make situation-summary
       python3 scripts/notify_alert.py || true
@@ -843,7 +885,8 @@ _odm_post() {
         ODM_RGB_DIR=processing/multispectral_odm make trim-edges-dsm
       fi
       make trim-edges-multispectral
-      make compute-indices ;;
+      make compute-indices
+      make classify-vegetation-indices ;;
     dband)   make trim-edges-dband ;;
   esac
 }
@@ -853,7 +896,7 @@ _odm_post() {
 # es idempotente (export_cog.py se saltea lo que ya sea COG en el pase de
 # seguridad final), así que no hay costo por teselar/exportar temprano acá Y
 # tener igual el pase final que cubre lo que cruza sensores (confidence_mask,
-# severidad, etc. — ver el análisis cruzado más abajo).
+# hotspot, etc. — ver el análisis cruzado más abajo).
 # COG y COPC son productos independientes (un ráster, una nube de puntos) —
 # si uno falla igual se intenta el otro, y se reporta fallo si CUALQUIERA de
 # los dos falló. Con un `&&`/`set -e` ingenuo, un COG roto salteaba el COPC
@@ -861,7 +904,7 @@ _odm_post() {
 _odm_export() {
   local ok=0
   case "$1" in
-    rgb)     python3 scripts/export_cog.py outputs/rgb_orthomosaic.tif outputs/dsm.tif || ok=1 ;;
+    rgb) python3 scripts/export_cog.py outputs/rgb_orthomosaic.tif outputs/dsm.tif || ok=1 ;;
     thermal) python3 scripts/export_cog.py outputs/thermal_orthomosaic.tif || ok=1 ;;
     multispectral)
       if [[ "$RUN_RGB" -eq 0 ]]; then
@@ -880,6 +923,46 @@ ODM_ORDEN=()
 [[ "$RUN_THERMAL" -eq 1 ]] && ODM_ORDEN+=(thermal)
 [[ "$RUN_MULTISPECTRAL" -eq 1 ]] && ODM_ORDEN+=(multispectral)
 [[ "$DO_DBAND" -eq 1 ]] && ODM_ORDEN+=(dband)
+
+# ── Independencia real entre etapas ─────────────────────────────────
+# Cada etapa espera SOLO a los sensores que necesita, nunca a todos. Antes un
+# único `wait` sobre las cuatro cadenas serializaba dos cosas distintas:
+#   · fallo — un sensor caído cortaba etapas que no dependían de él (banda D
+#     tumbaba la exportación de RGB y térmico ya terminados);
+#   · tiempo — hotspot térmico (térmico, listo a 1 h 20) arrancaba recién a
+#     las 2 h 34 esperando a RGB, del que no depende. Medido en palmas.
+#
+# El estado de cada sensor viaja por ARCHIVO (outputs/logs/.sensor_estado_X,
+# lo escribe el trap de su subshell) y no por `wait $pid`: las etapas del
+# análisis cruzado corren cada una en su propio subshell para no bloquearse
+# entre sí, y bash solo permite `wait` sobre hijos DIRECTOS — un subshell no
+# puede esperar al pid de otro. Mismo patrón que FALLOFLAG, por lo mismo.
+# PIPELINE_HAD_FAILURE acumula para el código de salida final.
+declare -A _SENSOR_OK=()
+declare -A _SENSOR_WAITED=()
+PIPELINE_HAD_FAILURE=0
+_sensor_status_file() { echo "outputs/logs/.sensor_estado_${1}"; }
+_wait_sensor() {
+  local lbl="$1"
+  [[ " ${ODM_ORDEN[*]:-} " == *" $lbl "* ]] || return 0
+  [[ "${_SENSOR_WAITED[$lbl]:-0}" -eq 1 ]] && return 0
+  local f; f=$(_sensor_status_file "$lbl")
+  while [[ ! -f "$f" ]]; do sleep 0.2; done
+  _SENSOR_WAITED[$lbl]=1
+  if [[ "$(cat "$f" 2>/dev/null)" == "0" ]]; then
+    _SENSOR_OK[$lbl]=1
+  else
+    _SENSOR_OK[$lbl]=0
+    PIPELINE_HAD_FAILURE=1
+  fi
+}
+_dep_ok() {
+  local lbl="$1"
+  if [[ " ${ODM_ORDEN[*]:-} " == *" $lbl "* ]]; then
+    _wait_sensor "$lbl"
+    [[ "${_SENSOR_OK[$lbl]:-0}" -eq 1 ]]
+  fi
+}
 
 if [[ "$SKIP_ODM" -eq 0 && "${#ODM_ORDEN[@]}" -gt 0 ]]; then
   # ── Reparto de la máquina entre las reconstrucciones que van a coincidir ──
@@ -929,36 +1012,37 @@ if [[ "$SKIP_ODM" -eq 0 && "${#ODM_ORDEN[@]}" -gt 0 ]]; then
   FALLOFLAG="outputs/logs/.odm_fallo"
   rm -f "$FALLOFLAG" outputs/logs/.timing_*
 
-  declare -A _PID_LABEL=()
   for _i in "${!ODM_ORDEN[@]}"; do
     _label="${ODM_ORDEN[$_i]}"
     _hilos_light="${ODM_HILOS_LIGHT[$_i]}"
     _hilos="${ODM_HILOS[$_i]}"
     (
       set -e
+      # Trap único, instalado ANTES de _odm_prep (no después de agarrar la
+      # ficha del semáforo, como antes): tiene que cubrir un fallo en
+      # CUALQUIER punto de la cadena, incluida la preparación — si el
+      # archivo de estado no se escribiera en ese caso, _wait_sensor() de
+      # cualquier otro subshell que pregunte por este sensor esperaría ese
+      # archivo PARA SIEMPRE. _liberado empieza en 1 (todavía no se agarró
+      # ficha) para que _liberar_cupo no libere una ficha que nunca se tomó.
+      _liberado=1
+      _liberar_cupo() { [[ "$_liberado" -eq 1 ]] && return; _liberado=1; printf '\n' >&"$SEM_FD" 2>/dev/null || true; }
+      _marcar_salida() {
+        local _codigo=$?
+        _liberar_cupo
+        echo "$_codigo" > "$(_sensor_status_file "$_label")" 2>/dev/null || true
+      }
+      trap _marcar_salida EXIT
+
       _t_prep0=$(date +%s)
       _odm_prep "$_label"
-      # Submuestreo de emergencia (SUB_SAMPLE=N): reduce a 1 de cada N las
-      # fotos que ODM va a procesar, apenas termina SU preparación (ver
-      # scripts/subsample_photos.py). El conjunto completo queda intacto en
-      # data/ y en la siguiente corrida la preparación lo restaura solo.
-      #
-      # EXCEPTO multispectral: medido en vivo (misión real, terreno
-      # escarpado + SUB_SAMPLE=3) — RGB y térmico terminan con 99% de sus
-      # fotos reconstruidas al mismo factor de submuestreo, pero
-      # multiespectral apenas 15% (93/608, ver outputs/flight_quality.json
-      # de esa corrida). El SfM incremental se fragmentó en 8 componentes
-      # desconectados en vez de uno solo: las bandas del M3M son
-      # monocromáticas y de features mucho más débiles que el RGB, así que
-      # bajar el solape (menos fotos = menos pares que encadenar) las deja
-      # sin overlap suficiente para converger en una sola reconstrucción —
-      # el resultado es un ortomosaico multiespectral (y todo lo que sale de
-      # él: NDVI, severidad, área afectada) recortado a una fracción chica
-      # del área real volada. RGB/térmico no sufren esto porque sus fotos
-      # tienen mucho más detalle por imagen. Se prioriza cobertura real
-      # sobre velocidad acá: multiespectral ya es el sensor más lento del
-      # trío (ver scripts/hardware.py), así que someterlo también a
-      # submuestreo no paga lo que cuesta en área perdida.
+      # Submuestreo de emergencia: 1 de cada N fotos, apenas termina SU
+      # preparación. El set completo queda intacto en data/.
+      # EXCEPTO multispectral: medido en vivo (terreno escarpado,
+      # SUB_SAMPLE=3) RGB y térmico conservaron el 99% de sus fotos
+      # reconstruidas pero el MS apenas el 15% (93/608) — sus bandas son
+      # monocromáticas, con features débiles, y al bajar el solape el SfM se
+      # fragmentó en 8 componentes sueltos. Se prioriza cobertura real.
       if [[ "${SUB_SAMPLE:-0}" -gt 1 && "$_label" != "multispectral" ]]; then
         echo "--- ${_label}: modo urgencia — procesando 1 de cada $SUB_SAMPLE fotos ---"
         python3 scripts/subsample_photos.py "processing/$(_odm_proyecto "$_label")" "$SUB_SAMPLE" || true
@@ -969,15 +1053,22 @@ if [[ "$SKIP_ODM" -eq 0 && "${#ODM_ORDEN[@]}" -gt 0 ]]; then
 
       # Ficha del semáforo — bloquea ACÁ si los cupos de reconstrucción están
       # ocupados, no antes: la preparación de arriba ya corrió sin esperar a
-      # nadie.
+      # nadie. _liberar_cupo y su trap ya están instalados desde el principio
+      # (ver arriba) — acá solo se marca que HAY algo que liberar.
       read -u "$SEM_FD"
       _liberado=0
-      _liberar_cupo() { [[ "$_liberado" -eq 1 ]] && return; _liberado=1; printf '\n' >&"$SEM_FD" 2>/dev/null || true; }
-      trap _liberar_cupo EXIT
 
       if [[ -f "$FALLOFLAG" ]]; then
         echo "⏭  ${_label}: se salta — otra reconstrucción de esta misión ya falló"
         exit 1
+      fi
+
+      if [[ -n "${_FLIGHT_PATH_STATUS:-}" && -f "$_FLIGHT_PATH_STATUS" ]]; then
+        if [[ "$(cat "$_FLIGHT_PATH_STATUS" 2>/dev/null)" != "0" ]]; then
+          echo "❌ ${_label}: se cancela — falló la validación inicial de ruta de vuelo/extensión geográfica."
+          touch "$FALLOFLAG"
+          exit 1
+        fi
       fi
 
       echo "--- ODM ${_label}: ${_hilos_light} hilos en SfM, ${_hilos} en la fase densa ---"
@@ -992,8 +1083,36 @@ if [[ "$SKIP_ODM" -eq 0 && "${#ODM_ORDEN[@]}" -gt 0 ]]; then
       # igual. Comprobado en vivo con un test de este mismo cambio. Con el
       # subshell, el `exit` de run_odm solo termina ESE subshell interno; el
       # `if !` de acá SÍ ve su código de salida.
-      if ! ( run_odm "$_label" "$(_odm_proyecto "$_label")" "$_hilos_light" "$_hilos" \
-            $(_odm_args "$_label") "${HYBRID_BA_FLAG[@]}" ); then
+      #
+      # REINTENTO: reportado en vivo, dos veces en misiones reales distintas
+      # —multiespectral las dos— ODM/OpenSfM abortó con un "No such file or
+      # directory" sobre un archivo que en el momento de revisar SÍ existía
+      # en disco (una vez en mvs_texturing sobre un TIFF undistorted, otra
+      # en el undistort de OpenSfM sobre un TIFF fuente, ambas vía workers
+      # paralelos de joblib/loky). No es un bug de este repo — pasa adentro
+      # de OpenSfM/rasterio, código de la imagen base, no de acá — y las dos
+      # veces el archivo estaba perfectamente bien; todo apunta a un hiccup
+      # transitorio de I/O bajo la carga concurrente pesada que este
+      # pipeline genera a propósito (varios sensores reconstruyendo a la vez,
+      # cada uno con su propio pool de workers). run.py es resumible (cada
+      # ODM_Stage detecta sola lo que ya está hecho y lo saltea) así que un
+      # reintento inmediato retoma cerca de donde cortó, no repite la
+      # reconstrucción entera.
+      _ODM_REINTENTOS=2
+      _odm_intento=1
+      _odm_ok=0
+      while [[ "$_odm_intento" -le "$_ODM_REINTENTOS" ]]; do
+        if ( run_odm "$_label" "$(_odm_proyecto "$_label")" "$_hilos_light" "$_hilos" \
+              $(_odm_args "$_label") "${HYBRID_BA_FLAG[@]}" ); then
+          _odm_ok=1
+          break
+        fi
+        if [[ "$_odm_intento" -lt "$_ODM_REINTENTOS" ]]; then
+          echo "⚠ ODM ${_label}: falló el intento ${_odm_intento}/${_ODM_REINTENTOS} — reintentando (posible hiccup transitorio de I/O, ver comentario arriba)"
+        fi
+        _odm_intento=$((_odm_intento + 1))
+      done
+      if [[ "$_odm_ok" -eq 0 ]]; then
         touch "$FALLOFLAG"
         exit 1
       fi
@@ -1023,36 +1142,25 @@ if [[ "$SKIP_ODM" -eq 0 && "${#ODM_ORDEN[@]}" -gt 0 ]]; then
       publish_partial
       _odm_export "$_label"
     ) &
-    _PID_LABEL[$!]="$_label"
   done
 
-  _ODM_FALLO=0
-  for pid in "${!_PID_LABEL[@]}"; do
-    wait "$pid" || _ODM_FALLO=1
-  done
-  exec {SEM_FD}<&-
-
-  # Tiempos por sensor: cada cadena los dejó en su propio archivo — un
-  # subshell de fondo no puede exportar variables de vuelta al padre.
-  for _label in "${ODM_ORDEN[@]}"; do
-    _f="outputs/logs/.timing_${_label}"
-    [[ -f "$_f" ]] && source "$_f"
-  done
-  rm -f outputs/logs/.timing_* "$FALLOFLAG"
-
-  if [[ "$_ODM_FALLO" -eq 1 ]]; then
-    echo ""
-    echo "❌ ERROR: falló al menos una reconstrucción de ODM."
-    echo "   El detalle está más arriba y en outputs/logs/odm_*.log."
-    exit 1
-  fi
+  # SIN wait colectivo acá a propósito (ver el comentario grande de más
+  # arriba, problema 2): cada sensor se espera LAZY, on-demand, la primera
+  # vez que confianza/área/flight-quality/etc. preguntan por él vía
+  # _dep_ok() — que ahora lee el archivo de estado que cada subshell escribe
+  # al salir (ver el trap _marcar_salida más arriba), no un `wait $pid` que
+  # solo el hilo principal podría hacer. El cierre del semáforo, el resumen
+  # de fallos y el sourcing de tiempos quedan más abajo, DESPUÉS del análisis
+  # cruzado — ahí sí hace falta que los cuatro sensores estén resueltos
+  # (aunque no hayan hecho falta antes) para que tiles/COG/entrega vean el
+  # estado final real.
 elif [[ "$DO_TRIM" -eq 1 ]]; then
   # SKIP_ODM=1 (reusar lo ya reconstruido): sin reconstrucción que correr, el
   # recorte + exportación de los sensores presentes igual arrancan todos
   # juntos entre sí en vez de uno atrás de otro — mismo _odm_post/_odm_export
   # que usa el camino con ODM, así que el caso "sin RGB" de multiespectral
   # (limpieza de DSM propia) se resuelve exactamente igual en los dos casos.
-  REUSE_PIDS=()
+  declare -A _REUSE_PID_LABEL=()
   for _label in rgb thermal multispectral dband; do
     case "$_label" in
       rgb)           _va=$RUN_RGB ;;
@@ -1068,15 +1176,28 @@ elif [[ "$DO_TRIM" -eq 1 ]]; then
       # termina siendo el de `make compute-indices`, no el del paso que
       # realmente falló.
       ( set -e; _odm_post "$_label"; publish_partial; _odm_export "$_label" ) &
-      REUSE_PIDS+=($!)
+      _REUSE_PID_LABEL[$!]="$_label"
     fi
   done
-  REUSE_FAILED=0
-  for pid in "${REUSE_PIDS[@]}"; do wait "$pid" || REUSE_FAILED=1; done
-  if [[ "$REUSE_FAILED" -eq 1 ]]; then
-    echo "❌ ERROR: falló al menos un recorte/exportación de post-procesamiento."
-    echo "   Revisá los mensajes de arriba para saber cuál — cada uno imprime su propio error."
-    exit 1
+  for pid in "${!_REUSE_PID_LABEL[@]}"; do
+    _label="${_REUSE_PID_LABEL[$pid]}"
+    # Ya esperado acá mismo: marcado para que _wait_sensor()/_dep_ok() más
+    # abajo no intenten un `wait` de nuevo sobre un pid ya cosechado (error
+    # en bash) — este camino (reuso) no necesita el `wait` lazy del camino
+    # con ODM: son operaciones livianas, todas terminan rápido de todos modos.
+    _SENSOR_WAITED[$_label]=1
+    if wait "$pid"; then
+      _SENSOR_OK[$_label]=1
+    else
+      _SENSOR_OK[$_label]=0
+      PIPELINE_HAD_FAILURE=1
+    fi
+  done
+  if [[ "$PIPELINE_HAD_FAILURE" -eq 1 ]]; then
+    echo "⚠ ADVERTENCIA: falló al menos un recorte/exportación de post-procesamiento — se continúa con lo que sí terminó bien."
+    for _label in rgb thermal multispectral dband; do
+      [[ "${_SENSOR_OK[$_label]:-1}" -eq 0 ]] && echo "   ❌ ${_label}: falló"
+    done
   fi
 fi
 
@@ -1089,66 +1210,131 @@ fi
 # reportado ~10.5 h de "post" y nada decía dónde estaba el tiempo real.
 T_POST_START=$(date +%s)
 
-# ── Análisis cruzado ─────────────────────────────────────────────────
-# Máscara de confianza, calidad de vuelo y área afectada+severidad leen
-# ortomosaicos/índices ya recortados, pero NO se leen ni se escriben entre
-# sí — confirmado archivo por archivo:
-#   confidence-mask   lee outputs/{rgb,thermal}_orthomosaic.tif
-#   flight-quality    lee reconstruction.json + esos mismos dos ortomosaicos
-#   área+severidad    lee outputs/{multispectral,thermal}_orthomosaic.tif
-#                      + outputs/indices/*.tif
-# Antes corrían estrictamente uno detrás del otro por costumbre, no por
-# necesidad. Los stage_begin/done de los dos que tienen contador propio
-# (confianza, área) se emiten desde acá —el padre— ANTES de lanzarlos de
-# fondo: incrementar STAGE desde dentro de un subshell no se ve reflejado en
-# el padre, así que la numeración "[n/total]" tiene que resolverse afuera.
-[[ "$DO_CONFIANZA" -eq 1 ]] && stage_begin "Máscara de confianza"
-[[ "$DO_AREA" -eq 1 ]] && stage_begin "Área afectada + clasificación de severidad"
+# La ruta de vuelo se lanzó al fondo al principio de la corrida (ver arriba);
+# acá es donde recién hace falta de verdad — compute_flight_quality lee
+# outputs/flight_path.geojson para la velocidad de vuelo. En la práctica ya
+# terminó hace rato (tarda minutos, la reconstrucción tarda horas), así que
+# esto no bloquea nada: solo garantiza el orden.
+if declare -f _wait_flight_path >/dev/null; then
+  _wait_flight_path
+fi
 
-CROSS_PIDS=()
+# ── Análisis cruzado ─────────────────────────────────────────────────
+# confidence-mask es de SOLO LECTURA: confidence_mask.py lee
+# outputs/{rgb,thermal}_orthomosaic.tif (ya definitivos — el único recorte
+# espacial de la misión es el casco convexo de trim_low_overlap_edges.py, que
+# ya corrió) y solo escribe outputs/confidence_mask.tif, que nadie más lee.
+# Antes reescribía esos mismos ortomosaicos in-place con su propia limpieza
+# morfológica (motas + parches sueltos), lo que era una condición de carrera
+# real contra flight-quality/área corriendo en paralelo — eliminada junto con
+# esa limpieza (ver confidence_mask.py).
+#
+# Antes TAMBIÉN corría sincrónica y primera en el hilo principal del script
+# (tenía sentido cuando reescribía archivos compartidos: nadie más podía
+# tocarlos mientras tanto). Sin esa razón, correrla sincrónica-primera pasó
+# a ser un problema nuevo: confianza SÍ depende de RGB (rgb+térmico), así
+# que un `_dep_ok rgb` sincrónico en el hilo principal bloqueaba TODO lo que
+# viene después en el script —incluida área, que NO depende de RGB— detrás
+# de la reconstrucción de RGB, mucho más lenta (SfM incremental, secuencial
+# por diseño). Reportado en vivo. Por eso ahora confianza se lanza en su
+# propio subshell de fondo, igual que flight-quality/área — cada una bloquea
+# solo contra lo que a ELLA le corresponde, nunca contra las demás.
+# Las tres etapas de acá abajo lanzan su subshell SIEMPRE que están pedidas
+# (DO_X==1) — la pregunta "¿mi dependencia terminó bien?" (_dep_ok) se
+# evalúa DENTRO de cada subshell, no antes de lanzarlo, para que evaluarla
+# no bloquee el hilo principal (ver el comentario grande de _wait_sensor()
+# más arriba sobre por qué esto importa: confianza sí depende de RGB, y
+# evaluar esa pregunta en el hilo principal bloqueaba a área detrás de RGB
+# también, aunque área no lo necesite). Cada subshell hace `exit 1` si su
+# propia dependencia falló — el wait loop de más abajo lo trata igual que
+# cualquier otro fallo real.
+declare -A _CROSS_PID_LABEL=()
 if [[ "$DO_CONFIANZA" -eq 1 ]]; then
-  ( make confidence-mask && python3 scripts/export_cog.py outputs/confidence_mask.tif ) &
-  CROSS_PIDS+=($!)
+  stage_begin "Máscara de confianza"
+  (
+    if _dep_ok rgb && _dep_ok thermal; then
+      make confidence-mask && python3 scripts/export_cog.py outputs/confidence_mask.tif
+    else
+      echo "⏭  Máscara de confianza: se salta — depende de RGB y térmico, y al menos uno falló."
+      exit 1
+    fi
+  ) &
+  _CROSS_PID_LABEL[$!]="máscara de confianza"
 fi
 if [[ "$DO_THERMAL" -eq 1 ]]; then
   # Calidad del LEVANTAMIENTO (solape de cámaras, velocidad de vuelo, % de
   # imágenes reconstruidas) — no depende de multiespectral, así que corre
-  # siempre que haya térmico, no solo en el modo solo-térmico. Liviano — no
-  # tiene stage_begin propio.
+  # siempre que haya térmico. Liviano — no tiene stage_begin propio.
   (
-    make flight-quality
-    if [[ "$DO_MS" -eq 0 ]]; then
-      # El hotspot es puramente térmico (temperatura absoluta) y no depende
-      # de NDVI ni del polígono de área afectada — pero antes SOLO se
-      # generaba como subproducto de compute-severity, que exige
-      # multiespectral (su señal primaria es NDVI). Una misión RGB+térmico
-      # sin M3M se quedaba sin esta capa sin ninguna necesidad real. Con
-      # multiespectral, la cadena de abajo (DO_AREA) ya genera un hotspot
-      # recortado al área detectada, más específico — no se pisa acá.
+    if _dep_ok thermal; then
+      make flight-quality
+      # Regenera hotspot+situation.json una vez que TODOS los sensores
+      # terminaron y flight_path.geojson está garantizado listo (ver
+      # _wait_flight_path más arriba) — la primera pasada de _odm_post()
+      # puede haber corrido antes de que la fecha de captura estuviera
+      # disponible.
       make compute-thermal-hotspot
-      # situation.json en modo SOLO térmico: sin multiespectral no hay área
-      # afectada ni severidad que resumir, pero la fecha de vuelo y los
-      # focos activos del hotspot recién generado sí se pueden reportar.
       make situation-summary
+    else
+      echo "⏭  Calidad de vuelo: se salta — depende del térmico, que falló."
+      exit 1
     fi
   ) &
-  CROSS_PIDS+=($!)
-fi
-if [[ "$DO_AREA" -eq 1 ]]; then
-  ( make detect-area-afectada && make compute-severity && make situation-summary ) &
-  CROSS_PIDS+=($!)
+  _CROSS_PID_LABEL[$!]="calidad de vuelo"
 fi
 
-CROSS_FAILED=0
-for pid in "${CROSS_PIDS[@]}"; do wait "$pid" || CROSS_FAILED=1; done
-if [[ "$CROSS_FAILED" -eq 1 ]]; then
-  echo "❌ ERROR: falló el análisis cruzado (máscara de confianza, calidad de vuelo o área afectada)."
-  echo "   Revisá los mensajes de arriba para saber cuál — cada uno imprime su propio error."
+_CONFIANZA_OK=1
+for pid in "${!_CROSS_PID_LABEL[@]}"; do
+  if ! wait "$pid"; then
+    PIPELINE_HAD_FAILURE=1
+    echo "❌ ERROR: falló ${_CROSS_PID_LABEL[$pid]}."
+    case "${_CROSS_PID_LABEL[$pid]}" in
+      "máscara de confianza")      _CONFIANZA_OK=0 ;;
+    esac
+  fi
+done
+[[ "$DO_CONFIANZA" -eq 1 && "$_CONFIANZA_OK" -eq 1 ]] && pipeline_progress_done "Máscara de confianza lista"
+[[ "${#_CROSS_PID_LABEL[@]}" -gt 0 ]] && publish_partial
+
+# ── Cierre: acá SÍ hace falta que los cuatro sensores estén resueltos ──
+# Ninguna etapa de arriba (confianza/flight-quality/área) tuvo por qué
+# esperar a TODOS — cada una esperó solo lo suyo, lazy, vía _dep_ok(). Pero
+# tiles/COG/entrega sí publican TODO lo que haya, así que antes de esas
+# etapas se termina de esperar cualquier sensor que ninguna de las de arriba
+# haya necesitado (p.ej. RGB si la misión no tiene confianza, o banda D, que
+# nadie del análisis cruzado pide nunca) — sin esto, ese sensor podría seguir
+# corriendo de fondo cuando tiles ya está publicando.
+for _label in "${ODM_ORDEN[@]}"; do _wait_sensor "$_label"; done
+[[ -n "${SEM_FD:-}" ]] && exec {SEM_FD}<&-
+
+# Tiempos por sensor: cada cadena los dejó en su propio archivo — un
+# subshell de fondo no puede exportar variables de vuelta al padre.
+for _label in "${ODM_ORDEN[@]}"; do
+  _f="outputs/logs/.timing_${_label}"
+  [[ -f "$_f" ]] && source "$_f"
+done
+rm -f outputs/logs/.timing_* outputs/logs/.sensor_estado_* "${FALLOFLAG:-outputs/logs/.odm_fallo}"
+
+if [[ "$PIPELINE_HAD_FAILURE" -eq 1 ]]; then
+  echo ""
+  echo "⚠ ADVERTENCIA: al menos un sensor o etapa falló durante la corrida — se continúa con lo que sí terminó bien."
+  for _label in "${ODM_ORDEN[@]}"; do
+    [[ "${_SENSOR_OK[$_label]:-1}" -eq 0 ]] && echo "   ❌ ${_label}: falló (ver outputs/logs/odm_${_label}.log)"
+  done
+  echo "   El detalle de cada fallo está más arriba."
+fi
+
+_ANY_SENSOR_OK=0
+for _label in "${ODM_ORDEN[@]}"; do
+  [[ "${_SENSOR_OK[$_label]:-0}" -eq 1 ]] && _ANY_SENSOR_OK=1
+done
+
+if [[ "$_ANY_SENSOR_OK" -eq 0 && ${#ODM_ORDEN[@]} -gt 0 ]]; then
+  echo ""
+  echo "❌ ERROR FATAL: Ningún sensor completó la reconstrucción exitosamente."
+  echo "   Cancelando generación de tiles y exportación."
   exit 1
 fi
-[[ "$DO_CONFIANZA" -eq 1 ]] && pipeline_progress_done "Máscara de confianza lista"
-[[ "$DO_AREA" -eq 1 ]] && pipeline_progress_done "Área afectada y severidad listas"
-[[ "${#CROSS_PIDS[@]}" -gt 0 ]] && publish_partial
 
 # Cobertura vs. área volada (outputs/coverage.json): advierte si la
 # reconstrucción dejó el mosaico recortado muy por debajo del área real
@@ -1166,8 +1352,12 @@ python3 scripts/notify_alert.py || true
 python3 scripts/export_report.py || true
 
 stage_begin "Generación de tiles XYZ"
-make tiles
-pipeline_progress_done "Tiles listos para el geovisor"
+if make tiles; then
+  pipeline_progress_done "Tiles listos para el geovisor"
+else
+  echo "❌ ERROR: falló la generación de tiles."
+  PIPELINE_HAD_FAILURE=1
+fi
 
 stage_begin "Exportación cloud-optimized (COG + COPC)"
 # Pase de SEGURIDAD, no el primer pase: cada sensor ya exportó sus propios
@@ -1187,15 +1377,20 @@ wait "$_PID_COPC" || _EXPORT_FALLO=1
 if [[ "$_EXPORT_FALLO" -eq 1 ]]; then
   echo "❌ ERROR: falló la exportación cloud-optimized (COG o COPC)."
   echo "   Revisá los mensajes de arriba — cada una imprime su propio error."
-  exit 1
+  PIPELINE_HAD_FAILURE=1
+else
+  pipeline_progress_done "Rasters COG y nubes COPC listos"
 fi
-pipeline_progress_done "Rasters COG y nubes COPC listos"
 
 # Entrega opcional a la carpeta que eligió el usuario (formato + CRS propios).
 if [[ "$DO_ENTREGA" -eq 1 ]]; then
   stage_begin "Exportación a carpeta de entrega"
-  make export-products
-  pipeline_progress_done "Entrega exportada a ${EXPORT_DIR}"
+  if make export-products; then
+    pipeline_progress_done "Entrega exportada a ${EXPORT_DIR}"
+  else
+    echo "❌ ERROR: falló la exportación a la carpeta de entrega."
+    PIPELINE_HAD_FAILURE=1
+  fi
 fi
 
 # Red de seguridad: si alguien agrega un stage_begin y se olvida de su flag en
@@ -1228,11 +1423,19 @@ chmod -R a+rwX outputs preprocessing processing geovisor/tiles 2>/dev/null || tr
 
 # Resumen legible por máquina para automatización/CI (./raptor run --json).
 # No debe tumbar la corrida si algo acá falla: los productos ya están escritos.
-python3 scripts/run_summary.py 0 || echo "  ⚠ no se pudo generar run_summary.json"
+# El código refleja PIPELINE_HAD_FAILURE (no un 0 fijo): con etapas
+# independientes la corrida puede llegar hasta acá con un fallo/salteo parcial
+# en el medio (ver _dep_ok más arriba) — antes eso era imposible porque
+# cualquier fallo cortaba con exit 1 mucho antes de llegar a este resumen.
+python3 scripts/run_summary.py "$PIPELINE_HAD_FAILURE" || echo "  ⚠ no se pudo generar run_summary.json"
 
 echo ""
 echo "═══════════════════════════════════════════════════"
-echo "  ✅ Pipeline completo (MODE=${MODE})"
+if [[ "$PIPELINE_HAD_FAILURE" -eq 1 ]]; then
+  echo "  ⚠ Pipeline terminado con fallos parciales (MODE=${MODE})"
+else
+  echo "  ✅ Pipeline completo (MODE=${MODE})"
+fi
 echo "═══════════════════════════════════════════════════"
 echo "Productos en outputs/ (COG):"
 ls -lh outputs/*.tif outputs/indices/*.tif 2>/dev/null | awk '{printf "  %-28s %s\n", $NF, $5}' || true
@@ -1256,3 +1459,15 @@ if [[ "$SERVE" -eq 1 ]]; then
   export RAPTOR_RUNS_ROOT="${RAPTOR_RUNS_ROOT:-/app/runs}"
   exec python3 -m webapp.main "$PORT"
 fi
+
+# Código de salida real de la corrida — SOLO se llega acá con SERVE=0 (el
+# caso normal orquestado por la webapp, ver core/runner.py::PipelineRun, que
+# lee este returncode para marcar la corrida como fallida en la UI). Con
+# SERVE=1 el `exec` de arriba ya reemplazó este proceso, así que un fallo
+# parcial en modo standalone (`docker run ... raptor run`, sin webapp
+# orquestando) igual sirve el geovisor con lo que sí se pudo — mejor eso que
+# no mostrar nada, que es lo que pasaba antes con el primer exit 1.
+if [[ "$PIPELINE_HAD_FAILURE" -eq 1 ]]; then
+  exit 1
+fi
+exit 0

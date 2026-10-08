@@ -81,7 +81,34 @@ def detect_hardware():
             "gpu": has_gpu, "gpu_name": gpu_name, "vram_mb": vram_mb}
 
 
-def safe_concurrency(megapixels, ram_frac=0.8, override=None):
+def _gpu_dense_offload(vram_min_mb=4096):
+    """True si hay GPU con VRAM suficiente para que la etapa densa
+    (DensifyPointCloud) corra acelerada — en ese caso el trabajo pesado de
+    los depthmaps lo paga en gran parte la VRAM, no la RAM del host, así que
+    la guía de ODM ("~1GB por hilo cada 2 MP") es la cifra CPU-only, pensada
+    para cuando NO hay ese descargue. Reportado en vivo: en una misión real
+    (RGB 12.3 MP, GPU RTX 2080) el contenedor ENTERO usó ~6 GB de RAM con 3
+    hilos activos ya pasada la etapa densa — bien por debajo de lo que la
+    fórmula CPU-only hubiera reservado (~19 GB para esos 3 hilos) — señal de
+    que la reserva CPU-only es demasiado conservadora cuando hay GPU, aunque
+    esa muestra puntual no midió el pico exacto de la propia etapa densa.
+    vram_min_mb=4 GB a propósito: por debajo de eso (una laptop chica) la GPU
+    puede terminar siendo el cuello de botella real, no un ahorro de RAM.
+    """
+    has_gpu, _, vram_mb = gpu_info()
+    return bool(has_gpu and vram_mb and vram_mb >= vram_min_mb)
+
+
+# Reducción del costo de RAM/hilo asumido para la etapa densa cuando hay
+# descargue a GPU (ver _gpu_dense_offload) — CONSERVADOR frente a lo medido
+# en vivo (~3x menos que la fórmula CPU-only), no lo elimina: 0.5 dejó a RGB
+# con más margen del que la muestra puntual de arriba sugería que hacía
+# falta, a propósito, porque esa muestra no midió el pico real de la etapa
+# densa en sí.
+GPU_DENSE_RAM_FACTOR = 0.5
+
+
+def safe_concurrency(megapixels, ram_frac=0.8, override=None, gpu_aware=False):
     """Hilos seguros para una etapa de ODM que carga ~megapixels/2 GB por
     hilo (documentado por el propio ODM: "~1GB per thread and 2 megapixel
     image resolution"). Nunca más que los núcleos reales; nunca menos de 1.
@@ -91,6 +118,14 @@ def safe_concurrency(megapixels, ram_frac=0.8, override=None):
     band alignment): CUALQUIER etapa de ODM usa todos los núcleos si no se le
     dice lo contrario, así que el mismo riesgo existe en RGB y en térmico
     sobre una máquina con muchos núcleos y fotos grandes.
+
+    `gpu_aware`: aplica GPU_DENSE_RAM_FACTOR si hay descargue a GPU (ver
+    _gpu_dense_offload) — SOLO tiene sentido para la etapa densa de ODM
+    (DensifyPointCloud), que es la que corre acelerada. La fase liviana de
+    SfM (features/matching/reconstrucción incremental, en OpenSfM) y los
+    scripts de preparación (dji_irp, exiftool, hardlinks) no descargan nada a
+    GPU, así que sus llamadas dejan esto en False — el default — y siguen
+    con la cifra CPU-only completa.
     """
     if override is not None:
         return int(override)
@@ -98,7 +133,8 @@ def safe_concurrency(megapixels, ram_frac=0.8, override=None):
     avail = mem_available_mb()
     if not avail or avail <= 0:
         return cores
-    mb_per_thread = max(512, int(megapixels * 1024 / 2))
+    factor = GPU_DENSE_RAM_FACTOR if (gpu_aware and _gpu_dense_offload()) else 1.0
+    mb_per_thread = max(512, int(megapixels * 1024 / 2 * factor))
     n = int(avail * ram_frac / mb_per_thread)
     return max(1, min(cores, n))
 
@@ -183,18 +219,52 @@ def odm_slots(perfiles_mp, ram_frac=0.8, override=None, max_paralelo=None):
     cores = cpu_count()
     avail = mem_available_mb()
 
-    def _reparto(n, mps):
-        """Hilos por proyecto si corren `n` a la vez: cada uno se lleva 1/n
-        del presupuesto de memoria y de los núcleos."""
-        por_proyecto = max(1, cores // n)
-        return [max(1, min(por_proyecto, safe_concurrency(mp, ram_frac=ram_frac / n)))
-                for mp in mps]
+    def _reparto(n, mem_mps, gpu_aware=False):
+        """Hilos por proyecto si corren `n` a la vez.
+
+        Dos cosas distintas, a propósito:
+
+        · NÚCLEOS, repartidos PROPORCIONALES AL COSTO real de cada proyecto
+          (`perfiles`: 12.3 MP RGB, 5 MS/banda D, 0.33 térmico) — no en
+          partes iguales. Medido en vivo (misión medellin_palmas): el SfM de
+          RGB tardó 33 min con 16 hilos cuando corría solo, y 56 min con 5
+          hilos cuando los tres sensores se repartían los núcleos parejo —
+          1.69x más lento. Y no compraba nada: térmico (34 min) y
+          multiespectral (60 min) terminan MUY dentro de las 2 h de RGB
+          incluso con pocos hilos, así que darles la misma tajada que al
+          sensor del que depende el final de la corrida solo alarga el
+          camino crítico. El que manda el reloj se lleva la mayor parte.
+
+        · MEMORIA (`mem_mps`), sin cambios: cada proyecto sigue acotado
+          contra ram_frac/n con su propio perfil. Es el límite duro que evita
+          el OOM y ahí no hay nada que optimizar — sobreasignar memoria no
+          acelera, cuelga la máquina.
+
+        En la fase liviana los dos argumentos difieren: el peso de núcleos
+        sale del perfil REAL del sensor (RGB es el caro) pero el techo de
+        memoria usa LIGHT_MP para todos, que es lo que de verdad pesa un
+        hilo de SfM sobre fotos ya reducidas a feature_process_size.
+        """
+        total = sum(perfiles[:n]) or 1.0
+        out = []
+        for i, mem_mp in enumerate(mem_mps):
+            if n <= 1:
+                por_proyecto = cores
+            else:
+                # Los i < n son los que coinciden en la tanda inicial; los que
+                # esperan turno heredan la cuota del último de esa tanda.
+                peso = perfiles[i if i < n else n - 1] / total
+                por_proyecto = max(MIN_HILOS_POR_PROYECTO, round(cores * peso))
+            out.append(max(1, min(por_proyecto,
+                                  safe_concurrency(mem_mp, ram_frac=ram_frac / n,
+                                                   gpu_aware=gpu_aware))))
+        return out
 
     livianos = [LIGHT_MP] * len(perfiles)
     if tope == 1 or not avail or avail <= 0:
         # Sin dato de memoria no se arriesga nada: uno por vez, como siempre.
         return {"slots": 1,
-                "hilos": _reparto(1, perfiles),
+                "hilos": _reparto(1, perfiles, gpu_aware=True),
                 "hilos_light": _reparto(1, livianos)}
 
     slots = 1
@@ -202,189 +272,131 @@ def odm_slots(perfiles_mp, ram_frac=0.8, override=None, max_paralelo=None):
         # Solo importan los n primeros: son los que de verdad van a coincidir
         # en la tanda inicial, y las siguientes usan el mismo reparto. Tienen
         # que entrar con un mínimo digno en AMBAS fases, no solo en una.
-        pesados = _reparto(n, perfiles)[:n]
+        pesados = _reparto(n, perfiles, gpu_aware=True)[:n]
         light = _reparto(n, livianos)[:n]
         if all(h >= MIN_HILOS_POR_PROYECTO for h in pesados + light):
             slots = n
             break
 
     return {"slots": slots,
-            "hilos": _reparto(slots, perfiles),
+            "hilos": _reparto(slots, perfiles, gpu_aware=True),
             "hilos_light": _reparto(slots, livianos)}
 
 
 # ── Presets de calidad ───────────────────────────────────────────────
-# Antes esto era un número de 0 a 100 con cinco escalones adentro. El número
-# no le decía nada al operador: "75" no responde ni cuánto va a tardar ni para
-# qué sirve, y la diferencia real entre 71 y 89 era ninguna (mismo escalón).
-# Ahora son presets con nombre, elegidos por USO y TIEMPO, que es la decisión
-# que de verdad se toma frente a un incendio: "necesito mirar algo en una
-# hora" vs. "esto es la entrega".
+# Elegidos por USO Y TIEMPO, que es la decisión real frente a un incendio.
+# Cada campo, y por qué su valor (todo medido en misiones reales):
 #
-# Cada preset fija cinco cosas:
+# fast_orthophoto — LA palanca grande. Salta DensifyPointCloud (MVS): la
+#   ortofoto se arma de la nube DISPERSA de SfM en vez de la densa. Medido en
+#   medellin_palmas: MVS solo fueron 28 min de las 2 h de RGB, y malla +
+#   texturizado (que también se abaratan) otros 29. El DSM y la nube de
+#   puntos exportada SÍ se degradan (salen de la dispersa), por eso `alta`
+#   para arriba mantiene la densa: ahí son el producto pedido.
+#   Pero el ortomosaico TAMBIÉN se degrada más de lo que el ahorro de tiempo
+#   justifica: reportado en vivo, una misión real con fast_orthophoto=True
+#   en `estandar` salió con el mosaico fragmentado en 32 islas
+#   desconectadas (la malla de la nube dispersa deja huecos reales en zonas
+#   de poca textura, aunque las poses de cámara se reconstruyan casi
+#   completas). Por eso solo `vistazo`/`rápido` la usan — ahí la prioridad
+#   es velocidad y el mosaico es desechable si hace falta reprocesar;
+#   `estandar` es "la entrega normal de una misión" y se paga el ~2x de MVS
+#   para que salga completo.
 #
-# pc_quality/feature_quality: resolución de los mapas de profundidad (nube
-# densa, malla 2.5D, DSM) — lo que decide si una copa de árbol se resuelve o
-# la superficie sale lisa (la causa real de "no parece true-ortho": con
-# depthmaps a 320px sobre fotos de 4056px, los árboles no quedan en el modelo
-# y se desplazan al proyectarlos). Cada escalón multiplica el tiempo de
-# SfM/MVS por ~4 (documentado por ODM en --pc-quality --help).
+# matcher_neighbors — nº de vecinos por GPS contra los que se matchea cada
+#   foto. 0 = grafo completo, O(n²): en un vuelo de 485 fotos son 235.000
+#   pares contra 3.900 con vecindario 8. Estaba en 0 en alta/máxima, que es
+#   de dónde salía el grueso de su lentitud — en un vuelo en grilla con GPS
+#   los pares lejanos no pueden matchear igual. Se acota en todos los
+#   presets; los de calidad usan un vecindario más ancho, no infinito.
 #
-# res_cm: el TECHO de resolución que se le pide a ODM para el ortomosaico y el
-# DSM. ODM nunca puede ir más FINO que el GSD real del vuelo (lo mide de la
-# reconstrucción y recorta cualquier pedido más ambicioso — ver
-# opendm/gsd.py::cap_resolution) pero SÍ puede ir deliberadamente más GRUESO
-# si se lo pide un valor mayor, y eso reduce el total de píxeles del ráster
-# final — lo que acelera de verdad el renderizado de ortofoto, el recorte de
-# bordes, la generación de tiles y la exportación COG, que son proporcionales
-# al tamaño del ráster. Por eso 1 cm en el preset máximo NO es "2 cm mágicos
-# de Terra": es "no te autoimpongas un techo, dame el GSD real completo".
+# pc_quality / feature_quality — resolución de depthmaps y de extracción de
+#   features. Cada escalón multiplica el tiempo por ~4 (ODM, --pc-quality
+#   --help). pc_quality NO se usa cuando fast_orthophoto está activo (no
+#   corre MVS): en esos presets queda en low por coherencia, no por efecto.
 #
-# min_features: cuántos features pide ODM por foto. Estaba hardcodeado en
-# 12000 (8000 en térmico) sin importar la calidad elegida, y la extracción de
-# features es una de las dos sub-etapas más caras del SfM (108 min en la banda
-# D de barbosa-picodegallo). Pedir menos en los presets rápidos es
-# exactamente lo que un vistazo necesita.
+# res_cm — techo de resolución del ortomosaico y el DSM. ODM nunca va más
+#   fino que el GSD real (opendm/gsd.py::cap_resolution) pero sí más grueso
+#   si se le pide, y el tamaño del ráster manda en render, recorte, tiles y
+#   COG. 1 cm en máxima = "sin techo, dame el GSD real".
 #
-# sfm_algorithm: `planar` (ODM lo documenta como "for planar scenes captured
-# at fixed altitude with nadir-only images, planar can be much faster") ataca
-# la etapa que domina las corridas largas — la reconstrucción incremental, que
-# es secuencial por diseño y se llevó 4 h 27 min de las 10 h de la banda D.
-# Es el perfil exacto de estos vuelos, pero asume nadir y altura fija, así que
-# vive SOLO en los presets rápidos: de `estandar` para arriba sigue
-# `incremental`, que es lo que corrió siempre.
+# min_features — features por foto. La extracción es una de las dos
+#   sub-etapas más caras del SfM (108 min en una banda D grande).
 #
-# hybrid_ba (--use-hybrid-bundle-adjustment de ODM): bundle adjustment LOCAL
-# (solo las cámaras cercanas a la que se acaba de agregar) en vez de GLOBAL
-# completo en CADA foto agregada — con ajuste global completo cada 100 fotos
-# para no perder consistencia. Sin esto (default de ODM: False) el costo de
-# cada foto agregada crece con el tamaño de la reconstrucción ya armada, no es
-# lineal — confirmado en vivo: una reconstrucción RGB de 224 fotos quedó ~40
-# min en esta sola etapa con la CPU casi ociosa. Se apaga solo en `maxima`:
-# ahí el usuario ya está pagando el máximo tiempo a propósito, así que se
-# prioriza la consistencia del ajuste global.
+# sfm_algorithm — `planar` asume vuelo nadir a altura fija y es mucho más
+#   rápido, pero descarta fotos en terreno con relieve (misión
+#   mision_2026-08-08: de 1199 fotos solo ubicó 283). Solo en los presets
+#   rápidos, y TERRENO=escarpado lo fuerza a incremental igual (ver TERRENOS).
 #
-# matcher_neighbors: 0 = grafo completo (cada foto contra TODAS las demás), el
-# costo real detrás de reconstrucciones lentas con muchas fotos — bug real:
-# estaba hardcodeado en 0 sin importar la calidad, así que "calidad mínima"
-# seguía pagando el matching más caro posible. En alta/máxima se mantiene el
-# grafo completo (ahí importa más no perderse pares que podrían cerrar un
-# loop); el resto usa un vecindario acotado de 8.
+# hybrid_ba — bundle adjustment local por foto + global cada 100. Sin esto el
+#   costo de cada foto crece con la reconstrucción ya armada: una de 224
+#   fotos quedó ~40 min en esa sola etapa con la CPU ociosa. Se apaga solo en
+#   `maxima`, donde se prioriza la consistencia del ajuste global.
 #
-# fast_orthophoto (RGB únicamente — ver docker/entrypoint.sh::_odm_args):
-# salta DensifyPointCloud (MVS), el mismo salto que banda D ya usa siempre y
-# por la misma razón. Confirmado en vivo (misión mision_2026-08-08, 1199
-# fotos RGB, preset vistazo): DensifyPointCloud solo se llevó ~11h de las
-# ~15h totales de esa reconstrucción, con GPU activa — con una sola GPU de
-# laptop el costo es ~lineal por foto y "pc_quality: low" reduce la
-# resolución de cada mapa de profundidad, no cuántas fotos hay que pasar por
-# la GPU. Con --fast-orthophoto el DSM sale de la nube DISPERSA de SfM en vez
-# de la densa (mucho más pobre — menos puntos, más huecos), pero vistazo y
-# rápido ya asumen ese trade-off a cambio de pasar de horas a minutos en
-# misiones grandes. estandar/alta/maxima mantienen la nube densa completa.
+# tiempo_relativo — costo relativo a `rapido`, recalibrado contra la corrida
+#   completa de medellin_palmas (2 h 46 min en `estandar` con la tabla vieja).
 PRESETS = {
-    "vistazo": {
+    "tactico": {
         "orden": 0,
-        "titulo": "Vistazo",
-        "para_que": "Ver algo utilizable en minutos, durante la emergencia.",
-        "pc_quality": "low", "feature_quality": "medium", "res_cm": 15,
-        "min_features": 4000, "matcher_neighbors": 8,
-        "sfm_algorithm": "planar", "hybrid_ba": True, "fast_orthophoto": True,
-        "tiempo_relativo": 0.35,
+        "titulo": "Táctico",
+        "para_que": "Respuesta inmediata en campo: ortomosaico 2.5D ultrarrápido con ODM multiband seamline blending, sin nube densa.",
+        "pc_quality": "low", "feature_quality": "lowest", "res_cm": 10,
+        "min_features": 3000, "matcher_neighbors": 4,
+        "sfm_algorithm": "incremental", "hybrid_ba": True, "fast_orthophoto": True,
+        "tiempo_relativo": 0.25,
     },
-    "rapido": {
+    "cartografico": {
         "orden": 1,
-        "titulo": "Rápido",
-        "para_que": "Respuesta operativa el mismo día, con medidas creíbles.",
-        "pc_quality": "medium", "feature_quality": "medium", "res_cm": 8,
-        "min_features": 6000, "matcher_neighbors": 8,
-        "sfm_algorithm": "planar", "hybrid_ba": True, "fast_orthophoto": True,
-        "tiempo_relativo": 1.0,
-    },
-    "estandar": {
-        "orden": 2,
-        "titulo": "Estándar",
-        "para_que": "La entrega normal de una misión. Es el valor por defecto.",
+        "titulo": "Cartográfico",
+        "para_que": "La entrega normal de una misión: ortomosaico corregido, DSM y nube 3D.",
         "pc_quality": "medium", "feature_quality": "high", "res_cm": 4,
         "min_features": 8000, "matcher_neighbors": 8,
         "sfm_algorithm": "incremental", "hybrid_ba": True, "fast_orthophoto": False,
         "tiempo_relativo": 4.0,
     },
-    "alta": {
-        "orden": 3,
-        "titulo": "Alta",
-        "para_que": "Análisis fino y medición sobre el modelo de superficie.",
-        "pc_quality": "high", "feature_quality": "high", "res_cm": 2,
-        "min_features": 12000, "matcher_neighbors": 0,
-        "sfm_algorithm": "incremental", "hybrid_ba": True, "fast_orthophoto": False,
+    "forense": {
+        "orden": 2,
+        "titulo": "Forense",
+        "para_que": "Peritaje y archivo: el máximo detalle físico que dé el vuelo.",
+        "pc_quality": "high", "feature_quality": "ultra", "res_cm": 1,
+        "min_features": 16000, "matcher_neighbors": 24,
+        "sfm_algorithm": "incremental", "hybrid_ba": False, "fast_orthophoto": False,
         "tiempo_relativo": 16.0,
     },
-    "maxima": {
-        "orden": 4,
-        "titulo": "Máxima",
-        "para_que": "Archivo y peritaje: el máximo detalle que dé el vuelo.",
-        "pc_quality": "ultra", "feature_quality": "ultra", "res_cm": 1,
-        "min_features": 16000, "matcher_neighbors": 0,
-        "sfm_algorithm": "incremental", "hybrid_ba": False, "fast_orthophoto": False,
-        "tiempo_relativo": 64.0,
-    },
 }
-PRESET_DEFAULT = "estandar"
+PRESET_DEFAULT = "cartografico"
 PRESETS_ORDENADOS = sorted(PRESETS, key=lambda n: PRESETS[n]["orden"])
 
+PRESET_ALIASES = {
+    "vistazo": "tactico",
+    "rapido": "tactico",
+    "estandar": "cartografico",
+    "alta": "cartografico",
+    "maxima": "forense",
+}
+
 # Mapeo del QUALITY 0-100 histórico al preset equivalente, para que las
-# corridas, los scripts y el CI que ya pasan un número sigan funcionando. Los
-# cortes son los mismos escalones que tenía la tabla vieja.
-_QUALITY_A_PRESET = ((90, "maxima"), (70, "alta"), (40, "estandar"),
-                     (20, "rapido"), (0, "vistazo"))
+# corridas, los scripts y el CI que ya pasan un número sigan funcionando.
+_QUALITY_A_PRESET = ((90, "forense"), (40, "cartografico"), (0, "tactico"))
 
 
 # ── Terreno: plano vs escarpado ──────────────────────────────────────
-# `sfm_algorithm: planar` (vistazo/rápido) alinea las fotos por HOMOGRAFÍAS
-# entre pares — una transformación que solo aproxima bien la escena real
-# cuando el terreno es efectivamente plano. Bug real, encontrado en vivo
-# (misión mision_2026-08-08, terreno rocoso/escarpado, preset vistazo):
-# de 1199 fotos RGB con match válido, la reconstrucción planar solo pudo
-# ubicar 283 (23.6%) — de 1199 térmicas, 224 (18.7%). El resto no fue un
-# error visible: OpenSfM simplemente las descartó del grafo de poses porque
-# su homografía con las vecinas no encajaba, y ODM siguió de largo con lo
-# que sí pudo alinear ("decision: Success" en su propio reporte). El síntoma
-# en el geovisor es un ortomosaico/DSM "recortado" muy por debajo del área
-# real volada — no es un bug de recorte de bordes, es cobertura real perdida
-# en la reconstrucción.
-#
-# `incremental` no asume un plano: reconstruye foto por foto vía bundle
-# adjustment, válido para cualquier geometría 3D a costa de ser más lento
-# (secuencial por diseño). TERRENO_ESCARPADO fuerza incremental incluso en
-# vistazo/rápido — las demás palancas de velocidad del preset (pc_quality,
-# feature_quality, min_features, fast_orthophoto) se mantienen: la idea es
-# "rápido pero completo", no perder la ganancia de velocidad entera.
+# `sfm_algorithm: planar` alinea las fotos por HOMOGRAFÍAS entre pares.
+# `sfm_algorithm: incremental` resuelve posiciones 3D exactas incluso en montaña.
 TERRENOS = ("plano", "escarpado")
 TERRENO_DEFAULT = "plano"
 
-# Corrección de tiempo_relativo cuando se fuerza incremental sobre un preset
-# que por defecto es planar (vistazo/rápido). NO es una calibración medida
-# (no hay todavía una corrida real de "vistazo + escarpado" para calibrar
-# contra — ver mision_2026-08-08): es una estimación conservadora a partir
-# de la nota de _SEG_POR_FOTO_BASE, donde la reconstrucción incremental
-# (bundle adjustment secuencial) se llevó ~44% del tiempo total de una banda
-# D grande. PENDIENTE: recalibrar con la primera corrida real de este modo.
-_CORRECCION_INCREMENTAL_FORZADO = 3.0
-
-
 def preset(nombre, terreno=None):
     """Config de un preset por nombre. Acepta también un QUALITY numérico
-    (0-100) por compatibilidad — ver _QUALITY_A_PRESET.
-
-    `terreno`: "plano" (default) o "escarpado" — ver TERRENOS arriba. Con
-    "escarpado", sfm_algorithm se fuerza a "incremental" sin importar el
-    preset, y tiempo_relativo se ajusta para que la estimación no prometa
-    la velocidad de "planar" en un modo que ya no lo usa."""
+    (0-100) por compatibilidad — ver _QUALITY_A_PRESET."""
     if nombre is None:
         nombre = PRESET_DEFAULT
     clave = str(nombre).strip().lower()
     if clave in PRESETS:
         p = dict(PRESETS[clave], nombre=clave)
+    elif clave in PRESET_ALIASES:
+        destino = PRESET_ALIASES[clave]
+        p = dict(PRESETS[destino], nombre=destino, alias=clave)
     elif clave.isdigit():
         n = max(0, min(100, int(clave)))
         p = None
@@ -407,7 +419,6 @@ def preset(nombre, terreno=None):
     p["terreno"] = terreno
     if terreno == "escarpado" and p["sfm_algorithm"] == "planar":
         p["sfm_algorithm"] = "incremental"
-        p["tiempo_relativo"] = p["tiempo_relativo"] * _CORRECCION_INCREMENTAL_FORZADO
     return p
 
 
@@ -494,43 +505,76 @@ def quality_tier(quality):
 #                                 --fast-orthophoto (malla desde la nube
 #                                 dispersa en vez de la densa)
 #
-# Coeficientes por foto derivados de los substages reales de la última
-# corrida (outputs/logs/odm_rgb_substages.json de mision_2026-08-08):
-#   features+matching+undistort: 15686 s / 1199 fotos ≈ 13 s (a ~2 hilos;
-#     con la concurrencia liviana actual el costo por foto es el mismo pero
-#     el modelo lo divide por los núcleos reales — ver run_odm en
-#     docker/entrypoint.sh).
-#   incremental: opensfm 30592 s − 15686 s ≈ 14906 s / 1199 ≈ 12.4 s.
-#   densa (RGB): 16471 s / 1199 ≈ 13.7 s sobre la GPU de referencia (6 GB).
-#   malla+textura: (3097 + 2992) s / 1199 ≈ 5.1 s; con fast-orthophoto se
-#     estima 60% (malla dispersa) — PENDIENTE de medir en una corrida real.
+# Primera calibración, contra los substages reales de mision_2026-08-08
+# (outputs/logs/odm_rgb_substages.json): features 13 s/foto, incremental
+# 12.4 s, densa 13.7 s, malla+textura 5.1 s. Esa corrida es ANTERIOR a que
+# hybrid_ba y matcher_neighbors acotado estuvieran cableados en el preset
+# (ver docker/entrypoint.sh) — mide un pipeline más lento del que hay hoy,
+# no un techo a igualar.
 #
-# Sigue siendo una aproximación a propósito (se muestra como RANGO 0.5x-2x
-# y rotulada "aproximada"), pero el rango ya cubre las corridas reales que
-# importan — la estimación de vistazo+escarpado para 2398 fotos da
-# ~4.6-18.6 h, que SÍ contiene las 17.7 h reales, en vez de prometer horas
-# que no existen.
-_SEG_FEATURES = 13.0   # features+matching+undistort, s/foto, paralela
-_SEG_INCR = 12.4       # bundle adjustment incremental, s/foto, secuencial
-_SEG_MVS = 13.7        # DensifyPointCloud, s/foto, sobre GPU de referencia
-_SEG_MESH = 5.1        # malla+textura, s/foto, paralela
+# Recalibrados contra medellin_palmas (485 fotos RGB, 16 núcleos / 5 hilos en
+# SfM, RTX 2080, YA con hybrid_ba/matcher_neighbors activos): 119 min de ODM
+# repartidos en features 3.53 s/foto, incremental 3.39, densa 3.51,
+# malla+textura 3.56 — valores "por foto a 1 hilo" (el modelo los divide por
+# el paralelismo efectivo) salvo el incremental, que no escala con núcleos.
+# Con esto el rango YA NO cubre las corridas viejas (barbosa-picodegallo
+# 24h15min, mision_2026-08-08 17h42min) a propósito: esas corridas pagaron
+# el costo del bundle adjustment SIN hybrid_ba (~3.5x más caro, ver
+# _INCR_SIN_HYBRID_BA) y con grafo de matching sin acotar. Seguir prometiendo
+# esos números sería no contar la mejora real. Sigue siendo una
+# aproximación (RANGO 0.5x-2x, rotulada "aproximada"): la escena real pesa
+# más que cualquier coeficiente.
+_SEG_FEATURES = 7.4    # features+matching+undistort, s/foto, paralela
+_SEG_INCR = 3.4        # bundle adjustment incremental CON hybrid_ba, s/foto
+_SEG_MVS = 3.7         # DensifyPointCloud, s/foto, sobre GPU de referencia
+_SEG_MESH = 11.9       # malla+textura, s/foto, paralela
+
+# hybrid_ba apaga el ajuste global en cada foto: sin él el costo del
+# incremental crece con la reconstrucción ya armada (una de 224 fotos quedó
+# ~40 min en esa sola etapa). Solo `maxima` lo desactiva. El modelo lo
+# ignoraba por completo y por eso subestimaba ese preset.
+_INCR_SIN_HYBRID_BA = 3.5
 
 # pc_quality/feature_quality escalan las fases que resuelven (mapas de
 # profundidad y features). Cada escalón de pc_quality es ~4x el tiempo de
 # SfM/MVS (documentado por ODM en --pc-quality --help) — acá como
 # multiplicador por nivel, amortiguado (no todo el SfM es MVS).
-_PC_Q_FACTOR = {"low": 1.0, "medium": 1.6, "high": 2.8, "ultra": 5.0}
-_FEAT_Q_FACTOR = {"low": 1.0, "medium": 1.2, "high": 1.6, "ultra": 2.2}
+_PC_Q_FACTOR = {"lowest": 0.6, "low": 1.0, "medium": 1.6, "high": 2.8, "ultra": 5.0}
+_FEAT_Q_FACTOR = {"lowest": 0.6, "low": 1.0, "medium": 1.2, "high": 1.6, "ultra": 2.2}
 
-# Peso relativo del costo POR FOTO de cada sensor: el térmico (640×512,
-# 0.33 MP) extrae features y empareja mucho más barato que el RGB (12.3 MP);
-# el multiespectral agrupa 4 bandas por captura, así que el costo real está
-# por captura y no por banda. Ajustado en orden de magnitud — PENDIENTE de
-# calibrar contra una corrida real por sensor.
-_SENSOR_PESO = {"rgb": 1.0, "thermal": 0.55, "multispectral": 1.1, "dband": 1.0}
+# Peso del costo POR ARCHIVO de cada sensor, relativo a RGB=1.0. Medido en
+# medellin_palmas con la misma tabla y el mismo hardware para los tres:
+# RGB 119 min/485 fotos, térmico 34/485, multiespectral 60/1092 bandas.
+#   térmico 0.29 — 640x512 (0.33 MP) extrae y empareja mucho más barato.
+#   multiespectral 0.22 — se cuenta por ARCHIVO de banda, pero solo la banda
+#     primaria pasa por el SfM; las otras tres solo se deshacen la distorsión
+#     y se alinean (~1/4 del costo, que es justo lo que dio la medición).
+# Estaban en 0.55 y 1.10 "ajustados en orden de magnitud": el multiespectral
+# quedaba estimado 5x de más y aparecía como camino crítico cuando no lo es.
+_SENSOR_PESO = {"rgb": 1.0, "thermal": 0.29, "multispectral": 0.22, "dband": 1.0}
 
 _TITULO_SENSOR = {"rgb": "RGB", "thermal": "térmico",
                   "multispectral": "multiespectral", "dband": "banda D"}
+_TITULO_SENSOR_EN = {"rgb": "RGB", "thermal": "thermal",
+                     "multispectral": "multispectral", "dband": "D band"}
+
+# Traducción de titulo/para_que para el mensaje en inglés (estimate_message,
+# preset_options): PRESETS arriba es la fuente única de los VALORES
+# (pc_quality, min_features, etc.), pero titulo/para_que son texto para
+# mostrar y necesitan su propia versión en cada idioma — igual que el
+# webapp/static/index.html::PRESET_UI_OVERRIDE del lado del cliente, que
+# traduce lo mismo para las tarjetas visibles ahí (vistazo/estandar/maxima).
+_PRESETS_EN = {
+    "tactico":      {"titulo": "Tactical",     "para_que": "Immediate field response: fast 2.5D orthomosaic with ODM seamline blending, no dense cloud."},
+    "cartografico": {"titulo": "Cartographic", "para_que": "Standard mission delivery: corrected orthomosaic, DSM and 3D cloud."},
+    "forense":      {"titulo": "Forensic",     "para_que": "Archival and forensic detail: maximum physical resolution the flight can deliver."},
+    # Aliases
+    "vistazo":      {"titulo": "Tactical",     "para_que": "Immediate field response: fast 2.5D orthomosaic with ODM seamline blending, no dense cloud."},
+    "rapido":       {"titulo": "Tactical",     "para_que": "Immediate field response: fast 2.5D orthomosaic with ODM seamline blending, no dense cloud."},
+    "estandar":     {"titulo": "Cartographic", "para_que": "Standard mission delivery: corrected orthomosaic, DSM and 3D cloud."},
+    "alta":         {"titulo": "Cartographic", "para_que": "Standard mission delivery: corrected orthomosaic, DSM and 3D cloud."},
+    "maxima":       {"titulo": "Forensic",     "para_que": "Archival and forensic detail: maximum physical resolution the flight can deliver."},
+}
 
 
 def _gpu_factor(vram_mb, has_gpu):
@@ -567,9 +611,17 @@ def _seconds_per_photo(tier, hw):
     feats = (_SEG_FEATURES * _FEAT_Q_FACTOR.get(tier["feature_quality"], 1.0)) / par
     # Planar sigue haciendo un alineamiento barato por pares, no la
     # reconstrucción foto por foto (que es la que domina en incremental).
-    incr = _SEG_INCR if tier["sfm_algorithm"] == "incremental" else (_SEG_FEATURES * 0.2) / par
+    if tier["sfm_algorithm"] == "incremental":
+        incr = _SEG_INCR * (1.0 if tier["hybrid_ba"] else _INCR_SIN_HYBRID_BA) * (0.5 if fast else 1.0)
+    else:
+        incr = (_SEG_FEATURES * 0.2) / par
+    # matcher_neighbors acota los pares a emparejar: el costo del matching es
+    # proporcional a cuántos vecinos se prueban por foto (8 es la referencia
+    # de la calibración). Estaba fuera del modelo pese a ser justo la palanca
+    # que hacía lentos a alta/máxima cuando usaban grafo completo.
+    feats *= max(1, tier["matcher_neighbors"]) / 8.0
     mvs = 0.0 if fast else _SEG_MVS * _PC_Q_FACTOR.get(tier["pc_quality"], 1.0) * factor_gpu
-    mesh = (_SEG_MESH * (0.6 if fast else 1.0)) / par
+    mesh = (_SEG_MESH * (0.25 if fast else 1.0)) / par
     return feats + incr + mvs + mesh
 
 
@@ -577,9 +629,10 @@ def estimate_minutes(quality, n_photos, hw=None, terreno=None):
     """(min_low, min_high) minutos estimados, MUY aproximados a propósito.
     `quality` es un nombre de preset o un QUALITY 0-100 heredado.
 
-    Modelo por etapas calibrado contra las corridas reales (ver el
-    comentario del modelo arriba) — el rango cubre vistazo+escarpado real
-    (17.7 h para 2398 fotos) en vez de prometer "31 min – 2.1 h"."""
+    Modelo por etapas calibrado contra corridas reales, incluyendo con
+    hybrid_ba/matcher_neighbors ya cableados (ver el comentario del modelo
+    arriba) — nunca "minutos" para una reconstrucción incremental grande,
+    aunque ya no repita el piso pre-optimización de "31 min – 2.1 h"."""
     if n_photos <= 0:
         return (0.0, 0.0)
     hw = hw or detect_hardware()
@@ -604,10 +657,10 @@ def estimate_sensor_minutes(sensor, n_photos, quality, hw=None, terreno=None):
     return (round(minutos * 0.5, 1), round(minutos * 2.0, 1))
 
 
-def _fmt_minutos(lo, hi):
+def _fmt_minutos(lo, hi, idioma="es"):
     def _f(m):
         if m < 1:
-            return "menos de 1 min"
+            return "less than 1 min" if idioma == "en" else "menos de 1 min"
         if m < 90:
             return f"{m:.0f} min"
         return f"{m/60:.1f} h"
@@ -616,7 +669,18 @@ def _fmt_minutos(lo, hi):
     return f"{_f(lo)} – {_f(hi)}" if _f(lo) != _f(hi) else _f(lo)
 
 
-def _texto_hardware(hw):
+def _texto_hardware(hw, idioma="es"):
+    if idioma == "en":
+        partes = [f"{hw['cores']} cores"]
+        if hw.get("mem_available_mb"):
+            partes.append(f"{hw['mem_available_mb']/1024:.0f} GB RAM free")
+        if hw.get("gpu"):
+            vram = hw.get("vram_mb")
+            partes.append(f"GPU: {hw['gpu_name'] or 'yes'}"
+                          + (f" ({vram/1024:.0f} GB VRAM)" if vram else ""))
+        else:
+            partes.append("no GPU (CPU)")
+        return partes
     partes = [f"{hw['cores']} núcleos"]
     if hw.get("mem_available_mb"):
         partes.append(f"{hw['mem_available_mb']/1024:.0f} GB RAM libres")
@@ -629,7 +693,7 @@ def _texto_hardware(hw):
     return partes
 
 
-def preset_options(n_photos, hw=None, terreno=None):
+def preset_options(n_photos, hw=None, terreno=None, idioma="es"):
     """Todos los presets con su tiempo estimado PARA ESTA misión.
 
     Es lo que hace que la elección sea informada: el operador ve los cinco
@@ -639,22 +703,23 @@ def preset_options(n_photos, hw=None, terreno=None):
     opciones = []
     for nombre in PRESETS_ORDENADOS:
         p = preset(nombre, terreno=terreno)
+        textos = _PRESETS_EN[nombre] if idioma == "en" else p
         lo, hi = estimate_minutes(nombre, n_photos, hw, terreno=terreno)
         opciones.append({
             "nombre": nombre,
-            "titulo": p["titulo"],
-            "para_que": p["para_que"],
+            "titulo": textos["titulo"],
+            "para_que": textos["para_que"],
             "res_cm": p["res_cm"],
             "pc_quality": p["pc_quality"],
             "sfm_algorithm": p["sfm_algorithm"],
             "minutos_estimados": [lo, hi],
-            "tiempo_texto": _fmt_minutos(lo, hi),
+            "tiempo_texto": _fmt_minutos(lo, hi, idioma),
             "por_defecto": nombre == PRESET_DEFAULT,
         })
     return opciones
 
 
-def estimate_message(quality, n_photos, hw=None, terreno=None, por_sensor=None):
+def estimate_message(quality, n_photos, hw=None, terreno=None, por_sensor=None, idioma="es"):
     """Mensaje completo (texto + datos crudos) para mostrarle al usuario
     ANTES de arrancar: a qué resolución van a salir los productos y cuánto se
     espera que tarde, con las cuentas claras de por qué.
@@ -663,20 +728,36 @@ def estimate_message(quality, n_photos, hw=None, terreno=None, por_sensor=None):
     por sensor (térmico ≈ X–Y, RGB ≈ X–Y) en vez de un solo número — los
     sensores tienen costos por foto muy distintos y, en modo escarpado, el
     térmico termina mucho antes que el RGB. Lo usan el entrypoint y la
-    webapp, que saben cuántas fotos hay de cada uno."""
+    webapp, que saben cuántas fotos hay de cada uno.
+
+    `idioma`: 'es' (default, sin tocar nada de lo que ya devolvía esta
+    función) o 'en'. Los presets (PRESETS) y sus valores numéricos son la
+    misma fuente única para los dos — solo el TEXTO armado acá cambia."""
     hw = hw or detect_hardware()
     tier = preset(quality, terreno=terreno)
-    partes_hw = _texto_hardware(hw)
+    en = idioma == "en"
+    titulo_tier = _PRESETS_EN[tier["nombre"]]["titulo"] if en else tier["titulo"]
+    para_que_tier = _PRESETS_EN[tier["nombre"]]["para_que"] if en else tier["para_que"]
+    titulo_sensor = _TITULO_SENSOR_EN if en else _TITULO_SENSOR
+    partes_hw = _texto_hardware(hw, idioma)
     aviso_escarpado = (PRESETS[tier["nombre"]]["sfm_algorithm"] != tier["sfm_algorithm"])
     if por_sensor:
         activos = {s: n for s, n in por_sensor.items() if n > 0}
-        lo = sum(estimate_sensor_minutes(s, n, quality, hw, terreno=terreno)[0]
-                 for s, n in activos.items())
-        hi = sum(estimate_sensor_minutes(s, n, quality, hw, terreno=terreno)[1]
-                 for s, n in activos.items())
+        # Los sensores son proyectos ODM independientes y corren en paralelo
+        # cuando la RAM alcanza (ver odm_slots), o de a uno cuando no. El
+        # rango cubre los dos regímenes a propósito: el piso es el CAMINO
+        # CRÍTICO (todos solapados: manda el más lento, normalmente RGB) y el
+        # techo es la SUMA (nada solapa). Antes sumaba en los dos extremos, y
+        # sobre una máquina que sí solapa prometía casi el doble del tiempo
+        # real — medido en palmas: 119 min de camino crítico contra 213 de
+        # suma.
+        por_s = {s: estimate_sensor_minutes(s, n, quality, hw, terreno=terreno)
+                 for s, n in activos.items()}
+        lo = max((v[0] for v in por_s.values()), default=0.0)
+        hi = sum(v[1] for v in por_s.values())
         desglose = " · ".join(
-            f"{_TITULO_SENSOR.get(s, s)} ≈ "
-            f"{_fmt_minutos(*estimate_sensor_minutes(s, n, quality, hw, terreno=terreno))}"
+            f"{titulo_sensor.get(s, s)} ≈ "
+            f"{_fmt_minutos(*estimate_sensor_minutes(s, n, quality, hw, terreno=terreno), idioma)}"
             for s, n in activos.items())
         lo_hi_por_sensor = {s: list(estimate_sensor_minutes(s, n, quality, hw, terreno=terreno))
                             for s, n in activos.items()}
@@ -684,6 +765,74 @@ def estimate_message(quality, n_photos, hw=None, terreno=None, por_sensor=None):
         lo, hi = estimate_minutes(quality, n_photos, hw, terreno=terreno)
         desglose = None
         lo_hi_por_sensor = None
+
+    if en:
+        resolucion = (
+            f"Up to {tier['res_cm']} cm/px in the orthomosaic and DSM — the real "
+            f"ceiling is set by your flight's GSD (altitude × sensor): if the "
+            f"flight has less detail than that, it comes out at the most the "
+            f"flight allows; never finer, no matter the preset chosen."
+        )
+        modelo = (
+            f'Preset "{titulo_tier}": {para_que_tier} Point cloud and mesh at '
+            f"'{tier['pc_quality']}' level, {tier['min_features']} features per "
+            f"photo. Higher resolves objects like treetops and roof edges "
+            f"better — lower is faster but can flatten those details in the "
+            f"surface model."
+            + (" Planar reconstruction (assumes a fixed-altitude nadir flight), "
+               "much faster in the incremental stage."
+               if tier["sfm_algorithm"] == "planar" else
+               " Full incremental reconstruction.")
+            + (" Hybrid bundle adjustment (local per photo, global every 100) "
+               "to avoid wasting time on large flights."
+               if tier["hybrid_ba"] else
+               " Full global bundle adjustment on every photo — the most "
+               "precise option, slower on large flights.")
+            + (" The RGB flight's surface model (DSM) comes from the SPARSE "
+               "point cloud (dense reconstruction is skipped) — on flights of "
+               "hundreds of photos that's the difference between minutes and "
+               "hours, but the resulting DSM is poorer: fewer points, more "
+               "gaps."
+               if tier["fast_orthophoto"] else "")
+            + (f' Steep terrain: incremental reconstruction is forced even '
+               f'though "{titulo_tier}" defaults to planar — on terrain with '
+               f"strong relief, planar reconstruction can silently drop most "
+               f"photos (confirmed live: 76-81% of photos lost on a "
+               f"rocky-terrain mission). ⚠ And the cost is high: incremental "
+               f"reconstruction is sequential (~12 s per photo, not "
+               f"parallelized across photos) and comes to dominate the time "
+               f"— on a flight of hundreds of photos, expect HOURS per "
+               f"sensor, not minutes. Urgent mode (1 out of every 3 photos) "
+               f"or subsampling shorten that wait."
+               if aviso_escarpado else "")
+        )
+        if desglose:
+            tiempo = (
+                f"Estimated time with your hardware ({', '.join(partes_hw)}): "
+                f"{_fmt_minutos(lo, hi, idioma)} for {n_photos} photos. "
+                f"Approximate — the real scene (overlap, vegetation) weighs "
+                f"more than this number."
+                f" By sensor: {desglose} (sensors reconstruct in parallel "
+                f"when available RAM allows it — the total can finish before "
+                f"the sum)."
+            )
+        else:
+            tiempo = (
+                f"Estimated time with your hardware ({', '.join(partes_hw)}): "
+                f"{_fmt_minutos(lo, hi, idioma)} for {n_photos} photos. "
+                f"Approximate — the real scene (overlap, vegetation) weighs "
+                f"more than this number."
+            )
+        if tier["nombre"] not in ("tactico", "vistazo") and n_photos > 0:
+            vis = _fmt_minutos(*estimate_minutes("tactico", n_photos, hw, terreno=terreno), idioma)
+            tiempo += (f' For a quick response: "{_PRESETS_EN["tactico"]["titulo"]}" ≈ {vis} — same flight, '
+                       f'orthomosaic from the sparse cloud, without the dense stage.')
+        return {"tier": tier, "preset": tier["nombre"], "terreno": tier["terreno"],
+                "hardware": hw, "n_photos": n_photos, "minutos_estimados": [lo, hi],
+                "por_sensor": lo_hi_por_sensor, "aviso_escarpado": aviso_escarpado,
+                "opciones": preset_options(n_photos, hw, terreno=terreno, idioma=idioma),
+                "resolucion_texto": resolucion, "modelo_texto": modelo,
+                "tiempo_texto": tiempo}
 
     resolucion = (
         f"Hasta {tier['res_cm']} cm/px en el ortomosaico y el DSM — el techo real "
@@ -738,16 +887,15 @@ def estimate_message(quality, n_photos, hw=None, terreno=None, por_sensor=None):
             f"{_fmt_minutos(lo, hi)} para {n_photos} fotos. Aproximado — la escena real "
             f"(solape, vegetación) pesa más que este número."
         )
-    # Guía de respuesta rápida: en los presets altos la reconstrucción densa
-    # domina el tiempo (cada escalón multiplica por ~4) y los rápidos son
-    # mucho más baratos. Se muestran sus tiempos acá, ANTES de arrancar — la
-    # decisión se toma con números, no después de una corrida larga.
-    if tier["tiempo_relativo"] >= 16 and n_photos > 0:
-        rap = _fmt_minutos(*estimate_minutes("rapido", n_photos, hw, terreno=terreno))
-        vis = _fmt_minutos(*estimate_minutes("vistazo", n_photos, hw, terreno=terreno))
-        tiempo += (f" Para respuesta rápida: «Rápido» ≈ {rap} y «Vistazo» ≈ {vis} "
-                   f"— mismo vuelo, con techo de 8/15 cm en vez de "
-                   f"{tier['res_cm']} cm (el GSD real del vuelo manda igual).")
+    # Guía de respuesta rápida: se ofrece justo en los presets que pagan la
+    # reconstrucción densa (fast_orthophoto=False), que es lo que de verdad
+    # separa "minutos" de "horas". Atado a esa bandera y no a un umbral de
+    # tiempo_relativo: la escala se recalibra con cada corrida real y el
+    # número mágico quedaba desactualizado sin que nada avisara.
+    if tier["nombre"] not in ("tactico", "vistazo") and n_photos > 0:
+        vis = _fmt_minutos(*estimate_minutes("tactico", n_photos, hw, terreno=terreno))
+        tiempo += (f" Para respuesta rápida: «Táctico» ≈ {vis} "
+                   f"— mismo vuelo, ortomosaico desde la nube dispersa, sin la etapa densa.")
     return {"tier": tier, "preset": tier["nombre"], "terreno": tier["terreno"],
             "hardware": hw, "n_photos": n_photos, "minutos_estimados": [lo, hi],
             "por_sensor": lo_hi_por_sensor, "aviso_escarpado": aviso_escarpado,

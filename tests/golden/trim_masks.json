@@ -1,18 +1,18 @@
 {
   "dsm": {
-    "n": 15791,
-    "sha1": "8e563a403d49e049"
+    "n": 82399,
+    "sha1": "cceb0dea34744a1d"
   },
   "multispectral": {
-    "n": 22758,
-    "sha1": "43fac92e3e291bd5"
+    "n": 82399,
+    "sha1": "cceb0dea34744a1d"
   },
   "rgb": {
-    "n": 22758,
-    "sha1": "43fac92e3e291bd5"
+    "n": 82399,
+    "sha1": "cceb0dea34744a1d"
   },
   "thermal": {
-    "n": 22758,
-    "sha1": "43fac92e3e291bd5"
+    "n": 82399,
+    "sha1": "cceb0dea34744a1d"
   }
 }

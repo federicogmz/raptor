@@ -28,6 +28,12 @@ COPY . /app
 # Falla el build si la imagen base movió GDAL/pyproj/scipy fuera de lo
 # soportado, en vez de que aparezca como un resultado raro en una misión.
 RUN python3 scripts/check_deps.py
+# Parche a un bug real de ODM (upstream, PR pendiente — ver el docstring del
+# script): sin esto, TODA misión multiespectral crashea de forma
+# determinística en la segunda invocación de run_odm() (--rerun-from
+# openmvs). Vive en la capa base (opendronemap/odm:gpu), así que hay que
+# reaplicarlo en cada build de esta imagen, no solo una vez a mano.
+RUN python3 docker/patch_odm_multispectral.py
 RUN chmod +x dji_thermal_sdk/utility/bin/linux/release_x64/* \
     && chmod +x docker/entrypoint.sh docker/setup-data.sh docker/setup-data-multispectral.sh \
     && ln -s ../outputs geovisor/outputs

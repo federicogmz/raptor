@@ -1,20 +1,21 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#F4F7F8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0C1412" media="(prefers-color-scheme: dark)">
-<title>Situación del incendio</title>
+<title data-i18n="doc.title">Mission status</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cg fill='none' stroke='%230f172a' stroke-width='7' stroke-linecap='round'%3E%3Cpath d='M35 38 L18 20'/%3E%3Cpath d='M65 38 L82 20'/%3E%3Cpath d='M35 62 L18 80'/%3E%3Cpath d='M65 62 L82 80'/%3E%3C/g%3E%3Ccircle cx='18' cy='20' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='82' cy='20' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='18' cy='80' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Ccircle cx='82' cy='80' r='13' fill='none' stroke='%230f172a' stroke-width='6'/%3E%3Crect x='32' y='38' width='36' height='24' rx='7' fill='%230f172a'/%3E%3C/svg%3E">
-<!-- Leaflet SERVIDO DESDE LA IMAGEN, no desde unpkg.com. Esto es una
-     herramienta de respuesta a incendios: se usa en campo, donde no hay
-     conexión. Con el <script> apuntando a un CDN el geovisor no abría —
-     ni el mapa, ni el panel, ni los productos ya procesados que están en
-     el disco de al lado. Son 160 KB en la imagen. Ver geovisor/vendor/. -->
+<!-- Leaflet SERVIDO DESDE LA IMAGEN, no desde unpkg.com. Esto se usa en
+     campo, donde no hay conexión. Con el <script> apuntando a un CDN el
+     geovisor no abría — ni el mapa, ni el panel, ni los productos ya
+     procesados que están en el disco de al lado. Son 160 KB en la imagen.
+     Ver geovisor/vendor/. -->
 <link rel="stylesheet" href="vendor/leaflet.css" />
 <script src="vendor/leaflet.js"></script>
+<script src="vendor/turf.min.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -43,17 +44,17 @@
   </defs>
 </svg>
 
-<a class="skip-link" href="#panel-heading">Saltar al panel de situación</a>
+<a class="skip-link" href="#panel-heading" data-i18n="topbar.skipLink">Skip to the status panel</a>
 
 <!-- Barra superior: responde "qué es esto" y "qué tan fresco es el dato"
      antes que nada — nombre del incidente, frescura/confianza, fecha de
      captura, acción de compartir y ayuda. Sin iconos sueltos sin etiqueta. -->
 <header id="topbar">
-  <button id="btn-back" class="reset" title="Volver a las misiones" aria-label="Volver a las misiones">
+  <button id="btn-back" class="reset" title="Back to missions" aria-label="Back to missions" data-i18n-title="topbar.back" data-i18n-aria-label="topbar.back">
     <svg class="ic" style="width:18px;height:18px" aria-hidden="true"><use href="#i-back"/></svg>
   </button>
   <div class="incident-id">
-    <span class="name" id="incident-name">Cargando…</span>
+    <span class="name" id="incident-name" data-i18n="topbar.loading">Loading…</span>
     <span class="zone" id="incident-zone"></span>
   </div>
 
@@ -64,64 +65,66 @@
 
   <span class="spacer"></span>
 
-  <button class="date-select reset" id="btn-date" title="Fecha de la captura mostrada">
+  <button class="date-select reset" id="btn-date" title="Date of the capture shown" data-i18n-title="topbar.dateTitle">
     <svg class="ic" style="width:16px;height:16px" aria-hidden="true"><use href="#i-calendar"/></svg>
-    <span><span class="lbl">Captura: </span><b id="capture-date-label">—</b></span>
+    <span><span class="lbl" data-i18n="topbar.captureLabel">Capture: </span><b id="capture-date-label">—</b></span>
   </button>
-
-  <button class="btn primary reset" id="btn-report"><svg class="ic" style="width:15px;height:15px" aria-hidden="true"><use href="#i-image"/></svg><span>Generar resumen</span></button>
 
   <div class="menu-wrap">
     <button class="btn ghost reset" id="btn-help" aria-haspopup="true" aria-expanded="false">
-      Ayuda <svg class="ic chev" style="width:13px;height:13px" aria-hidden="true"><use href="#i-chev-down"/></svg>
+      <span data-i18n="topbar.help">Help</span> <svg class="ic chev" style="width:13px;height:13px" aria-hidden="true"><use href="#i-chev-down"/></svg>
     </button>
     <div class="menu-panel" id="help-menu" role="menu">
       <div class="menu-section">
-        <h4>Cómo usar</h4>
-        <div class="help-row"><span class="k"><svg class="ic ic-dot" style="width:12px;height:12px" aria-hidden="true"><use href="#i-dot"/></svg></span><span class="d">Solo — muestra únicamente esta capa</span></div>
-        <div class="help-row"><span class="k"><svg class="ic" style="width:12px;height:12px" aria-hidden="true"><use href="#i-search"/></svg></span><span class="d">Click en el mapa — ver qué significa ese punto</span></div>
-        <div class="help-row"><span class="k">M</span><span class="d">Medir distancia/área</span></div>
-        <div class="help-row"><span class="k">T</span><span class="d">Cambiar tema claro/oscuro</span></div>
-        <div class="help-row"><span class="k">Esc</span><span class="d">Cerrar lo que esté abierto</span></div>
+        <h4 data-i18n="help.howTo">How to use</h4>
+        <div class="help-row"><span class="k"><svg class="ic ic-dot" style="width:12px;height:12px" aria-hidden="true"><use href="#i-dot"/></svg></span><span class="d" data-i18n="help.rowSolo">Solo: shows only this layer</span></div>
+        <div class="help-row"><span class="k"><svg class="ic" style="width:12px;height:12px" aria-hidden="true"><use href="#i-search"/></svg></span><span class="d" data-i18n="help.rowClick">Click on the map: see what that point means</span></div>
+        <div class="help-row"><span class="k">M</span><span class="d" data-i18n="help.rowMeasure">Measure distance/area</span></div>
+        <div class="help-row"><span class="k">T</span><span class="d" data-i18n="help.rowTheme">Switch light/dark theme</span></div>
+        <div class="help-row"><span class="k">Esc</span><span class="d" data-i18n="help.rowEsc">Close whatever is open</span></div>
       </div>
       <div class="menu-section">
-        <h4>Accesibilidad</h4>
+        <h4 data-i18n="help.accessibility">Accessibility</h4>
         <div class="pref-row">
-          <span>Tamaño de texto</span>
-          <div class="step-group" role="group" aria-label="Tamaño de texto">
-            <button class="reset" data-scale="0.92" aria-label="Texto pequeño">A</button>
-            <button class="reset" data-scale="1" aria-label="Texto normal">A</button>
-            <button class="reset" data-scale="1.18" aria-label="Texto grande">A</button>
+          <span data-i18n="help.textSize">Text size</span>
+          <div class="step-group" role="group" aria-label="Text size" data-i18n-aria-label="help.textSize">
+            <button class="reset" data-scale="0.92" aria-label="Small text" data-i18n-aria-label="help.textSmall">A</button>
+            <button class="reset" data-scale="1" aria-label="Normal text" data-i18n-aria-label="help.textNormal">A</button>
+            <button class="reset" data-scale="1.18" aria-label="Large text" data-i18n-aria-label="help.textLarge">A</button>
           </div>
         </div>
         <div class="pref-row">
-          <span>Alto contraste</span>
-          <button class="switch reset" id="switch-contrast" role="switch" aria-checked="false" aria-label="Alto contraste"></button>
+          <span data-i18n="help.highContrast">High contrast</span>
+          <button class="switch reset" id="switch-contrast" role="switch" aria-checked="false" aria-label="High contrast" data-i18n-aria-label="help.highContrast"></button>
         </div>
         <div class="pref-row">
-          <span>Reducir movimiento</span>
-          <button class="switch reset" id="switch-motion" role="switch" aria-checked="false" aria-label="Reducir movimiento"></button>
+          <span data-i18n="help.reduceMotion">Reduce motion</span>
+          <button class="switch reset" id="switch-motion" role="switch" aria-checked="false" aria-label="Reduce motion" data-i18n-aria-label="help.reduceMotion"></button>
         </div>
         <div class="pref-row">
-          <span>Tema</span>
+          <span data-i18n="help.theme">Theme</span>
           <button class="btn sm reset" id="btn-theme" style="width:100%;justify-content:center">
-            <span id="theme-ic"></span>&nbsp;Cambiar tema</button>
+            <span id="theme-ic"></span>&nbsp;<span data-i18n="a11y.themeToggle">Switch theme</span></button>
+        </div>
+        <div class="pref-row">
+          <span data-i18n="a11y.language">Language</span>
+          <button class="btn sm reset" id="btn-lang" style="width:100%;justify-content:center" title="Switch language / Cambiar idioma" aria-label="Switch language">ES</button>
         </div>
       </div>
     </div>
   </div>
 </header>
 
-<aside class="command-rail" aria-label="Identidad de la estación">
+<aside class="command-rail" aria-label="Station identity" data-i18n-aria-label="rail.stationLabel">
   <div class="rail-mark" aria-hidden="true">R</div>
   <div class="rail-wordmark" aria-hidden="true">RAPTOR</div>
   <div class="rail-rule"></div>
-  <div class="rail-context"><b>UAV</b><span>ANÁLISIS<br>DE CAMPO</span></div>
-  <div class="rail-footer">SIG<br>01</div>
+  <div class="rail-context"><b>UAV</b><span data-i18n-html="rail.context">FIELD<br>ANALYSIS</span></div>
+  <div class="rail-footer" data-i18n-html="rail.footer">GIS<br>01</div>
 </aside>
 
 <main class="body" id="main-body">
-  <section class="map-area" aria-label="Mapa de la zona">
+  <section class="map-area" aria-label="Area map" data-i18n-aria-label="map.areaLabel">
     <div id="map"></div>
 
     <!-- Comparador lado a lado -->
@@ -134,34 +137,86 @@
     </div>
 
     <!-- Ficha "qué significa este punto" — clic en el mapa la llena con
-         datos reales (severidad/temperatura/NDVI) vía /api/.../sample. -->
-    <div class="point-card" id="point-card" role="dialog" aria-label="Detalle del punto seleccionado"></div>
+         datos reales (temperatura/NDVI) vía /api/.../sample. -->
+    <div class="point-card" id="point-card" role="dialog" aria-label="Selected point detail" data-i18n-aria-label="point.cardAria"></div>
 
     <!-- Medición -->
     <div id="measure-panel" class="hud-frame">
-      <div class="mp-row"><b>Medición</b><button class="btn sm" onclick="clearMeasure()">Limpiar</button></div>
-      <div class="mp-stat"><span>Distancia</span><b id="measure-dist">0 m</b></div>
-      <div class="mp-stat"><span>Área</span><b id="measure-area">—</b></div>
-      <div class="mp-hint">Click para agregar puntos · doble click para cerrar el área · Esc para salir</div>
+      <div class="mp-row"><b data-i18n="measure.title">Measurement</b><button class="btn sm" onclick="clearMeasure()" data-i18n="measure.clear">Clear</button></div>
+      <div class="mp-stat"><span data-i18n="measure.distance">Distance</span><b id="measure-dist">0 m</b></div>
+      <div class="mp-stat"><span data-i18n="measure.area">Area</span><b id="measure-area">—</b></div>
+      <div class="mp-hint" data-i18n="measure.hint">Click to add points · double click to close the area · Esc to exit</div>
     </div>
 
-    <!-- Edición del polígono de área afectada -->
-    <div id="area-edit-panel" class="hud-frame">
-      <div class="area-edit-row">
-        <svg class="ic area-edit-icon" style="width:16px;height:16px" aria-hidden="true"><use href="#i-ruler"/></svg>
-        <span id="area-edit-ha">—</span>
-        <button id="btn-area-edit" class="btn" onclick="toggleAreaEdit()"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-pen"/></svg> Editar</button>
+    <!-- Delimitación y Remodelado tipo QGIS -->
+    <div id="draw-panel" class="hud-frame">
+      <div class="mp-row">
+        <span class="draw-panel-title"><svg class="ic" style="width:14px;height:14px;color:var(--warn)"><use href="#i-pen"/></svg> <b data-i18n="draw.title">Remodelar y Delimitar (QGIS)</b></span>
+        <button class="btn sm ghost reset" onclick="stopDraw()" title="Close" aria-label="Close" style="padding:2px 6px">✕</button>
       </div>
-      <div class="area-edit-tools">
-        <button id="btn-area-new" class="btn" onclick="startDrawNewArea()"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-plus"/></svg> Nueva área</button>
-        <button class="btn primary" onclick="saveAreaAfectada()"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-save"/></svg> Guardar</button>
-        <button class="btn" onclick="discardAreaEdits()"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-undo"/></svg> Descartar</button>
+
+      <!-- Selector de Modo de Remodelado -->
+      <div class="draw-modes-bar" role="group" aria-label="Modo de edición">
+        <button class="btn sm active" id="btn-mode-reshape" onclick="setDrawMode('reshape')" title="Cruza el borde del polígono para remodelarlo">
+          ✂️ <span data-i18n="draw.modeReshape">Remodelar</span>
+        </button>
+        <button class="btn sm" id="btn-mode-cut" onclick="setDrawMode('cut')" title="Recorta y elimina el área dibujada">
+          🪓 <span data-i18n="draw.modeCut">Recortar</span>
+        </button>
+        <button class="btn sm" id="btn-mode-add" onclick="setDrawMode('add')" title="Añade un nuevo lóbulo o área al polígono">
+          ➕ <span data-i18n="draw.modeAdd">Añadir</span>
+        </button>
+        <button class="btn sm" id="btn-mode-draw" onclick="setDrawMode('draw')" title="Dibuja un polígono desde cero">
+          ✏️ <span data-i18n="draw.modeNew">Nuevo</span>
+        </button>
       </div>
-      <div id="area-edit-hint">Click en un vértice para borrarlo · click en el punto medio de un borde para agregar uno · el botón de borrar elimina el polígono completo · Esc cancela el dibujo</div>
-      <div id="area-edit-status"></div>
+
+      <!-- Interruptor Mano Alzada -->
+      <div class="draw-pref-row">
+        <label class="draw-freehand-toggle" title="Arrastra el ratón manteniendo el clic para trazar rápido y continuo">
+          <input type="checkbox" id="chk-draw-freehand" onchange="toggleFreehandMode(this.checked)" checked>
+          <span>🖌️ <b data-i18n="draw.freehandLabel">Mano alzada activa</b> (arrastra continuo)</span>
+        </label>
+      </div>
+
+      <!-- Métricas en tiempo real -->
+      <div class="draw-stats-grid">
+        <div class="mp-stat"><span>Superficie</span><b id="draw-area" class="draw-highlight">0.00 ha</b></div>
+        <div class="mp-stat"><span>Área exacta</span><b id="draw-m2">0 m²</b></div>
+        <div class="mp-stat"><span>Perímetro</span><b id="draw-perimeter">0 m</b></div>
+        <div class="mp-stat"><span>Focos dentro</span><b id="draw-hotspots" class="draw-warn">0</b></div>
+      </div>
+
+      <!-- Acciones y Asistencia -->
+      <div class="draw-tools-row">
+        <button class="btn sm" id="btn-draw-assist" onclick="loadThermalSuggestion()" title="Cargar anomalía térmica como base editable">
+          ✨ <span data-i18n="draw.assistBtn">Sugerencia</span>
+        </button>
+        <button class="btn sm" id="btn-draw-smooth" onclick="smoothDrawContour()" title="Suavizar contorno orgánico">
+          🌊 <span data-i18n="draw.smoothBtn">Suavizar</span>
+        </button>
+        <button class="btn sm ghost" id="btn-draw-undo" onclick="undoDrawAction()" title="Deshacer último trazo (Ctrl+Z)">
+          ↺ <span data-i18n="draw.undoBtn">Deshacer</span>
+        </button>
+        <button class="btn sm ghost" onclick="clearDraw()" title="Limpiar y empezar nuevo polígono">
+          🧹 <span data-i18n="draw.clearBtn">Limpiar</span>
+        </button>
+      </div>
+
+      <!-- Guardar -->
+      <div class="draw-action-row">
+        <button class="btn primary sm" id="btn-draw-save" onclick="saveDrawPolygon()" style="width:100%;justify-content:center">
+          <svg class="ic" style="width:14px;height:14px"><use href="#i-save"/></svg>
+          <span id="btn-draw-save-text" data-i18n="draw.saveBtn">Guardar como Área Oficial</span>
+        </button>
+      </div>
+
+      <div class="mp-hint" id="draw-hint" data-i18n="draw.hint">
+        Traza una línea que cruce el polígono para remodelar su contorno (estilo QGIS)
+      </div>
     </div>
 
-    <button class="panel-toggle reset" id="panel-toggle" aria-label="Mostrar panel de situación">
+    <button class="panel-toggle reset" id="panel-toggle" aria-label="Show status panel" data-i18n-aria-label="panel.toggleAria">
       <svg class="ic" style="width:17px;height:17px" aria-hidden="true"><use href="#i-menu"/></svg>
     </button>
   </section>
@@ -182,20 +237,20 @@
       <div class="panel-head">
         <div class="panel-head-row">
           <div>
-            <p class="panel-kicker">Informe de misión</p>
-            <h2 id="panel-heading">Evaluación del incidente</h2>
+            <p class="panel-kicker" data-i18n="panel.kicker">Mission report</p>
+            <h2 id="panel-heading" data-i18n="panel.heading">Incident assessment</h2>
           </div>
-          <button class="panel-close reset" id="panel-close" aria-label="Ocultar panel">
+          <button class="panel-close reset" id="panel-close" aria-label="Hide panel" data-i18n-aria-label="panel.closeAria">
             <svg class="ic" style="width:15px;height:15px" aria-hidden="true"><use href="#i-x"/></svg>
           </button>
         </div>
-        <p class="panel-sub">Hallazgos priorizados para coordinar la respuesta.</p>
+        <p class="panel-sub" data-i18n="panel.sub">Priority findings to coordinate the response.</p>
       </div>
 
-      <!-- Cifras clave de la misión — severidad, focos activos, calidad del
+      <!-- Cifras clave de la misión — focos activos, calidad del
            vuelo. Lo llena renderSummaryCards() (app.js). -->
       <div class="summary-grid" id="summary-grid" aria-live="polite" aria-busy="true">
-        <div class="stat-card"><div class="l">Cargando datos de la misión…</div></div>
+        <div class="stat-card"><div class="l" data-i18n="summary.loading">Loading mission data…</div></div>
       </div>
 
       <!-- HUD de progreso: vive en el resumen gerencial (es el estado de LA
@@ -206,18 +261,17 @@
       <div id="progress-hud" class="hud-frame">
         <div class="ph-top">
           <span class="ph-dot"></span>
-          <span class="ph-stage" id="ph-stage">Iniciando…</span>
+          <span class="ph-stage" id="ph-stage" data-i18n="ph.stageInit">Starting…</span>
           <span class="ph-time" id="ph-time">00:00</span>
           <button class="ph-collapse-toggle reset" id="ph-collapse-toggle"
-                  aria-label="Colapsar progreso" aria-expanded="true">
+                  aria-label="Collapse progress" aria-expanded="true" data-i18n-aria-label="ph.collapseAria">
             <svg class="ic" style="width:13px;height:13px" aria-hidden="true"><use href="#i-chev-down"/></svg>
           </button>
         </div>
         <div class="ph-body" id="ph-body">
-          <div class="ph-bar"><div class="ph-bar-fill" id="ph-bar-fill"></div></div>
-          <ol class="ph-phases" id="ph-phases"></ol>
+          <ol class="ph-channels" id="ph-channels"></ol>
           <div class="ph-actions" id="ph-actions"></div>
-          <button class="ph-log-toggle" id="ph-log-toggle" onclick="toggleProgressLog()"><svg class="ic" style="width:13px;height:13px" aria-hidden="true"><use href="#i-chev-down"/></svg><span id="ph-log-label"> Ver log</span></button>
+          <button class="ph-log-toggle" id="ph-log-toggle" onclick="toggleProgressLog()"><svg class="ic" style="width:13px;height:13px" aria-hidden="true"><use href="#i-chev-down"/></svg><span id="ph-log-label" data-i18n="ph.viewLogWord"> View log</span></button>
           <div class="ph-log" id="ph-log"></div>
         </div>
       </div>
@@ -225,9 +279,9 @@
 
     <aside class="panel" id="panel-sig">
       <div class="panel-head">
-        <p class="panel-kicker">SIG</p>
-        <h2>Capas y herramientas</h2>
-        <p class="panel-sub">Catálogo de capas, comparar y medir.</p>
+        <p class="panel-kicker" data-i18n="sig.kicker">GIS</p>
+        <h2 data-i18n="sig.heading">Layers and tools</h2>
+        <p class="panel-sub" data-i18n="sig.sub">Layer catalog, compare, and measure.</p>
       </div>
 
       <!-- Catálogo de capas: prender/apagar, opacidad, descripción/
@@ -238,13 +292,13 @@
            wireLayersPanel() en app.js arman el resto. -->
       <div id="sidebar-head">
         <div class="sidebar-actions">
-          <button class="btn sm" id="btn-compare" title="Comparar dos capas lado a lado (C)"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-compare"/></svg> Comparar</button>
-          <button class="btn sm" id="btn-measure" title="Medir distancia y área (M)"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-ruler"/></svg> Medir</button>
-          <button class="btn sm" id="btn-export" title="Descargar una imagen del mapa actual"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-image"/></svg> Exportar</button>
+          <button class="btn sm" id="btn-draw" title="Delimitar área afectada con digitalización asistida (D)" data-i18n-title="sig.drawTitle"><svg class="ic" style="width:14px;height:14px;color:var(--warn)" aria-hidden="true"><use href="#i-pen"/></svg> <span data-i18n="sig.drawBtn">Delimitar</span></button>
+          <button class="btn sm" id="btn-compare" title="Compare two layers side by side (C)" data-i18n-title="sig.compareTitle"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-compare"/></svg> <span data-i18n="sig.compareBtn">Compare</span></button>
+          <button class="btn sm" id="btn-measure" title="Measure distance and area (M)" data-i18n-title="sig.measureTitle"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-ruler"/></svg> <span data-i18n="sig.measureBtn">Measure</span></button>
         </div>
         <div class="sidebar-actions">
-          <button class="btn sm" onclick="setAllLayers(false)" title="Apagar todas las capas">Ocultar todo</button>
-          <button class="btn sm" onclick="resetLayers()" title="Volver a la vista inicial">Restablecer</button>
+          <button class="btn sm" onclick="setAllLayers(false)" title="Turn off all layers" data-i18n-title="sig.hideAllTitle" data-i18n="sig.hideAll">Hide all</button>
+          <button class="btn sm" onclick="resetLayers()" title="Return to the initial view" data-i18n-title="sig.resetTitle" data-i18n="sig.reset">Reset</button>
         </div>
       </div>
       <div id="tab-content" style="flex:1;overflow-y:auto;padding:18px 20px"></div>
@@ -260,7 +314,7 @@
      sola captura no hay nada que comparar, así que no ocupa espacio. -->
 <div class="timebar" id="timebar">
   <div class="timebar-head" id="timebar-head">
-    <h3>Comparar en el tiempo</h3>
+    <h3 data-i18n="timebar.title">Compare over time</h3>
     <div class="timebar-dates" id="timebar-dates"></div>
     <svg class="ic timebar-chev" style="width:14px;height:14px" aria-hidden="true"><use href="#i-chev-down"/></svg>
   </div>
@@ -269,24 +323,6 @@
   </div>
 </div>
 
-<!-- Generar resumen de situación -->
-<div class="modal-overlay" id="report-overlay">
-  <div class="report-modal" role="dialog" aria-modal="true" aria-labelledby="report-title">
-    <div class="report-modal-head">
-      <div><h2 id="report-title">Resumen de situación</h2><div class="sub" id="report-sub"></div></div>
-      <button class="reset" id="report-close" aria-label="Cerrar" style="color:var(--ink-muted)">
-        <svg class="ic" style="width:18px;height:18px" aria-hidden="true"><use href="#i-x"/></svg>
-      </button>
-    </div>
-    <div class="report-stats" id="report-stats"></div>
-    <div class="report-preview" id="report-preview"></div>
-    <p class="report-text" id="report-text"></p>
-    <div class="report-actions">
-      <button class="btn primary reset" id="report-download"><svg class="ic" style="width:15px;height:15px" aria-hidden="true"><use href="#i-image"/></svg> Descargar imagen</button>
-    </div>
-  </div>
-</div>
-
-<script src="app.js"></script>
+<script src="app.js?v=10"></script>
 </body>
 </html>

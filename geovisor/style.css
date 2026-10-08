@@ -5,7 +5,7 @@
    rediseños que se pisaban entre sí y rompían el tema oscuro: la última
    forzaba claro siempre). Esta versión es UN sistema de tokens, idéntico
    al del Centro de misiones (webapp/static/index.html): misma familia
-   teal institucional SIATA, misma Public Sans, mismos radios, mismos
+   dark cyan institucional SIATA, misma Public Sans, mismos radios, mismos
    colores semánticos claro/oscuro — las dos pantallas son UN producto.
 
    Reglas de forma (iguales en la webapp):
@@ -36,8 +36,8 @@
   /* Mismos tokens que webapp/static/index.html — ver la cabecera de allá. */
   --paper:#F4F7F8; --surface:#FFFFFF; --surface-2:#EAF1F2; --line:#DBE5E7;
   --ink:#15262C; --ink-muted:#55696E; --ink-faint:#8B9CA0;
-  --accent:#0E7A68; --accent-bright:#2AA389; --accent-ink:#FFFFFF;
-  --accent-soft:#E4F1EC; --accent-line:#A9D6CC;
+  --accent:#008B8B; --accent-bright:#12A3A3; --accent-ink:#FFFFFF;
+  --accent-soft:#DFF2F2; --accent-line:#9FD4D4;
   --critical:#C2401F; --critical-soft:#FBE7DE; --critical-line:#EFB69C;
   --warning:#A9751E; --warning-soft:#FBF0DB; --warning-line:#E9C97E;
   --good:#2F7D5C; --good-soft:#DFF0E6; --good-line:#A0CDB2;
@@ -52,8 +52,8 @@
 :root[data-theme="dark"]{
   --paper:#0C1412; --surface:#121D1A; --surface-2:#182622; --line:#23332E;
   --ink:#E8F0EC; --ink-muted:#9DB0A9; --ink-faint:#7E918A;
-  --accent:#4FC2A4; --accent-bright:#7ED9BF; --accent-ink:#06201A;
-  --accent-soft:#14251D; --accent-line:#2E4A3B;
+  --accent:#2FC4C4; --accent-bright:#63D8D8; --accent-ink:#052626;
+  --accent-soft:#0F2B2B; --accent-line:#2C4F4F;
   --critical:#FF8B6B; --critical-soft:#311B14; --critical-line:#5E3527;
   --warning:#E7B45C; --warning-soft:#2E2410; --warning-line:#5C4A1F;
   --good:#7CD4A4; --good-soft:#14251D; --good-line:#2E4A3B;
@@ -108,7 +108,6 @@ button .ic,label .ic,a .ic{pointer-events:none}
 .search-ic{position:absolute;left:10px;font-size:.8em;opacity:.6;pointer-events:none;display:inline-flex}
 .search-ic .ic{width:15px;height:15px}
 .timebar-chev{width:14px;height:14px}
-.area-edit-icon{flex-shrink:0;display:inline-flex}
 /* appearance:none es LO QUE FALTABA — sin esto, el navegador puede aplicar
    el "chrome" nativo del sistema operativo (ButtonFace/ButtonText) en
    hover/focus de un <button>, que no tiene ninguna idea de nuestro tema
@@ -315,11 +314,6 @@ main.body{height:100dvh;margin-left:76px;padding-top:64px;display:grid;
 .point-card-close{width:26px;height:26px;border-radius:7px;color:var(--ink-muted);
   font-size:1em;display:flex;align-items:center;justify-content:center}
 .point-card-close:hover{background:var(--surface-2);color:var(--ink)}
-.point-severity{margin:10px 16px 0;display:inline-flex;align-items:center;gap:7px;
-  padding:5px 11px;border-radius:8px;font-size:var(--fs-sm);font-weight:700}
-.point-severity.leve{background:var(--good-soft);color:var(--good)}
-.point-severity.moderado{background:var(--warning-soft);color:var(--warning)}
-.point-severity.severo{background:var(--critical-soft);color:var(--critical)}
 .point-metrics{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:12px 16px}
 .point-metric .l{font-size:var(--fs-xs);color:var(--ink-muted)}
 .point-metric .v{font-size:var(--fs-lg);font-weight:700;margin-top:1px}
@@ -363,8 +357,8 @@ main.body.panel-collapsed .panel-toggle{display:flex}
 .panel-footer[hidden]{display:none}
 
 /* Resumen ejecutivo — instrumento de decisión: un solo número protagonista
-   (focos térmicos), el alcance del evento (área + severidad + vegetación) y
-   al final la procedencia (captura, calidad del levantamiento). Jerarquía
+   (focos térmicos, con su temperatura), y al final la procedencia (captura,
+   calidad del levantamiento). Jerarquía
    por tamaño y por color semántico de dato; divisores finos, no cajas de
    igual peso apiladas. Ya no vive dentro de .panel-scroll (panel unificado,
    sin modos): el padding horizontal que antes le daba ese contenedor se
@@ -391,13 +385,6 @@ main.body.panel-collapsed .panel-toggle{display:flex}
 .stat-card.hotspots.none .l{color:var(--good)}
 .stat-card.hotspots.none .v{color:var(--good)}
 .stat-card.hotspots.none .sub{color:var(--good);opacity:.9}
-/* Área afectada: el alcance del evento a lo ancho, con la barra de
-   severidad integrada — la proporción leve/moderado/severo ES la decisión. */
-.stat-card.area{grid-column:1/-1}
-.stat-card.area .v{font-size:var(--fs-xl)}
-.stat-card.severidad .v{color:var(--warning)}
-.severity-mini{display:flex;gap:3px;margin-top:9px;height:7px;border-radius:4px;overflow:hidden}
-.severity-mini i{display:block;border-radius:2px}
 /* Recomendación — la frase accionable (buildRecommendationText, el mismo
    texto que el reporte) debajo de las cifras. Sin caja: franja de lectura
    con acento de decisión. */
@@ -407,7 +394,7 @@ main.body.panel-collapsed .panel-toggle{display:flex}
   line-height:1.55;color:var(--ink)}
 .reco-strip .reco-l{display:block;font-size:.62rem;font-weight:700;letter-spacing:.08em;
   text-transform:uppercase;color:var(--warning);margin-bottom:3px}
-/* Recomendación informativa (sin severidad alta): acento neutro en vez del
+/* Recomendación informativa (sin foco activo): acento neutro en vez del
    ámbar de urgencia — el color semántico queda reservado a la decisión. */
 .reco-strip.quiet{border-left-color:var(--accent);background:var(--accent-soft)}
 .reco-strip.quiet .reco-l{color:var(--accent)}
@@ -420,7 +407,7 @@ main.body.panel-collapsed .panel-toggle{display:flex}
 
 /* Focos identificados — lista compacta DENTRO de la tarjeta de la capa
    Hotspot térmico (antes vivía aparte, en la vista "Lista" que se sacó).
-   Un renglón por foco: coordenadas + severidad + temperatura, clickeable
+   Un renglón por foco: coordenadas + temperatura, clickeable
    para centrar el mapa ahí (ver wireHotspotList(), app.js). */
 .hotspot-list{margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
 .hotspot-list-title{font-size:.66rem;font-weight:700;letter-spacing:.06em;
@@ -431,11 +418,6 @@ main.body.panel-collapsed .panel-toggle{display:flex}
 .hotspot-row:hover{background:var(--surface-2)}
 .hotspot-row .coord{flex:1;min-width:0;font-variant-numeric:tabular-nums;color:var(--ink-muted)}
 .hotspot-row .temp{font-variant-numeric:tabular-nums;font-weight:600}
-.badge{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:7px;
-  font-size:var(--fs-xs);font-weight:700;flex-shrink:0}
-.badge.leve{background:var(--good-soft);color:var(--good)}
-.badge.moderado{background:var(--warning-soft);color:var(--warning)}
-.badge.severo{background:var(--critical-soft);color:var(--critical)}
 
 /* ── Barra temporal (oculta salvo con >1 misión en la misma zona) ──── */
 .timebar{display:none;background:var(--surface);border-top:1px solid var(--line);flex-shrink:0;z-index:770}
@@ -589,25 +571,33 @@ main.body.panel-collapsed .panel-toggle{display:flex}
 .measure-node{width:9px;height:9px;background:var(--surface);border:2px solid var(--accent);
   border-radius:50%;box-shadow:0 0 4px rgba(0,0,0,.3)}
 
-/* Edición de área afectada */
-#area-edit-panel{display:none;position:absolute;top:70px;right:16px;z-index:900;padding:11px 13px;
-  font-size:.75em;max-width:240px}
-#area-edit-panel.visible{display:block}
-.area-edit-row{display:flex;align-items:center;gap:8px}
-.area-edit-icon{font-size:1.1em}
-#area-edit-ha{font-weight:700;flex:1;white-space:nowrap;color:var(--critical)}
-.area-edit-tools{display:none;flex-wrap:wrap;gap:6px;margin-top:9px}
-#area-edit-panel.editing .area-edit-tools{display:flex}
-.area-edit-tools .btn{flex:1;white-space:nowrap}
-#area-edit-hint{display:none;margin-top:8px;color:var(--ink-muted);font-size:.92em;line-height:1.45}
-#area-edit-panel.editing #area-edit-hint{display:block}
-#area-edit-status{margin-top:6px;font-size:.92em;min-height:1.2em;color:var(--good)}
-.area-vertex{width:10px;height:10px;background:#fff;border:2px solid var(--critical);border-radius:50%;
-  cursor:pointer;box-shadow:0 0 4px rgba(0,0,0,.5)}
-.area-vertex-mid{width:8px;height:8px;background:var(--critical);border:1px solid #fff;opacity:.7;
-  border-radius:50%;cursor:copy}
-.area-trash{font-size:16px;text-align:center;line-height:24px;cursor:pointer;
-  color:var(--critical);filter:drop-shadow(0 0 3px rgba(0,0,0,.6))}
+/* Delimitación y Digitalización Asistida */
+#draw-panel{display:none;position:absolute;top:70px;left:16px;z-index:900;padding:14px 16px;
+  font-size:.78em;width:310px;max-width:calc(100vw - 32px);box-shadow:var(--shadow-lg);
+  border:1px solid rgba(255,145,0,.25);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
+#draw-panel.visible{display:block;animation:dp-slide-in .2s cubic-bezier(0.16,1,0.3,1)}
+@keyframes dp-slide-in{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+.draw-panel-title{display:flex;align-items:center;gap:6px;font-size:1.05em;color:var(--ink)}
+.draw-modes-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;margin:8px 0 6px 0}
+.draw-modes-bar .btn{font-size:.85em;padding:5px 2px;justify-content:center;white-space:nowrap;border-radius:var(--radius-sm)}
+.draw-modes-bar .btn.active{background:#ff9100;color:#ffffff;border-color:#ff9100;box-shadow:0 0 8px rgba(255,145,0,.4)}
+.draw-pref-row{margin:6px 0 8px 0;padding:4px 6px;background:rgba(255,145,0,.08);border-radius:var(--radius-sm);border:1px dashed rgba(255,145,0,.3)}
+.draw-freehand-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.92em;color:var(--ink)}
+.draw-freehand-toggle input{cursor:pointer;accent-color:#ff9100}
+.draw-stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;margin:8px 0 10px 0;padding:8px 10px;
+  background:rgba(0,0,0,.04);border-radius:var(--radius-sm);border:1px solid var(--line)}
+html.dark .draw-stats-grid{background:rgba(255,255,255,.03)}
+.draw-highlight{color:#ff9100!important;font-size:1.15em}
+.draw-warn{color:#ff3d00!important}
+.draw-tools-row{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px}
+.draw-action-row{margin-bottom:6px}
+.draw-node{width:12px;height:12px;background:#ff9100;border:2.5px solid #ffffff;
+  border-radius:50%;box-shadow:0 0 6px rgba(0,0,0,.45);cursor:grab;transition:transform .12s}
+.draw-node:hover{transform:scale(1.25);background:#ff6d00}
+.draw-midnode{width:8px;height:8px;background:rgba(255,145,0,.6);border:1.5px solid #ffffff;
+  border-radius:50%;cursor:pointer;transition:transform .12s,background .12s}
+.draw-midnode:hover{transform:scale(1.4);background:#ff9100}
+.leaflet-container.draw-freehand-cursor{cursor:crosshair!important}
 
 /* HUD de progreso — embebido al pie del sidebar (no flota sobre el mapa,
    ver el comentario en index.html), flex-shrink:0 para no perder espacio
@@ -636,30 +626,27 @@ main.body.panel-collapsed .panel-toggle{display:flex}
 #progress-hud.collapsed .ph-collapse-toggle .ic{transform:rotate(-90deg)}
 #progress-hud.collapsed .ph-top{margin-bottom:0}
 #progress-hud.collapsed .ph-body{display:none}
+/* Un progreso INDEPENDIENTE por sensor (rgb/térmico/ms), no una sola barra
+   compartida: RGB, térmico y multiespectral corren en subshells propios
+   (docker/entrypoint.sh, despacho por sensor) — una sola barra global
+   reflejaba nada más que el último evento en llegar de CUALQUIERA de los
+   tres, así que "iba y venía" cada vez que otro sensor imprimía su propio
+   [1/13]. Cada fila acá es su propio 0-100%, con solo el nombre de la fase
+   en curso — sin checklist expandible ni descripciones (eso vive en el log,
+   ver ph-log más abajo, para quien de verdad lo necesite). */
+.ph-channels{list-style:none;margin:9px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}
+.ph-channel{display:flex;flex-direction:column;gap:4px}
+.ph-channel-head{display:flex;align-items:baseline;gap:6px;font-size:.72em}
+.ph-channel-name{font-weight:600;color:var(--ink)}
+.ph-channel-phase{flex:1;color:var(--ink-faint);overflow:hidden;text-overflow:ellipsis;
+  white-space:nowrap}
+.ph-channel-pct{color:var(--ink-muted);font-variant-numeric:tabular-nums;flex-shrink:0}
 .ph-bar{height:8px;border-radius:4px;background:var(--surface-2);overflow:hidden;border:1px solid var(--line)}
 .ph-bar-fill{height:100%;background:var(--accent);width:0%;transition:width .3s}
-#progress-hud.done .ph-bar-fill{background:var(--good)}
-#progress-hud.failed .ph-bar-fill{background:var(--critical)}
-.ph-phases{list-style:none;margin:9px 0 0;padding:0;display:flex;flex-direction:column;gap:3px;
-  max-height:260px;overflow-y:auto}
-.ph-phases li{font-size:.72em;color:var(--ink-faint);padding:2px 0}
-.ph-phases li.ph-phase-nodesc{display:flex;align-items:center;gap:7px}
-.ph-phases details summary{display:flex;align-items:center;gap:7px;cursor:pointer;list-style:none}
-.ph-phases details summary::-webkit-details-marker{display:none}
-.ph-phases details summary::after{content:'›';margin-left:auto;color:var(--ink-faint);
-  transition:transform .15s}
-.ph-phases details[open] summary::after{transform:rotate(90deg)}
-.ph-phases .ph-phase-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;background:var(--line)}
-.ph-phases li.done{color:var(--ink-muted)}
-.ph-phases li.done .ph-phase-dot{background:var(--good)}
-.ph-phases li.current{color:var(--ink);font-weight:600}
-.ph-phases li.current .ph-phase-dot{background:var(--accent);animation:ph-pulse 1.6s ease-in-out infinite}
-.ph-phase-desc{margin:4px 0 6px 13px;font-weight:400;color:var(--ink-faint);line-height:1.4;
-  font-size:.96em}
-.ph-phase-dur{margin-left:6px;font-weight:400;font-variant-numeric:tabular-nums;color:var(--ink-faint);
-  font-size:.92em}
-.ph-phase-live{color:var(--accent)}
-.ph-phases li.current .ph-phase-dur{color:var(--accent)}
+.ph-channel.done .ph-bar-fill{background:var(--good)}
+.ph-channel.failed .ph-bar-fill{background:var(--critical)}
+.ph-channel.done .ph-channel-phase{color:var(--good)}
+.ph-channel.failed .ph-channel-phase{color:var(--critical)}
 .ph-actions{display:flex;gap:7px;margin-top:9px}
 .ph-actions button{flex:1}
 .ph-log-toggle{background:none;border:none;color:var(--ink-faint);font-size:.7em;cursor:pointer;

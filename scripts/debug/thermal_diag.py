@@ -56,7 +56,6 @@ for tf in glob.glob(f"{THDIR}/*.tif"):
 
 # aplicar offsets de leveling si existen (para medir std residual)
 OFFS={}
-import sys
 if os.path.isfile("processing/thermal_offsets.json") and "--offsets" in sys.argv:
     OFFS=json.load(open("processing/thermal_offsets.json"))
     print("aplicando offsets de leveling al diagnóstico")

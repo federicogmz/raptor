@@ -123,8 +123,6 @@ def print_done(label="", stage_info=""):
 
 def print_stage_header(stage_name, stage_n, total_stages):
     """Imprime encabezado de etapa."""
-    w = term_width()
-    sep = "─" * (w - 4)
     header = (f"{Colors.BOLD}{Colors.YELLOW}"
               f"[{stage_n}/{total_stages}] {stage_name}"
               f"{Colors.RESET}")

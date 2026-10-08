@@ -1,245 +1,255 @@
-# RAPTOR — DJI M3T / H20T / M3M
+# RAPTOR: DJI M3T / H20T / M3M
 
-**R**econstrucción **A**érea de **P**roductos **T**érmicos, **Ó**pticos (y
-multiespectrales) para **R**espuesta — pipeline reproducible para generar
-ortomosaicos RGB, térmicos e índices de vegetación (NDVI/GNDVI/NDRE/MSAVI2)
-georreferenciados a partir de vuelos fotogramétricos DJI (Mavic 3T, Matrice
-300 RTK + Zenmuse H20T, y opcionalmente Mavic 3 Multispectral), con geovisor
-Leaflet interactivo.
+**R**econstruction of **A**erial **P**roducts, **T**hermal, **O**ptical (and
+multispectral), for **R**esponse. A general photogrammetric processing
+pipeline, not just for emergencies: three quality presets range from a quick
+look in minutes to the maximum detail the flight can deliver (see "Quality,
+terrain, and hardware" below). It generates georeferenced RGB and thermal
+orthomosaics, plus vegetation indices (NDVI/GNDVI/NDRE/MSAVI2), from DJI
+photogrammetric flights (Mavic 3T, Matrice 300 RTK + Zenmuse H20T, and
+optionally Mavic 3 Multispectral), with an interactive Leaflet geovisor.
 
-**Todo el pipeline corre en UN SOLO contenedor Docker** (ODM + post-procesamiento
-propio, sin contenedores anidados). El DJI Thermal SDK ya está incluido en el
-repositorio. Solo necesitas las imágenes fuente del vuelo.
+**The entire pipeline runs in ONE SINGLE Docker container** (ODM plus the
+pipeline's own post-processing, no nested containers). The DJI Thermal SDK
+is already included in the repository. You only need the flight's source
+images.
 
-Los sensores (RGB+térmico del M3T/H20T, multiespectral del M3M, banda D del
-M3M) son **independientes**: cada uno prepara sus imágenes, reconstruye y
-publica sus productos por su cuenta, sin esperar a los demás salvo que la RAM
-disponible obligue a turnarse (ver «Cuántos sensores reconstruyen a la vez»
-más abajo).
-
----
-
-## Instalación — webapp persistente (por defecto)
-
-La forma de instalar RAPTOR en una máquina (propia o de otra persona) es
-desplegar la **webapp interactiva** (FastAPI) una vez y dejarla corriendo:
-subís las fotos crudas del vuelo desde el navegador, elegís qué sensores y
-productos procesar, el tipo de terreno y el preset de calidad, ves el
-progreso en vivo (SSE) y al terminar se muestra directo el geovisor con los
-tiles — todo en un solo puerto, sin flags de `docker run` ni montar
-volúmenes de antemano.
-
-La webapp detecta qué tipo de archivo subiste (`*_V/_W`, `*_T`, `*_MS_*`,
-`*_D`) y valida la combinación **antes** de lanzar el pipeline, así una
-misión a la que le falten fotos falla en el formulario —corregible ahí
-mismo, sin resubir lo ya cargado— y no horas después adentro de ODM. Si la
-misión ya tiene reconstrucciones ODM guardadas, ofrece reusarlas en vez de
-rehacer el SfM.
-
-```bash
-./raptor build
-./raptor webapp --export ~/entregas
-# abrir http://localhost:8080
-```
-
-`./raptor webapp` queda **en segundo plano** (`-d`) con `--restart
-unless-stopped`: si el contenedor se cae o se reinicia la máquina, Docker lo
-vuelve a levantar solo — no hay que dejar una terminal ni una sesión `tmux`
-abierta, ni volver a correr el comando después de un reinicio (para eso
-alcanza con que el propio servicio de Docker arranque solo:
-`sudo systemctl enable --now docker` en una instalación estándar, root, no
-rootless). Correrlo de nuevo con las mismas opciones reemplaza **solo** ese
-contenedor (`raptor-web` por nombre), nunca toca otros contenedores que haya
-en la misma máquina.
-
-```bash
-./raptor logs     # ver el progreso en vivo (Ctrl+C no la apaga, solo sale del log)
-./raptor status   # ver si está corriendo
-./raptor stop      # apagarla
-```
-
-Para debug puntual, sin dejarla instalada (corre pegada a la terminal, sin
-reinicio automático, se borra sola al salir): `./raptor webapp --fg`.
-
-`--export` es la carpeta **de tu disco** donde van a salir los productos: el
-lanzador la monta en el contenedor, así que lo que elijas en el formulario es
-una ruta real del host y no algo que desaparece al cerrar el contenedor. Sin
-`--export` la webapp funciona igual, pero la exportación aparece deshabilitada.
-
-Las fotos subidas y los resultados quedan en `runs/<misión>/`, que el
-lanzador monta por vos; `--runs DIR` lo cambia de lugar.
+The sensors (RGB+thermal from the M3T/H20T, multispectral from the M3M, D
+band from the M3M) are **independent**: each one prepares its images,
+reconstructs, and publishes its products on its own, without waiting for
+the others unless available RAM forces them to take turns (see "How many
+sensors reconstruct at once" below).
 
 ---
 
-## Automatización y CI
+## Installation: persistent webapp (default)
 
-`./raptor run` procesa una misión sin interacción, con códigos de salida y un
-resumen legible por máquina — apto para encadenar en un pipeline:
+The way to install RAPTOR on a machine (your own or someone else's) is one
+command:
+
+```bash
+git clone <repo-url> raptor && cd raptor && ./raptor install
+```
+
+`install` builds the image, installs a global `raptor` command on your
+`PATH` (so every later command is just `raptor ...`, from any directory —
+no `./` and no `cd`ing back into the checkout), asks two questions, and
+deploys the webapp. The two questions:
+
+1. **Deliveries folder** — where exported products permanently live on
+   your disk. Suggested default `~/raptor-deliveries`, created if it
+   doesn't exist. This becomes the mounted export root for every mission
+   from then on (see "Delivering the products" below for why it has to be
+   decided once, at deploy time, rather than per export).
+2. **Port** — default `8080`.
+
+Both are saved to `~/.raptor/config`; `raptor init` reruns just this
+onboarding later if you want to change them (follow it with `raptor
+restart` to apply).
+
+If `install` can't write to `/usr/local/bin` (no `~/.local/bin` either), it
+tells you so and prints the `export PATH=...` line to add to your shell
+profile — the checkout keeps working with `./raptor` in the meantime.
+
+Once installed, open **http://localhost:8080** (or whatever port you
+chose): name the mission, add the flight folder(s), pick flat or steep
+terrain, confirm which products to generate (derived from what you added —
+only RGB is offered if there's no thermal, and vice versa), pick a quality
+preset, and start. Progress streams live (SSE), and the geovisor with the
+tiles comes up as soon as products exist. Export is not part of this setup
+— see "Delivering the products" below for how it works once a product is
+ready.
+
+Everyday commands, from anywhere:
+
+```bash
+raptor start      # deploy (or redeploy) with the saved config
+raptor restart     # same thing, explicit name
+raptor stop        # stop it
+raptor status      # check if it's running
+raptor logs        # watch progress live (Ctrl+C doesn't stop it, it only exits the log)
+```
+
+`raptor start` stays **in the background** (`-d`) with `--restart
+unless-stopped`: if the container goes down or the machine reboots, Docker
+brings it back up on its own (as long as Docker's own service is enabled:
+`sudo systemctl enable --now docker` on a standard, root, non-rootless
+install). Running it again replaces **only** that container (`raptor-web`
+by name), and never touches other containers on the same machine.
+
+For a one-off debug session, without touching the saved deploy (runs
+attached to the terminal, no automatic restart, removes itself on exit):
+`raptor webapp --fg`. `raptor webapp [flags]` is also the manual path for
+anyone who wants to skip the saved config and pass `--export`/`--runs`/
+`--port` explicitly on each call instead — `raptor start`/`install` are a
+thin wrapper around it, not a replacement.
+
+Uploaded photos and results end up in `~/.raptor/runs/<mission>/` by
+default (`RAPTOR_RUNS_DIR` in the saved config).
+
+---
+
+## Automation and CI
+
+`./raptor run` processes a mission without interaction, with exit codes and
+a machine-readable summary, suitable for chaining into a pipeline:
 
 ```bash
 ./raptor run \
   --input ./vuelos/la_clara \
   --input-ms ./vuelos/la_clara_ms \
-  --preset estandar --terreno escarpado \
+  --preset cartografico --terreno escarpado \
   --export ./entregas/la_clara \
-  --export-products rgb,thermal,dsm,area,classes \
+  --export-products rgb,thermal,dsm,classes \
   --export-epsg 9377 \
   --json
 ```
 
-Sale con código distinto de 0 si el pipeline falla. `--json` imprime
-`run_summary.json`: qué productos salieron, con qué GSD, CRS y cobertura real,
-cuántas entidades tiene cada vector y dónde quedó la entrega **en el disco del
-host**. Ese resumen se escribe siempre, también cuando la corrida falla, con el
-código de salida adentro — en CI importa tanto en qué etapa murió como el
-código. `./raptor run --help` lista todas las opciones.
+It exits with a code other than 0 if the pipeline fails. `--json` prints
+`run_summary.json`: which products came out, at what GSD, CRS, and real
+coverage, how many features each vector has, and where the delivery ended
+up **on the host disk**. That summary is always written, even when the run
+fails, with the exit code inside it. In CI, which stage it died at matters
+as much as the code itself. `./raptor run --help` lists all the options.
 
-A diferencia del modo interactivo, `run` **no** deja el geovisor sirviendo al
-terminar (eso sería un cuelgue en CI); agregá `--serve` si lo querés.
+Unlike the interactive mode, `run` **does not** leave the geovisor serving
+when it finishes (that would hang CI); add `--serve` if you want it.
 
-> **Nota:** el `CMD` por defecto de la imagen es `webapp`. Para el pipeline
-> batch hay que pasar `run` como argumento explícito — `./raptor run` ya lo
-> hace; ver "Uso manual con `docker run`" más abajo si invocás Docker a mano.
+> **Note:** the image's default `CMD` is `webapp`. For the batch pipeline
+> you need to pass `run` as an explicit argument. `./raptor run` already
+> does this; see "Manual use with `docker run`" below if you invoke Docker
+> by hand.
 
-## Calidad, terreno y hardware
+## Quality, terrain, and hardware
 
-La calidad se pide por **preset**, elegido por uso y tiempo:
+Quality is requested via **preset**, chosen by use case and time:
 
-| Preset | Para qué | Techo de resolución |
-|---|---|---|
-| `vistazo` | Ver algo utilizable en minutos, durante la emergencia | 15 cm/px |
-| `rapido` | Respuesta operativa el mismo día | 8 cm/px |
-| `estandar` *(default)* | La entrega normal de una misión | 4 cm/px |
-| `alta` | Análisis fino y medición sobre el modelo de superficie | 2 cm/px |
-| `maxima` | Archivo y peritaje: el máximo detalle que dé el vuelo | 1 cm/px |
+| Preset | What it's for | Resolution ceiling | Features & SfM |
+|---|---|---|---|
+| `tactico` | Immediate field response: orthomosaic from the sparse SfM cloud (`--fast-orthophoto`), no dense cloud | 10 cm/px | 3k feats (`lowest`), 4 neighbors, hybrid BA |
+| `cartografico` *(default)* | The standard delivery for a mission: orthomosaic, DSM, and 3D point cloud | 4 cm/px | 8k feats (`high`), 8 neighbors, full MVS, hybrid BA |
+| `forense` | Forensic inspection and archival: maximum detail the flight can deliver | 1 cm/px | 16k feats (`ultra`), 24 neighbors, full MVS, global BA |
 
-Cada preset fija varias cosas a la vez: el detalle del modelo de superficie
-(la nube de puntos y la malla de las que salen el ortomosaico y el DSM), el
-techo de resolución que se le pide a ODM, cuántos features se extraen por
-foto, cuántas fotos vecinas se comparan al emparejar, qué algoritmo de SfM se
-usa y el tipo de bundle adjustment. La tabla vive en un solo lugar,
-`scripts/hardware.py::PRESETS`.
+*Backwards compatibility aliases:* `vistazo` and `rapido` → `tactico`;
+`estandar` and `alta` → `cartografico`; `maxima` → `forense`. A numeric
+`--quality 0-100` is also accepted and maps to the equivalent preset.
 
-### Terreno: plano vs escarpado
+Each preset fixes several things at once: the surface model's detail level
+(the point cloud and mesh that the orthomosaic and DSM come from), the
+resolution ceiling requested from ODM, how many features are extracted per
+photo, how many neighboring photos are compared when matching, and the
+bundle adjustment type. All three reconstruct with `sfm_algorithm:
+incremental`. The table lives in one place, `scripts/hardware.py::PRESETS`.
 
-`vistazo` y `rapido` reconstruyen por defecto con `sfm_algorithm: planar`
-— alinea las fotos por homografías entre pares, válido solo si la escena es
-efectivamente plana (vuelo nadir, altura fija). **En terreno con relieve
-fuerte (montaña, cañón, cara rocosa) esa homografía deja de aproximar bien
-la escena, y OpenSfM descarta en silencio las fotos que no puede encajar** —
-confirmado en vivo: en una misión de terreno rocoso, `vistazo` con `planar`
-solo incorporó el 19-24% de las fotos a la reconstrucción final, sin ningún
-error visible (el pipeline terminaba "bien", con un ortomosaico recortado
-muy por debajo del área real volada).
+### Terrain: flat vs rugged
 
-`--terreno escarpado` (o el selector correspondiente en la webapp) fuerza
-`sfm_algorithm: incremental` incluso en `vistazo`/`rapido` — reconstruye foto
-por foto vía bundle adjustment, sin asumir un plano, a costa de ser más
-lento (secuencial por diseño, no paralelizable entre fotos). Las demás
-palancas de velocidad del preset (resolución de features, mínimo de
-features, `--fast-orthophoto` en RGB) se mantienen — la idea es "completo
-pero seguir siendo lo más rápido posible", no perder toda la ganancia de
-velocidad del preset.
+`sfm_algorithm: planar` aligns photos through homographies between pairs,
+valid only if the scene is actually flat. **On terrain with strong relief
+OpenSfM silently discards the photos it can't fit.** Confirmed live: in a
+rocky-terrain mission, a `planar` reconstruction incorporated only 19-24% of
+the photos, with no visible error. That is why every preset now uses
+`incremental` (photo-by-photo bundle adjustment, no plane assumed).
 
-```bash
-./raptor run --input ./vuelos/la_clara --preset vistazo --terreno escarpado
-```
+`--terreno escarpado` (and the matching selector in the webapp) is still
+accepted: it forces `incremental` on any preset that would use `planar`.
+With the current preset table that is none of them, so `plano` and
+`escarpado` reconstruct (and estimate) the same way; the flag is kept so
+existing scripts and CI invocations keep working.
 
-Default de `./raptor run --terreno` (CLI): `plano` — no es obligatorio; con
-terreno chato o de relieve suave, `planar` es válido y bastante más rápido.
+### `--fast-orthophoto` on RGB (`tactico`)
 
-El formulario de la **webapp** arranca en `escarpado` en cambio: la mayoría
-de las misiones de emergencia real (incendio, montaña, terreno rocoso) no
-son planas, y perder cobertura en silencio por no acordarse de tildar la
-opción correcta es peor que la corrida ser más lenta por defecto. Se puede
-cambiar a `plano` en el mismo formulario cuando el vuelo sí lo es.
+RGB is the only sensor whose DSM is the source of the mission's surface
+model, so in `cartografico` and `forense` it always goes through
+`DensifyPointCloud` (the dense cloud/MVS). In `tactico` RGB skips that stage
+(`--fast-orthophoto`, the same mechanism D band always uses): the DSM and
+orthomosaic come from the sparse SfM cloud instead of the dense one, poorer
+and with more gaps, but the difference is measured in hours. Confirmed
+live: an RGB reconstruction of ~1200 photos with a laptop GPU took ~11h in
+`DensifyPointCloud`. With `--fast-orthophoto` that stage doesn't run.
 
-### `--fast-orthophoto` en RGB (vistazo/rápido)
+With `lowest` feature quality, SfM on small or low-texture flights can split
+into several disconnected partial reconstructions that ODM then places by
+GPS alone. Check `% reconstructed` in `flight_quality.json` (and the
+`Reconstruction N: … images` lines in `outputs/logs/odm_rgb.log`) before
+relying on a `tactico` mosaic for measurement.
 
-RGB es el único sensor cuyo DSM es la fuente del modelo de superficie de la
-misión, así que en `estandar` y superior siempre pasa por
-`DensifyPointCloud` (la nube densa/MVS) para un DSM de la mejor calidad
-posible. En `vistazo`/`rapido`, en cambio, RGB salta esa etapa
-(`--fast-orthophoto`, el mismo mecanismo que banda D ya usaba siempre): el
-DSM sale de la nube dispersa de SfM en vez de la densa — más pobre, con más
-huecos, pero la diferencia real es de horas. Confirmado en vivo: una
-reconstrucción RGB de ~1200 fotos con GPU de laptop se llevó ~11h en
-`DensifyPointCloud` — con `--fast-orthophoto` esa etapa no corre.
+### Estimate before starting
 
-### Estimación antes de arrancar
-
-Antes de arrancar, `./raptor run` (y el formulario de la webapp) muestran a
-qué resolución van a salir los productos y cuánto se espera que tarde, según
-tu hardware y el terreno elegido:
+Before starting, `./raptor run` (and the webapp form) show what resolution
+the products will come out at and how long it's expected to take, based on
+your hardware:
 
 ```bash
-./raptor run --input ./vuelos/la_clara --preset alta
+./raptor run --input ./vuelos/la_clara --preset forense
 ```
 ```
-🖥️  Hardware detectado: 20 núcleos, 27 GB RAM libres — sin GPU (corre en CPU)
-🎚️  Preset «Alta»: Análisis fino y medición sobre el modelo de superficie…
-📐 Hasta 2 cm/px en el ortomosaico y el DSM — el techo real lo pone el GSD…
-⏱️  Tiempo estimado con tu hardware: 1.4 h – 5.6 h para 1652 fotos. Aproximado…
+🖥️  Hardware detected: 20 cores, 27 GB RAM free, no GPU (runs on CPU)
+🎚️  Preset "Forensic": Archival and forensic detail: maximum physical resolution…
+📐 Up to 1 cm/px in the orthomosaic and DSM — the real ceiling is set by your flight's GSD…
+⏱️  Estimated time with your hardware: 6.6 h – 26.3 h for 1652 photos. Approximate…
 ```
 
-Para ver los cinco presets con su tiempo estimado sin arrancar nada:
+To see all three presets with their estimated time without starting
+anything:
 
 ```bash
-python3 scripts/hardware.py estimate --photos 1652 --terreno escarpado
+python3 scripts/hardware.py estimate --photos 1652
 ```
 
-`--quality N` (0-100) se sigue aceptando y se mapea al preset equivalente,
-para no romper corridas y scripts que ya lo usan (siempre en terreno plano —
-el número heredado no distingue terreno).
+`--quality N` (0-100) is still accepted and maps to the equivalent preset,
+so as not to break runs and scripts that already use it (always on flat
+terrain: the legacy number doesn't distinguish terrain).
 
-Dos cosas que conviene tener claras sobre la estimación:
+Two things worth being clear about regarding the estimate:
 
-- **La estimación es aproximada a propósito.** El modelo es lineal en el
-  número de fotos y la escena real (solape, vegetación, terreno) no lo es —
-  se muestra siempre como rango, no como un número que promete una precisión
-  que no existe.
-- **La resolución de salida no la decide la calidad, la decide el vuelo.**
-  El GSD (metros por píxel en el suelo) lo fija la altura de vuelo y el
-  sensor; ODM lo mide de la reconstrucción y **nunca puede ir más fino** que
-  eso, sin importar qué tan alta sea la calidad pedida — pedir 1 cm a un
-  vuelo cuyo GSD real es 9 cm no agrega detalle, solo produce píxeles más
-  chicos. Lo que la calidad SÍ decide es si se puede pedir un techo más
-  **grueso** a propósito (para terminar antes), y si el modelo 3D resuelve o
-  no objetos como copas de árboles y bordes de tejados.
+- **The estimate is deliberately approximate.** The model is linear in the
+  number of photos, and the real scene (overlap, vegetation, terrain) is
+  not. It's always shown as a range, not as a number that promises a
+  precision that doesn't exist.
+- **Output resolution isn't decided by quality, it's decided by the
+  flight.** The GSD (meters per pixel on the ground) is set by flight
+  altitude and the sensor; ODM measures it from the reconstruction and
+  **can never go finer** than that, no matter how high the requested
+  quality is. Asking for 1 cm on a flight whose real GSD is 9 cm doesn't
+  add detail, it just produces smaller pixels. What quality DOES decide is
+  whether you can deliberately request a **coarser** ceiling (to finish
+  sooner), and whether the 3D model resolves objects like treetops and
+  roof edges or not.
 
-### Cuántos sensores reconstruyen a la vez
+### How many sensors reconstruct at once
 
-Los proyectos ODM (`rgb_odm`, `thermal_native_odm`, `multispectral_odm`,
-`dband_odm`) son independientes entre sí — distinta carpeta fuente, distinta
-carpeta destino, ningún archivo compartido. Cada uno **prepara sus imágenes
-de forma independiente** (no espera a que los demás terminen de preparar) y
-recién compite por un cupo de reconstrucción cuando SU preparación termina,
-vía un semáforo memory-aware (`odm_slots()` en `scripts/hardware.py`): en
-una máquina con RAM de sobra, dos o más reconstrucciones corren en
-simultáneo; en una más chica, se turnan — el comportamiento de siempre
-(uno por vez) queda como piso, nunca como techo. RGB en particular, con su
-perfil de foto más pesado, suele necesitar la máquina para sí solo salvo que
-use `--fast-orthophoto` (vistazo/rápido), que reduce su necesidad real de
-memoria y permite compartir cupo con otro sensor.
+The ODM projects (`rgb_odm`, `thermal_native_odm`, `multispectral_odm`,
+`dband_odm`) are independent from each other: different source folder,
+different destination folder, no shared files. Each one **prepares its
+images independently** (it doesn't wait for the others to finish
+preparing) and only competes for a reconstruction slot once ITS OWN
+preparation is done, through a memory-aware semaphore (`odm_slots()` in
+`scripts/hardware.py`). On a machine with plenty of RAM, two or more
+reconstructions run at the same time; on a smaller one, they take turns.
+The old behavior (one at a time) stays as a floor, never a ceiling. RGB in
+particular, with its heavier photo profile, usually needs the whole
+machine to itself unless it uses `--fast-orthophoto` (`tactico`),
+which reduces its real memory need and lets it share a slot with another
+sensor.
 
-`RAPTOR_ODM_PARALELO=1` fuerza el modo secuencial de siempre (uno por vez);
-`MAX_CONCURRENCY N` fija a mano los hilos por proyecto (perilla de "cuidame
-la memoria", no cuántos proyectos corren juntos).
+`RAPTOR_ODM_PARALELO=1` forces the old sequential mode (one at a time);
+`MAX_CONCURRENCY N` manually sets the threads per project (a "watch my
+memory" knob, not how many projects run together).
 
 ---
 
-## Uso manual con `docker run` (para scripts / control fino)
+## Manual use with `docker run` (for scripts / fine control)
 
-Si preferís invocar Docker vos mismo (automatización, CI, una sola misión
-puntual) en vez de la webapp, seguí esta guía:
+If you'd rather invoke Docker yourself (automation, CI, a single one-off
+mission) instead of the webapp, follow this guide:
 
-### Guía rápida: de la tarjeta SD al geovisor
+### Quick guide: from the SD card to the geovisor
 
-### Requisitos
+### Requirements
 
 - Docker
-- GPU NVIDIA + `nvidia-container-toolkit` (recomendado; ver «GPU» abajo para
-  cuándo es realmente indispensable)
+- NVIDIA GPU + `nvidia-container-toolkit` (recommended; see "GPU" below for
+  when it's actually indispensable)
 
 ```bash
 # Ubuntu 24.04:
@@ -247,72 +257,74 @@ sudo apt install docker.io nvidia-container-toolkit
 sudo systemctl restart docker
 ```
 
-### Paso 1 — Construir la imagen
+### Step 1: Build the image
 
 ```bash
 docker build -t raptor .
 ```
 
-### Paso 2 — Ejecutar (¡todo en un comando!)
+### Step 2: Run it (all in one command!)
 
 ```bash
-docker run --gpus all -v /ruta/a/fotos:/input -p 8080:8080 raptor run
+docker run --gpus all -v /path/to/photos:/input -p 8080:8080 raptor run
 ```
 
-> El argumento `run` al final es obligatorio: el `CMD` por defecto de la
-> imagen es `webapp` (ver arriba), así que para el modo batch/CLI clásico
-> hay que pedirlo explícitamente.
+> The `run` argument at the end is mandatory: the image's default `CMD` is
+> `webapp` (see above), so for the classic batch/CLI mode you have to
+> request it explicitly.
 
 ### GPU
 
-El binario de reconstrucción densa de la imagen base (`DensifyPointCloud`)
-está enlazado contra `libcuda.so.1`, y sin el runtime de NVIDIA montado no
-carga —
+The base image's dense reconstruction binary (`DensifyPointCloud`) is
+linked against `libcuda.so.1`, and without the NVIDIA runtime mounted it
+doesn't load:
 
 ```
 DensifyPointCloud: error while loading shared libraries: libcuda.so.1
 opendm.system.SubprocessException: Child returned 127
 ```
 
-— o sea que la corrida muere en la etapa `openmvs`, **después** de haber
-pagado la preparación y todo el SfM, si `--gpus all` faltaba y encima esa
-misión SÍ iba a tocar la etapa densa. Que ODM "detecta `nvidia-smi` y cae a
-CPU" es cierto para elegir el *algoritmo*, pero no evita ese enlace dinámico.
+That means the run dies at the `openmvs` stage, **after** having paid for
+the preparation and the entire SfM, if `--gpus all` was missing and that
+mission was actually going to touch the dense stage. That ODM "detects
+`nvidia-smi` and falls back to CPU" is true for choosing the *algorithm*,
+but it doesn't avoid that dynamic link.
 
-El entrypoint lo comprueba en el primer segundo, **solo para los sensores
-que de verdad van a correr `DensifyPointCloud`** — RGB en `vistazo`/`rapido`
-(que usan `--fast-orthophoto`) y banda D (que siempre lo usa) quedan afuera
-del chequeo, igual que cualquier corrida con `SKIP_ODM=1`. Si algún sensor
-activo sí la va a tocar (térmico, multiespectral, o RGB fuera de
-`vistazo`/`rapido`) y falta el runtime, aborta con instrucciones en vez de
-reventar horas después. `./raptor run` pasa `--gpus all` por su cuenta salvo
-que se le dé `--no-gpu`.
+The entrypoint checks this in the first second, **only for sensors that
+will actually run `DensifyPointCloud`**: RGB in `tactico` (which
+use `--fast-orthophoto`) and D band (which always uses it) are excluded
+from the check, same as any run with `SKIP_ODM=1`. If any active sensor
+really is going to touch it (thermal, multispectral, or RGB outside
+`tactico`) and the runtime is missing, it aborts with instructions
+instead of blowing up hours later. `./raptor run` passes `--gpus all` on
+its own unless given `--no-gpu`.
 
-**Recomendación práctica: pasá `--gpus all` siempre que la máquina lo
-permita** — es la única forma de que la etapa densa (cuando corre) sea
-rápida; el chequeo automático es una red de seguridad para cuando no hace
-falta, no una razón para omitirlo por costumbre.
+**Practical recommendation: pass `--gpus all` whenever the machine allows
+it.** It's the only way for the dense stage (when it runs) to be fast; the
+automatic check is a safety net for when it isn't needed, not a reason to
+skip it out of habit.
 
-El mismatch de versión CUDA (driver algo más viejo que lo que pide la imagen
-de ODM) ya viene resuelto por defecto (`NVIDIA_DISABLE_REQUIRE=1` horneado
-en la imagen) — no hace falta pasarlo a mano.
+The CUDA version mismatch (a driver somewhat older than what the ODM image
+asks for) is already resolved by default (`NVIDIA_DISABLE_REQUIRE=1` baked
+into the image), no need to pass it by hand.
 
-> **Montá los volúmenes en este modo.** La imagen **no declara `VOLUME`**
-> para `processing/`, `preprocessing/`, `outputs/` ni `geovisor/tiles/` (la
-> webapp necesita poder reemplazar esas rutas por symlinks en runtime para
-> manejar varias misiones en una sesión — ver el comentario en el
-> `Dockerfile`). Sin `VOLUME` declarado no hay red de seguridad de volumen
-> anónimo: **si no montás nada en modo `run`, los productos se pierden al
-> borrar el contenedor.** `./raptor run` monta lo necesario por vos.
+> **Mount the volumes in this mode.** The image **does not declare
+> `VOLUME`** for `processing/`, `preprocessing/`, `outputs/`, or
+> `geovisor/tiles/` (the webapp needs to be able to replace those paths
+> with symlinks at runtime to handle several missions in one session; see
+> the comment in the `Dockerfile`). Without a declared `VOLUME` there's no
+> anonymous-volume safety net: **if you don't mount anything in `run`
+> mode, the products are lost when the container is removed.** `./raptor
+> run` mounts what's needed for you.
 
-Montalos para conservar los resultados, ver los archivos directamente (p.ej.
-los TIFF de temperatura °C en `preprocessing/thermal_dji_sdk/` para usarlos en
-otro programa) y no perder el trabajo de ODM si el pipeline falla a mitad de
-camino (para poder retomar con `SKIP_ODM=1`):
+Mount them to keep the results, look at the files directly (e.g. the °C
+temperature TIFFs in `preprocessing/thermal_dji_sdk/` to use in another
+program), and not lose ODM's work if the pipeline fails partway through (so
+you can resume with `SKIP_ODM=1`):
 
 ```bash
 docker run --gpus all \
-  -v /ruta/a/fotos:/input \
+  -v /path/to/photos:/input \
   -v $PWD/processing:/app/processing \
   -v $PWD/preprocessing:/app/preprocessing \
   -v $PWD/outputs:/app/outputs \
@@ -321,19 +333,20 @@ docker run --gpus all \
   raptor run
 ```
 
-Si ya corriste sin montar `preprocessing/` (como en un `docker run` previo
-sin `--rm`), sacá los archivos con `docker cp <container>:/app/preprocessing/thermal_dji_sdk ./preprocessing`.
+If you already ran without mounting `preprocessing/` (like in a previous
+`docker run` without `--rm`), get the files out with `docker cp
+<container>:/app/preprocessing/thermal_dji_sdk ./preprocessing`.
 
-**Una carpeta por misión (recomendado):** `processing/`, `outputs/` y
-`geovisor/tiles/` guardan el estado de LA misión que se procesó ahí — si
-corrés una misión nueva montando las mismas rutas de una anterior, ODM
-reconstruye sobre datos mezclados de dos vuelos distintos.
-Usá una carpeta `runs/<nombre-misión>/` por corrida:
+**One folder per mission (recommended):** `processing/`, `outputs/`, and
+`geovisor/tiles/` hold the state of THE mission processed there. If you run
+a new mission mounting the same paths as a previous one, ODM reconstructs
+on data mixed from two different flights.
+Use one `runs/<mission-name>/` folder per run:
 
 ```bash
 mkdir -p runs/la_clara/{processing,outputs,tiles}
 docker run --gpus all --rm \
-  -v /ruta/a/la_clara:/input \
+  -v /path/to/la_clara:/input \
   -v $PWD/runs/la_clara/processing:/app/processing \
   -v $PWD/runs/la_clara/outputs:/app/outputs \
   -v $PWD/runs/la_clara/tiles:/app/geovisor/tiles \
@@ -341,150 +354,184 @@ docker run --gpus all --rm \
   raptor run
 ```
 
-Así ninguna corrida pisa ni mezcla el trabajo de otra. Para ver el geovisor
-de una misión ya procesada más adelante: `docker run --rm -p 8080:8080 -v
-$PWD/runs/la_clara/tiles:/app/geovisor/tiles raptor serve`.
+That way no run overwrites or mixes another one's work. To view the
+geovisor of an already-processed mission later: `docker run --rm -p
+8080:8080 -v $PWD/runs/la_clara/tiles:/app/geovisor/tiles raptor serve`.
 
-> Nota: si preferís no lidiar con volúmenes/rutas del host a mano, la
-> [webapp persistente](#instalación--webapp-persistente-por-defecto) resuelve exactamente este
-> mismo problema (una carpeta por misión, sin mezclar corridas) subiendo
-> las fotos por navegador en vez de montarlas.
+> Note: if you'd rather not deal with host volumes/paths by hand, the
+> [persistent webapp](#installation-persistent-webapp-default) solves
+> exactly this same problem (one folder per mission, no mixed runs) by
+> uploading photos through the browser instead of mounting them.
 
-**Multiespectral (DJI M3M, opcional):** si además tenés un vuelo multiespectral
-de la misma zona, montá un SEGUNDO volumen aparte de `/input` (es otro
-vuelo/sensor, no se mezcla con el RGB+térmico):
+**Multispectral (DJI M3M, optional):** if you also have a multispectral
+flight of the same area, mount a SECOND volume separate from `/input` (it's
+another flight/sensor, it doesn't mix with RGB+thermal):
 
 ```bash
 docker run --gpus all \
-  -v /ruta/a/fotos:/input \
-  -v /ruta/al/vuelo-m3m:/input_ms \
+  -v /path/to/photos:/input \
+  -v /path/to/m3m-flight:/input_ms \
   -v $PWD/outputs:/app/outputs \
   -v $PWD/geovisor/tiles:/app/geovisor/tiles \
   -p 8080:8080 \
   raptor run
 ```
 
-También se puede correr un vuelo M3M **solo** (sin `/input`), montando
-únicamente `/input_ms` y pasando `-e MODE=none`: en ese caso el DSM sale del
-propio proyecto multiespectral (que también corre con `--dsm`).
+You can also run an M3M flight **alone** (without `/input`), mounting only
+`/input_ms` and passing `-e MODE=none`: in that case the DSM comes from the
+multispectral project itself (which also runs with `--dsm`).
 
-Si `/input_ms` no está montado, este módulo ni se toca — cero impacto en
-misiones RGB+térmico existentes. El vuelo M3M se procesa con ODM (que soporta
-multiespectral nativamente vía el tag XMP `Camera:BandName`) usando
-`--radiometric-calibration camera+sun` (calibra a reflectancia con el sensor
-de sol embebido en cada banda, sin necesitar panel de calibración física).
+If `/input_ms` isn't mounted, this module isn't touched at all: zero impact
+on existing RGB+thermal missions. The M3M flight is processed with ODM
+(which supports multispectral natively via the XMP tag `Camera:BandName`)
+using `--radiometric-calibration camera+sun` (calibrates to reflectance
+using the sun sensor embedded in each band, no physical calibration panel
+needed).
 
-**Banda D del M3M (mosaico visible rápido, opcional):** el M3M trae además
-una cámara RGB propia (sensor aparte de las 4 lentes multiespectrales,
-archivos `*_D.JPG`). Es su propio proyecto ODM independiente
-(`dband_odm`), siempre con `--fast-orthophoto` (sin esto, banda D corría la
-etapa más cara de toda la misión — `DensifyPointCloud` — sin necesitarlo:
-nunca pide `--dsm`, ya lo tiene RGB o multiespectral). Opt-in explícito, no
-automático solo porque haya archivos `*_D.JPG` — es procesamiento extra que
-no todas las misiones quieren pagar:
+**M3M D band (fast visible mosaic, optional):** the M3M also carries its
+own RGB camera (a separate sensor from the 4 multispectral lenses, files
+`*_D.JPG`). It's its own independent ODM project (`dband_odm`), always with
+`--fast-orthophoto` (without this, D band would run the most expensive
+stage of the whole mission, `DensifyPointCloud`, without needing it: it
+never requests `--dsm`, RGB or multispectral already has one). Explicit
+opt-in, not automatic just because `*_D.JPG` files exist: it's extra
+processing not every mission wants to pay for:
 
 ```bash
 docker run --gpus all \
-  -v /ruta/al/vuelo-m3m:/input_ms \
+  -v /path/to/m3m-flight:/input_ms \
   -e DBAND=1 \
   -v $PWD/outputs:/app/outputs \
   -p 8080:8080 \
   raptor run
 ```
 
-En la webapp es un checkbox junto al bloque multiespectral. Sus productos
-(`outputs/dband_orthomosaic.tif`, `outputs/point_cloud_dband.copc.laz`) y su
-capa en el geovisor son independientes de las 4 bandas espectrales.
+In the webapp it's a checkbox next to the multispectral block. Its products
+(`outputs/dband_orthomosaic.tif`, `outputs/point_cloud_dband.copc.laz`) and
+its layer in the geovisor are independent of the 4 spectral bands.
 
-Variables de entorno útiles (`-e VAR=valor`):
+Useful environment variables (`-e VAR=value`):
 
-| Variable | Default | Uso |
+| Variable | Default | Use |
 |---|---|---|
-| `MODE` | `rgb+thermal` | `rgb` para saltar todo el térmico; `none` si la misión NO tiene vuelo RGB/térmico (solo multiespectral — requiere `/input_ms`) |
-| `SKIP_ODM` | `0` | `1` para reusar `processing/*_odm/` de una corrida previa |
-| `MS_SOURCE_DIR` | `/input_ms` | Carpeta fuente del vuelo multiespectral (el módulo corre SOLO si existe) |
-| `DBAND` | `0` | `1` para además reconstruir la banda D del M3M (mosaico visible, opt-in — requiere `MS_SOURCE_DIR` con archivos `*_D.JPG`) |
-| `PORT` | `8080` | Puerto del geovisor |
-| `SERVE` | `1` | `0` para no levantar el geovisor al terminar |
-| `PRESET` | `estandar` | `vistazo` \| `rapido` \| `estandar` \| `alta` \| `maxima`. Detalle del modelo de superficie, techo de resolución, features por foto y algoritmo de SfM. Ver «Calidad» arriba |
-| `TERRENO` | `plano` | `plano` \| `escarpado`. `escarpado` fuerza reconstrucción incremental incluso en `vistazo`/`rapido` — ver «Terreno» arriba |
-| `QUALITY` | — | *(heredado)* 0-100; se mapea al preset equivalente |
-| `RAPTOR_ODM_PARALELO` | automático | `1` fuerza una reconstrucción ODM por vez; por defecto se calcula según la RAM disponible (`odm_slots()` en `scripts/hardware.py`) |
-| `MAX_CONCURRENCY` | automático | Hilos de ODM por proyecto. Por defecto se calcula según la RAM disponible; bajalo si el proceso muere sin mensaje (ver «Memoria» en Notas) |
-| `EXPORT_DIR` | — | Carpeta de entrega. Sin esto no se exporta nada |
-| `EXPORT_PRODUCTS` | `all` | Qué exportar, separado por comas (ver abajo) |
+| `MODE` | `rgb+thermal` | `rgb` to skip all thermal processing; `none` if the mission does NOT have an RGB/thermal flight (multispectral only, requires `/input_ms`) |
+| `SKIP_ODM` | `0` | `1` to reuse `processing/*_odm/` from a previous run |
+| `MS_SOURCE_DIR` | `/input_ms` | Source folder for the multispectral flight (the module runs ONLY if it exists) |
+| `DBAND` | `0` | `1` to also reconstruct the M3M's D band (visible mosaic, opt-in, requires `MS_SOURCE_DIR` with `*_D.JPG` files) |
+| `PORT` | `8080` | Geovisor port |
+| `SERVE` | `1` | `0` to not bring up the geovisor when finished |
+| `PRESET` | `cartografico` | `tactico` \| `cartografico` \| `forense` (legacy `vistazo`/`rapido`/`estandar`/`alta`/`maxima` still accepted). Surface model detail, resolution ceiling, features per photo, and bundle adjustment. See "Quality" above |
+| `TERRENO` | `plano` | `plano` \| `escarpado`. Kept for compatibility; all current presets already reconstruct incrementally, see "Terrain" above |
+| `QUALITY` | - | *(legacy)* 0-100; maps to the equivalent preset |
+| `RAPTOR_ODM_PARALELO` | automatic | `1` forces one ODM reconstruction at a time; by default it's calculated from available RAM (`odm_slots()` in `scripts/hardware.py`) |
+| `MAX_CONCURRENCY` | automatic | ODM threads per project. Calculated from available RAM by default; lower it if the process dies without a message (see "Memory" in Notes) |
+| `EXPORT_DIR` | - | Delivery folder. Without this nothing gets exported |
+| `EXPORT_PRODUCTS` | `all` | What to export, comma-separated (see below) |
 | `EXPORT_RASTER_FORMAT` | `cog` | `cog` \| `gtiff` |
 | `EXPORT_VECTOR_FORMAT` | `geojson` | `geojson` \| `gpkg` \| `shp` \| `kml` |
-| `EXPORT_EPSG` | `source` | EPSG de salida, o `source` para no reproyectar |
+| `EXPORT_EPSG` | `source` | Output EPSG, or `source` to skip reprojecting |
 
-### Entrega de los productos
+### Delivering the products
 
-Al final del pipeline se pueden copiar los productos a una carpeta elegida, en
-el formato y el sistema de referencia que necesite quien los recibe. En la
-webapp es un bloque del formulario (destino, qué exportar, formato y CRS); por
-CLI son las variables `EXPORT_*`:
+Exporting is not something you configure before a mission runs — it's an
+action you take afterward, once a product actually exists, so you can
+export one product today and another tomorrow without having had to decide
+everything up front. In the webapp, once a mission has tiles or generated
+products, its card in the mission list gets an **Export** button: it opens
+a modal offering only the products that mission actually generated
+(checking a multispectral box on an RGB/thermal-only mission isn't
+possible — it's simply not offered), plus destination folder, format, and
+CRS. On the CLI it's the `EXPORT_*` variables, applied at the end of that
+same `run` invocation:
 
 ```bash
 docker run --gpus all \
-  -v /ruta/a/fotos:/input \
-  -v /ruta/de/entregas:/entregas \
-  -e EXPORT_DIR=/entregas/la_clara \
-  -e EXPORT_PRODUCTS=rgb,thermal,dsm,area,classes \
+  -v /path/to/photos:/input \
+  -v /path/to/deliveries:/deliveries \
+  -e EXPORT_DIR=/deliveries/la_clara \
+  -e EXPORT_PRODUCTS=rgb,thermal,dsm,classes \
   -e EXPORT_EPSG=9377 \
   -e EXPORT_VECTOR_FORMAT=gpkg \
   -p 8080:8080 raptor run
 ```
 
-Productos disponibles: `rgb`, `thermal`, `dsm`, `multispectral`, `indices`,
-`classes`, `confidence`, `area`, `flight_path`, `situation`, `pointclouds`
-(incluye banda D si corrió) (o `all`). Los que la misión no generó se omiten
-sin fallar.
+Available products: `rgb`, `thermal`, `dsm`, `multispectral`, `indices`,
+`classes`, `confidence`, `flight_path`, `situation`, `pointclouds`
+(includes D band if it ran) (or `all`). Whichever the mission didn't
+generate are skipped without failing.
 
-**EPSG:9377 (MAGNA-SIRGAS / Origen-Nacional)** es el valor recomendado: es el
-sistema único nacional de Colombia adoptado por el IGAC, el que esperan las
-entidades para cartografía oficial. ODM produce sus salidas en la UTM WGS84 que
-corresponde al GPS del vuelo, así que sin este paso hay que reproyectar a mano
-en QGIS después de cada misión. Los rásters de clases (severidad, hotspot,
-índices clasificados) se remuestrean por vecino más cercano, nunca promediando
-— promediar clases inventa categorías intermedias que no existen.
+The webapp's export modal needs a deliveries folder mounted into the
+container to have anywhere to write to — this is exactly what `raptor
+install`/`raptor init` ask for and mount permanently (Docker can't add a
+bind mount to an already-running container, so it has to be decided once,
+at deploy time; everything *under* that mounted root — which products,
+format, CRS, destination subfolder — is still chosen freely on each
+export). Without it, the Export button still opens but shows why it can't
+write anywhere yet instead of a destination field.
 
-La carpeta destino es una ruta **de adentro del contenedor**: para escribir en
-el disco del host hay que montarla (`-v /ruta/del/host:/entregas`). La webapp lo
-verifica mientras se escribe y avisa ahí mismo si la ruta no existe o no se
-puede escribir, en vez de fallar al final de la corrida. Junto a los archivos se
-escribe un `export_manifest.json` con qué se exportó, en qué CRS y con qué
-formatos.
+**EPSG:9377 (MAGNA-SIRGAS / Origen-Nacional)** is the recommended value:
+it's Colombia's single national system adopted by the IGAC, the one
+government entities expect for official cartography. ODM produces its
+outputs in the WGS84 UTM zone matching the flight's GPS, so without this
+step you have to reproject by hand in QGIS after every mission. Class
+rasters (hotspot, classified indices) are resampled by nearest neighbor,
+never by averaging: averaging classes invents intermediate categories that
+don't exist.
 
-El entrypoint hace **todo automáticamente**:
-1. **Organiza** las imágenes desde `/input` (busca `*_V.JPG`, `*_W.JPG`, `*_T.JPG` recursivamente) y, en paralelo, si `/input_ms` existe, las bandas MS y banda D desde ahí (`*_MS_G/R/RE/NIR.TIF`, `*_D.JPG`)
-2. **Extrae metadatos** GPS/EXIF; **convierte** R-JPEG → °C (DJI SDK) + denoise + re-encoding para ODM. Cada sensor prepara sus imágenes de forma independiente
-3. **Reconstruye cada sensor** apenas SU preparación termina, sin esperar a los demás — RGB, térmico nativo, multiespectral y banda D compiten por un cupo de reconstrucción memory-aware (ver «Cuántos sensores reconstruyen a la vez»)
-4. **Recorta bordes** de bajo solape apenas SU sensor termina de reconstruir (mismo criterio para los cuatro productos, con máscara de confianza según solape de cámaras RGB∩térmico), limpia el DSM (descarta relleno sintético), y **exporta ese sensor a COG/COPC** — no espera a los demás
-5. En paralelo entre sí: **calcula NDVI/GNDVI/NDRE/MSAVI2** (si hay multiespectral), **clasifica área afectada, severidad y hotspot térmico** (si hay multiespectral + térmico), y **calcula la calidad del levantamiento** (solape de cámaras, velocidad de vuelo, % reconstruido)
-6. **Genera tiles** (incrementalmente, apenas cada producto está listo — no solo al final) + un pase final de exportación COG/COPC que saltea lo que cada sensor ya exportó
-7. **Despliega** el geovisor en `http://localhost:8080`
+The destination folder is a path **inside the container**: to write to the
+host disk you have to mount it (`-v /path/on/the/host:/deliveries`). The webapp
+checks this as you write it and warns right there if the path doesn't
+exist or can't be written to, instead of failing at the end of the run.
+Alongside the files it writes an `export_manifest.json` with what was
+exported, in which CRS, and in which formats.
 
-### Paso 3 — Abrir el geovisor
+The entrypoint does **everything automatically**:
+1. **Organizes** the images from `/input` (searches recursively for
+   `*_V.JPG`, `*_W.JPG`, `*_T.JPG`) and, in parallel, if `/input_ms`
+   exists, the MS bands and D band from there (`*_MS_G/R/RE/NIR.TIF`,
+   `*_D.JPG`)
+2. **Extracts metadata** GPS/EXIF; **converts** R-JPEG to °C (DJI SDK)
+   plus denoise plus re-encoding for ODM. Each sensor prepares its images
+   independently
+3. **Reconstructs each sensor** as soon as ITS preparation is done,
+   without waiting for the others: RGB, native thermal, multispectral, and
+   D band compete for a memory-aware reconstruction slot (see "How many
+   sensors reconstruct at once")
+4. **Trims edges** with low overlap as soon as ITS sensor finishes
+   reconstructing (same criterion for all four products, with a confidence
+   mask based on RGB∩thermal camera overlap), cleans the DSM (discards
+   synthetic fill), and **exports that sensor to COG/COPC** without
+   waiting for the others
+5. In parallel with each other: **computes NDVI/GNDVI/NDRE/MSAVI2** and
+   classifies them (if there's multispectral), **classifies the thermal
+   hotspot** (absolute temperature, with or without multispectral), and
+   **computes survey quality** (camera overlap, flight speed, %
+   reconstructed)
+6. **Generates tiles** (incrementally, as soon as each product is ready,
+   not only at the end) plus a final COG/COPC export pass that skips what
+   each sensor already exported
+7. **Deploys** the geovisor at `http://localhost:8080`
+
+### Step 3: Open the geovisor
 
 **http://localhost:8080**
 
-Incluye:
-- Capas RGB, térmica y banda D con opacidad ajustable
-- **Selector de combinación de bandas** (desplegable): para la capa RGB,
-  reordenar sus canales R/G/B; para multiespectral, elegir entre
-  combinaciones predefinidas (CIR, RedEdge) o armar una personalizada
-  combinando cualquiera de las 4 bandas espectrales (Red/Green/RedEdge/NIR)
-- Paletas de color (inferno, viridis, jet, ironbow, hot/cold)
-- Slider de comparación RGB vs térmico
-- Detección de hotspots
-- Herramienta de medición de distancias
-- Hillshade del DSM
-- Exportación de vista
-- Capas de índices de vegetación (NDVI/GNDVI/NDRE/MSAVI2, paleta RdYlGn),
-  área afectada, severidad y hotspot térmico, si la misión incluyó un vuelo
-  multiespectral
-- Funciona sin conexión a internet una vez cargado: Leaflet está vendorizado
-  (`geovisor/vendor/`), no depende de un CDN
+Includes:
+- RGB, thermal, and D band layers with adjustable opacity
+- **Band combination selector** (dropdown): for the RGB layer, reorder its
+  R/G/B channels; for multispectral, choose between predefined
+  combinations (CIR, RedEdge) or build a custom one combining any of the 4
+  spectral bands (Red/Green/RedEdge/NIR)
+- Color palettes (inferno, viridis, jet, ironbow, hot/cold)
+- RGB vs thermal comparison slider
+- Hotspot detection
+- Distance measurement tool
+- DSM hillshade
+- View export
+- Vegetation index layers (NDVI/GNDVI/NDRE/MSAVI2, RdYlGn palette) if the
+  mission included a multispectral flight
+- Works offline once loaded: Leaflet is vendored (`geovisor/vendor/`), no
+  dependency on a CDN
 
 ---
 
@@ -492,172 +539,155 @@ Incluye:
 
 ```
 data/rgb_mosaico/ + data/termica_mosaico/  [+ data/multiespectral_mosaico/ + data/dband_mosaico/]
-        │  (organización en paralelo)
+        │  (parallel organization)
         ▼
-  1. Metadatos (GPS, EXIF) + ruta de vuelo (geovisor muestra algo desde el minuto uno)
-  2. Preparación POR SENSOR, cada uno independiente: geo.txt/imágenes RGB+MS+D;
-     térmico → DJI SDK °C + denoise + re-encode Kelvin×100
-  3. Reconstrucción POR SENSOR, cada uno arranca apenas SU preparación termina,
-     compitiendo por un cupo memory-aware (odm_slots()):
-       ODM RGB (SfM+[MVS]+DSM+orto — MVS salvo vistazo/rápido, ahí --fast-orthophoto)
-       ODM Térmico nativo (SfM+MVS+malla+textura+orto en °C)
-       ODM Multiespectral (SfM+calibración+orto multibanda, si aplica)
-       ODM Banda D (SfM+orto rápido, --fast-orthophoto siempre, si aplica)
-  4. Por sensor, apenas termina SU reconstrucción: limpieza DSM (solo RGB/MS)
-     + recorte de bordes de bajo solape + export COG/COPC de ESE sensor
-  5. En paralelo entre sí, sobre lo ya recortado: máscara de confianza
-     (RGB∩térmico) + calidad del levantamiento + índices de vegetación +
-     área afectada/severidad/hotspot térmico (si hay MS+térmico)
-  6. Tiles XYZ (incrementales) + geovisor (con selector de combinación de bandas)
-  7. Pase final de exportación cloud-optimized: lo que falte → COG/COPC
+  1. Metadata (GPS, EXIF) + flight path (geovisor shows something from minute one)
+  2. Preparation PER SENSOR, each one independent: geo.txt/images RGB+MS+D;
+     thermal → DJI SDK °C + denoise + re-encode Kelvin×100
+  3. Reconstruction PER SENSOR, each one starts as soon as ITS preparation is done,
+     competing for a memory-aware slot (odm_slots()):
+       ODM RGB (SfM+[MVS]+DSM+ortho, MVS except tactico, there --fast-orthophoto)
+       ODM native thermal (SfM+MVS+mesh+texture+ortho in °C)
+       ODM Multispectral (SfM+calibration+multiband ortho, if applicable)
+       ODM D band (SfM+fast ortho, --fast-orthophoto always, if applicable)
+  4. Per sensor, as soon as ITS reconstruction is done: DSM cleanup (RGB/MS only)
+     + low-overlap edge trim + COG/COPC export of THAT sensor
+  5. In parallel with each other, over what's already trimmed: confidence mask
+     (RGB∩thermal) + survey quality + vegetation indices
+     (if MS) + thermal hotspot (if thermal)
+  6. XYZ tiles (incremental) + geovisor (with band combination selector)
+  7. Final cloud-optimized export pass: whatever's missing → COG/COPC
         │
         ▼
-  outputs/: dsm.tif, rgb_orthomosaic.tif, thermal_orthomosaic.tif (todos COG)
+  outputs/: dsm.tif, rgb_orthomosaic.tif, thermal_orthomosaic.tif (all COG)
             [multispectral_orthomosaic.tif, dband_orthomosaic.tif,
              indices/{ndvi,gndvi,ndre,msavi2}.tif (COG),
-             area_afectada.geojson, severidad_class.tif, termico_hotspot_class.tif]
+             termico_hotspot_class.tif]
             point_cloud_{rgb,thermal,multispectral,dband}.copc.laz
   geovisor/: http://localhost:8080
 ```
 
-**Tiempos**: dependen demasiado del preset, el terreno y el hardware para una
-tabla fija — usá `python3 scripts/hardware.py estimate --photos N [--preset
-P] [--terreno T]` para la estimación real de tu caso. Dos referencias medidas
-en vivo (laptop de 20 núcleos, RTX A1000 6GB, ~1200 fotos por sensor):
+**Timings**: they depend too much on the preset, terrain, and hardware for
+a fixed table. Use `python3 scripts/hardware.py estimate --photos N
+[--preset P] [--terreno T]` for the real estimate for your case. The
+reference that motivated dropping `planar`, measured live with the former
+fastest preset (20-core laptop, RTX A1000 6GB, ~1200 photos per sensor,
+rugged terrain):
 
-| Caso | RGB | Térmico |
+| SfM algorithm | RGB | Thermal |
 |---|---|---|
-| `vistazo`, terreno plano (`planar`, con `--fast-orthophoto`) | minutos | minutos |
-| `vistazo`, terreno escarpado (`incremental` forzado) | ~10h (cobertura 99.2%, vs 23.6% con `planar` en el mismo terreno) | ~6h (cobertura 98.7%, vs 18.7% con `planar`) |
+| `planar` | minutes, 23.6% coverage | minutes, 18.7% coverage |
+| `incremental` | ~10h, 99.2% coverage | ~6h, 98.7% coverage |
 
-La reconstrucción incremental es secuencial por diseño (una foto a la vez,
-no paralelizable entre fotos) — es el costo real de no perder cobertura en
-terreno con relieve fuerte, no una config subóptima.
+Incremental reconstruction is sequential by design (one photo at a time,
+not parallelizable across photos). It's the real cost of not losing
+coverage on terrain with strong relief, not a suboptimal config.
 
 ---
 
-## Estructura del proyecto
+## Project structure
 
 ```
 raptor/
-├── data/                          ← Imágenes fuente (organizadas por el entrypoint desde /input)
-├── preprocessing/thermal_dji_sdk/ ← TIFF °C (regenerables)
-├── processing/                    ← Directorios de trabajo ODM (rgb_odm, thermal_native_odm,
+├── data/                          ← Source images (organized by the entrypoint from /input)
+├── preprocessing/thermal_dji_sdk/ ← °C TIFFs (regenerable)
+├── processing/                    ← ODM working directories (rgb_odm, thermal_native_odm,
 │                                     multispectral_odm, dband_odm)
-├── outputs/                       ← Productos finales
-├── scripts/                       ← Pipeline (Python)
-│   ├── hardware.py                ← Presets, terreno, detección de hardware, odm_slots()
-│   ├── progress.py, progress.sh   ← Barras de progreso
-│   ├── odm_staging.py             ← Compartido: poblar images/ + geo.txt vía hardlink (MS y banda D)
-│   ├── prepare_multispectral_odm.py ← 2. Preparación multiespectral (geo.txt 4 bandas)
-│   ├── prepare_dband_odm.py       ← 2. Preparación banda D (cámara RGB del M3M)
-│   ├── convert_thermal_tiff.py    ← 2. R-JPEG → °C (DJI SDK)
-│   ├── denoise_thermal_frames.py  ← 2. Filtro bilateral
-│   ├── prepare_thermal_native_odm.py ← 2. Re-encode °C→Kelvin×100 + tags para ODM
-│   ├── camera_ns.exiftool.config  ← config exiftool (namespace XMP Camera:BandName)
-│   ├── dsm_clean.py               ← 4. Limpieza DSM (RGB o multiespectral si no hay RGB)
-│   ├── trim_low_overlap_edges.py  ← 4. Recorte bordes (los cuatro sensores)
-│   ├── confidence_mask.py         ← 5. Máscara confianza (RGB∩térmico)
-│   ├── compute_flight_quality.py  ← 5. Calidad del levantamiento (solape, velocidad, % reconstruido)
-│   ├── compute_vegetation_indices.py ← 5. NDVI/GNDVI/NDRE/MSAVI2
-│   ├── detect_area_afectada.py    ← 5. Área afectada (multiespectral+térmico)
-│   ├── compute_severity_classes.py ← 5. Severidad + hotspot térmico (recortado al área)
-│   ├── compute_thermal_hotspot.py ← 5. Hotspot térmico standalone (térmico sin multiespectral)
-│   ├── compute_situation_summary.py ← 5. Resumen ejecutivo (situation.json)
-│   ├── export_flight_path.py      ← 1. Ruta de vuelo (GeoJSON), antes de ODM
-│   ├── generate_tiles.py          ← 6. Tiles XYZ (incluye índices, bandas MS y banda D)
-│   ├── export_cog.py              ← 4/7. Rasters finales → COG (por sensor, o pase de seguridad)
-│   ├── export_copc.py             ← 4/7. Nubes de puntos → COPC (por sensor, o pase de seguridad)
-│   ├── export_products.py         ← 8. Entrega a EXPORT_DIR
-│   ├── print_timings.py           ← Resumen de tiempos por etapa (outputs/logs/timings.json)
-│   ├── fast_median.py             ← Filtro de mediana threaded (usado por dsm_clean.py)
-│   └── debug/thermal_diag.py      ← Diagnóstico
-├── geovisor/                      ← Dashboard Leaflet (selector de bandas, panel "Situación actual",
-│                                     Leaflet vendorizado — funciona sin internet)
-├── webapp/                        ← Webapp interactiva (FastAPI): main.py, static/index.html
-├── core/                          ← Orquestador del pipeline (activate_mission, PipelineRun,
-│                                     escaneo de misiones) — lo usa webapp/main.py
-├── docker/                        ← entrypoint.sh (orquesta todo) + setup-data.sh + setup-data-multispectral.sh
-├── dji_thermal_sdk/               ← DJI Thermal SDK (incluido)
-├── docs/PIPELINE.md               ← Documentación técnica
+├── outputs/                       ← Final products
+├── scripts/                       ← Pipeline steps (Python); catalog in scripts/README.md
+├── geovisor/                      ← Leaflet dashboard (band selector, "Current situation" panel,
+│                                     Leaflet vendored, works offline)
+├── webapp/                        ← Interactive webapp (FastAPI): main.py, static/index.html
+├── core/                          ← Pipeline orchestrator (activate_mission, PipelineRun,
+│                                     mission scanning), used by webapp/main.py
+├── docker/                        ← entrypoint.sh (orchestrates everything) + setup-data.sh +
+│                                     setup-data-multispectral.sh + patch_odm_multispectral.py
+├── dji_thermal_sdk/               ← DJI Thermal SDK (included)
+├── docs/                          ← PIPELINE.md (technical documentation), REVIEW_PIPELINE.md
+├── tests/                         ← pytest suite (run with ./run_tests.sh)
+├── paper/                         ← Manuscript drafts and research notes (not part of the image)
+├── raptor                         ← Host CLI launcher (install, start, run, webapp, build)
+├── run_tests.sh                   ← Containerized test runner
 ├── Dockerfile
 ├── Makefile
+├── CONTRIBUTING.md
+├── LICENSE
 └── README.md
 ```
 
 ---
 
-## Uso avanzado
+## Advanced use
 
-### Pasos individuales (dentro del contenedor)
+### Individual steps (inside the container)
 
-Para debug manual, entrá a un shell del contenedor (monta los mismos
-volúmenes que la corrida normal) y corré targets de `make` sueltos:
+For manual debugging, get a shell inside the container (mount the same
+volumes as a normal run) and run individual `make` targets:
 
 ```bash
 docker run --rm -it \
   -v $PWD/processing:/app/processing -v $PWD/outputs:/app/outputs \
   --entrypoint bash raptor
 
-# dentro del contenedor:
+# inside the container:
 make clean-dsm trim-edges-dsm trim-edges-rgb
-make sdk-convert denoise-thermal prepare-thermal-native  # antes de invocar ODM térmico
+make sdk-convert denoise-thermal prepare-thermal-native  # before invoking thermal ODM
 make trim-edges-thermal confidence-mask flight-quality
-make prepare-multispectral trim-edges-multispectral compute-indices  # Solo si hay /input_ms
-make prepare-dband trim-edges-dband                         # Solo si DBAND=1
-make detect-area-afectada compute-severity                 # Solo si hay MS + térmico
-make compute-thermal-hotspot situation-summary              # Térmico sin multiespectral
-make tiles serve                                            # Tiles + visor
-make export-cog export-copc                                 # Rasters → COG, nubes → COPC
-make info                                                   # Estado
-make clean-all                                              # Limpiar resultados
+make prepare-multispectral trim-edges-multispectral compute-indices  # Only if /input_ms exists
+make prepare-dband trim-edges-dband                         # Only if DBAND=1
+make compute-thermal-hotspot situation-summary              # Thermal without multispectral
+make tiles serve                                            # Tiles + viewer
+make export-cog export-copc                                 # Rasters → COG, clouds → COPC
+make info                                                   # Status
+make clean-all                                              # Clean results
 ```
 
-(El SfM/MVS/malla/textura/orto de ODM —para los cuatro sensores— no tiene
-target de `make` — se invoca directamente como `python3 /code/run.py ...`,
-ver `docker/entrypoint.sh`, función `run_odm()` y `_odm_args()`.)
+(ODM's SfM/MVS/mesh/texture/ortho, for all four sensors, doesn't have a
+`make` target. It's invoked directly as `python3 /code/run.py ...`; see
+`docker/entrypoint.sh`, function `run_odm()` and `_odm_args()`.)
 
 ---
 
-## Estructura esperada en `/input`
+## Expected structure in `/input`
 
-El pipeline está diseñado para **no versionar datos** — solo se monta la
-carpeta de la misión como volumen:
+The pipeline is designed to **not version data**: you just mount the
+mission folder as a volume:
 
 ```
-<directorio_fuente>/
+<source-directory>/
 ├── DJI_20240615100000_0001_V.JPG   ← RGB
 ├── DJI_20240615100003_0002_V.JPG
 ├── ...
-└── THERMAL/                        ← o en la misma carpeta
-    ├── DJI_20240615100000_0001_T.JPG   ← Térmico
+└── THERMAL/                        ← or in the same folder
+    ├── DJI_20240615100000_0001_T.JPG   ← Thermal
     ├── DJI_20240615100003_0002_T.JPG
     └── ...
 ```
 
-El entrypoint busca recursivamente `*_V.JPG`, `*_W.JPG` (RGB) y `*_T.JPG` (térmico)
-dentro de `/input` (tarjeta SD, disco, o carpeta local montada con `-v`).
+The entrypoint recursively searches for `*_V.JPG`, `*_W.JPG` (RGB) and
+`*_T.JPG` (thermal) inside `/input` (SD card, disk, or local folder mounted
+with `-v`).
 
-### Estructura esperada en `/input_ms` (multiespectral, opcional)
+### Expected structure in `/input_ms` (multispectral, optional)
 
-Vuelo DJI M3M, montado como volumen SEPARADO de `/input` (es otro dron/sensor
-de la misma zona, no se mezcla):
+DJI M3M flight, mounted as a SEPARATE volume from `/input` (it's another
+drone/sensor over the same area, it doesn't mix):
 
 ```
-<vuelo-m3m>/
+<m3m-flight>/
 ├── DJI_20240615100000_0001_MS_G.TIF    ← Green
 ├── DJI_20240615100000_0001_MS_R.TIF    ← Red
 ├── DJI_20240615100000_0001_MS_RE.TIF   ← RedEdge
 ├── DJI_20240615100000_0001_MS_NIR.TIF  ← NIR
-├── DJI_20240615100000_0001_D.JPG       ← RGB "display" (banda D, opcional — ver DBAND=1)
+├── DJI_20240615100000_0001_D.JPG       ← RGB "display" (D band, optional, see DBAND=1)
 └── ...
 ```
 
-El entrypoint busca recursivamente `*_MS_G.TIF`, `*_MS_R.TIF`, `*_MS_RE.TIF`,
-`*_MS_NIR.TIF` dentro de `/input_ms` para las 4 bandas espectrales, y
-`*_D.JPG` para la banda D (opt-in, ver `DBAND=1` arriba).
+The entrypoint recursively searches `/input_ms` for `*_MS_G.TIF`,
+`*_MS_R.TIF`, `*_MS_RE.TIF`, `*_MS_NIR.TIF` for the 4 spectral bands, and
+`*_D.JPG` for D band (opt-in, see `DBAND=1` above).
 
-### Solo el visor (si ya tienes tiles generados)
+### Just the viewer (if you already have tiles generated)
 
 ```bash
 docker run --rm -p 8080:8080 -v $PWD/geovisor/tiles:/app/geovisor/tiles \
@@ -666,100 +696,110 @@ docker run --rm -p 8080:8080 -v $PWD/geovisor/tiles:/app/geovisor/tiles \
 
 ---
 
-## Notas
+## Notes
 
-- **Sensor térmico**: El SDK de DJI calibra la corrección atmosférica hasta
-  25m. A ~500m AGL esto es una limitación del hardware.
-- **Tests**: `make test` (dentro del contenedor) corre `scripts/check_deps.py`
-  y la suite de `tests/`. No hacen falta datos de vuelo: los `trim_*` se
-  ejercitan sobre una misión sintética (`tests/synthetic.py`), y la webapp se
-  prueba con `TestClient` sin levantar el servidor. Muchos tests extraen
-  bloques REALES de `docker/entrypoint.sh`/`Makefile` y los corren con stubs,
-  así que no pueden quedar desincronizados de la fuente. Cubre los umbrales
-  adaptativos y el recorte, el despacho asíncrono por sensor y su semáforo de
-  memoria, los presets y `terreno`, la exportación (formatos, CRS y
-  georreferenciación, idempotencia de COG/COPC), el resumen JSON de CI, la
-  validación previa del formulario y la validación de argumentos del
-  lanzador.
-  El test de caracterización compara el recorte contra
-  `tests/golden/trim_masks.json` — si un cambio mueve un solo píxel, falla. Si
-  el cambio es intencional, borrá ese archivo y regeneralo corriendo la suite
-  dos veces.
-- **Dependencias**: las que RAPTOR instala están fijadas en `requirements.txt`.
-  GDAL, pyproj y scipy se heredan de `opendronemap/odm:gpu` (un tag móvil) y no
-  se pinean con pip para no pelear con su SuperBuild; en su lugar
-  `scripts/check_deps.py` verifica los rangos soportados y **falla el build** si
-  la base se movió.
-- **Memoria**: ODM documenta un pico de ~1 GB por hilo cada 2 MP de imagen y por
-  defecto usa **todos** los núcleos. El pipeline acota los hilos de CADA sensor
-  a lo que la RAM disponible aguanta (`safe_concurrency()`) y ADEMÁS decide
-  cuántos sensores pueden reconstruir a la vez sin sumar más hilos de los que
-  la RAM banca (`odm_slots()`, ver «Cuántos sensores reconstruyen a la vez»
-  arriba) — antes esto solo protegía al band alignment del multiespectral;
-  ahora protege cualquier combinación de sensores corriendo en simultáneo.
-  Cuando el kernel mata el proceso por falta de memoria no hay excepción que
-  loguear: el log simplemente termina en seco a mitad de una etapa. Para
-  forzarlo a mano: `-e MAX_CONCURRENCY=4` (hilos por proyecto) o
-  `-e RAPTOR_ODM_PARALELO=1` (uno por vez).
-- **Tiempos de cada corrida**: `outputs/logs/timings.json` (y el resumen que
-  imprime el entrypoint al final) desglosan preparación, cada reconstrucción
-  ODM y post-procesamiento — `scripts/print_timings.py`. Útil para calibrar
-  cuánto tarda tu propia máquina con tus propias misiones.
-- **EPSG**: se toma de la proyección del propio raster de cada misión (la UTM
-  que ODM eligió según su GPS) — no hay que ajustar nada para volar en otra
-  zona. `UTM_EPSG` en `trim_low_overlap_edges.py` es solo el respaldo si un
-  raster llegara sin proyección legible.
-- **Reprocesar**: borrar `processing/` y `outputs/` (o `make clean-all`
-  dentro del contenedor) y volver a correr `docker run ... raptor run`
-  (o resubir la misión desde la webapp).
-- **DSM y recorte de bordes**: `dsm_clean.py` descarta el relleno sintético
-  de huecos que aplica ODM (una plataforma de altura constante, no terreno
-  real) sin rellenarlo con ningún valor inventado; `trim_low_overlap_edges.py`
-  aplica el mismo criterio geométrico de solape de cámaras a los cuatro
-  productos (RGB, térmico, multiespectral, banda D) para que sus bordes
-  recortados coincidan entre sí.
-- **Térmico nativo (ODM)**: el ortomosaico térmico se genera con el
-  renderizador de malla 3D de ODM (igual que RGB/multiespectral), no con un
-  blending heurístico propio. `scripts/prepare_thermal_native_odm.py`
-  re-encodea los TIFF Float32 °C (`convert_thermal_tiff.py`) a uint16
-  Kelvin×100 y los etiqueta como `Make=DJI`/`Model=ZH20T`/XMP
-  `Camera:BandName=LWIR` — el formato exacto que `opendm/thermal.py` de ODM
-  reconoce para aplicar su propia calibración Kelvin→°C durante el render de
-  textura. Contra una entrega de referencia de Agisoft, el render nativo da
-  68.6% de cobertura frente al 16.9% de un blending heurístico propio, sin
-  artefactos de fragmentación y a mayor resolución. Ver `docs/PIPELINE.md`.
-- **TIFF térmico geolocalizado**: cada TIFF de temperatura en
-  `preprocessing/thermal_dji_sdk/*.tif` trae embebido el GPS/gimbal EXIF de
-  su R-JPEG fuente — lo usa `prepare_thermal_native_odm.py` para armar el
-  `geo.txt` del proyecto ODM térmico, y además permite exportar/entregar
-  estos TIFF Float32 °C a un software externo (Agisoft, Pix4D) que arma su
-  propia alineación a partir del GPS de cada foto.
-- **Productos cloud-optimized (COG + COPC)**: todos los rasters finales en
-  `outputs/*.tif` (RGB, térmico, DSM, máscara de confianza, multiespectral,
-  banda D, índices) se convierten a **COG** (Cloud Optimized GeoTIFF —
-  overviews embebidos, se pueden leer por rangos HTTP sin bajar el archivo
-  entero; QGIS/ArcGIS los abren igual que un GeoTIFF normal), apenas termina
-  el post-procesamiento de CADA sensor — no al final de toda la misión. Las
-  nubes de puntos densas georreferenciadas de ODM
-  (`odm_georeferencing/odm_georeferenced_model.laz`, de los cuatro
-  proyectos) se exportan además a **COPC**
-  (`outputs/point_cloud_{rgb,thermal,multispectral,dband}.copc.laz`) para
-  streaming en Potree/QGIS/CloudCompare, con el mismo criterio incremental.
-  Un pase final sin argumentos saltea lo que ya esté al día (COG: chequea el
-  layout real; COPC: compara mtimes) y solo convierte lo que falte. Targets
-  manuales: `make export-cog` / `make export-copc`.
-- **Multiespectral**: la calibración `camera+sun` usa el sensor de sol
-  embebido en cada banda del M3M — no hace falta panel de calibración física.
-  Corrección PPK no soportada todavía (requiere archivo de estación base, no
-  incluido); se usa el GPS RTK ya embebido en el EXIF, igual que RGB/térmico.
+- **Thermal sensor**: DJI's SDK calibrates atmospheric correction up to
+  25m. At ~500m AGL this is a hardware limitation.
+- **Tests**: `make test` (inside the container) runs `scripts/check_deps.py`
+  and the `tests/` suite. No flight data needed: the `trim_*` tests run
+  against a synthetic mission (`tests/synthetic.py`), and the webapp is
+  tested with `TestClient` without starting the server. Many tests extract
+  REAL blocks from `docker/entrypoint.sh`/`Makefile` and run them with
+  stubs, so they can't drift out of sync with the source. It covers the
+  adaptive thresholds and trimming, the per-sensor async dispatch and its
+  memory semaphore, the presets and `terreno`, export (formats, CRS and
+  georeferencing, COG/COPC idempotency), the CI JSON summary, the form's
+  pre-validation, and the launcher's argument validation.
+  The characterization test compares the trim against
+  `tests/golden/trim_masks.json`: if a change moves even a single pixel, it
+  fails. If the change is intentional, delete that file and regenerate it
+  by running the suite twice.
+- **Dependencies**: the ones RAPTOR installs are pinned in
+  `requirements.txt`. GDAL, pyproj, and scipy are inherited from
+  `opendronemap/odm:gpu` (a moving tag) and aren't pinned with pip so as
+  not to fight its SuperBuild; instead `scripts/check_deps.py` checks the
+  supported ranges and **fails the build** if the base image moved.
+- **Memory**: ODM documents a peak of ~1 GB per thread for every 2 MP of
+  image, and by default uses **all** cores. The pipeline caps each
+  sensor's threads to what available RAM can handle (`safe_concurrency()`)
+  and ALSO decides how many sensors can reconstruct at once without adding
+  more threads than RAM can afford (`odm_slots()`, see "How many sensors
+  reconstruct at once" above). This used to protect only the multispectral
+  band alignment; now it protects any combination of sensors running at
+  the same time. When the kernel kills the process for lack of memory
+  there's no exception to log: the log just stops dead mid-stage. To force
+  it by hand: `-e MAX_CONCURRENCY=4` (threads per project) or `-e
+  RAPTOR_ODM_PARALELO=1` (one at a time).
+- **Timings for each run**: `outputs/logs/timings.json` (and the summary
+  the entrypoint prints at the end) break down preparation, each ODM
+  reconstruction, and post-processing, via `scripts/print_timings.py`.
+  Useful for calibrating how long your own machine takes with your own
+  missions.
+- **EPSG**: taken from each mission's own raster projection (the UTM zone
+  ODM chose based on its GPS), nothing needs adjusting to fly in a
+  different zone. `UTM_EPSG` in `trim_low_overlap_edges.py` is only the
+  fallback if a raster arrived without a readable projection.
+- **Reprocessing**: delete `processing/` and `outputs/` (or `make
+  clean-all` inside the container) and run `docker run ... raptor run`
+  again (or re-upload the mission from the webapp).
+- **DSM and edge trim**: `dsm_clean.py` discards the synthetic hole-fill
+  ODM applies (a constant-height platform, not real terrain) without
+  refilling it with any invented value; `trim_low_overlap_edges.py`
+  applies the same camera-overlap geometric criterion to all four products
+  (RGB, thermal, multispectral, D band) so their trimmed edges line up
+  with each other.
+- **Native thermal (ODM)**: the thermal orthomosaic is generated with
+  ODM's 3D mesh renderer (same as RGB/multispectral), not a custom
+  heuristic blend. `scripts/prepare_thermal_native_odm.py` re-encodes the
+  Float32 °C TIFFs (`convert_thermal_tiff.py`) to uint16 Kelvin×100 and
+  tags them as `Make=DJI`/`Model=ZH20T`/XMP `Camera:BandName=LWIR`, the
+  exact format ODM's `opendm/thermal.py` recognizes to apply its own
+  Kelvin→°C calibration during texture rendering. Against an Agisoft
+  reference delivery, the native render gives 68.6% coverage versus 16.9%
+  for a custom heuristic blend, with no fragmentation artifacts and at
+  higher resolution. See `docs/PIPELINE.md`.
+- **Geolocated thermal TIFF**: every temperature TIFF in
+  `preprocessing/thermal_dji_sdk/*.tif` carries the GPS/gimbal EXIF of its
+  source R-JPEG embedded in it. `prepare_thermal_native_odm.py` uses it to
+  build the thermal ODM project's `geo.txt`, and it also lets you
+  export/deliver these Float32 °C TIFFs to external software (Agisoft,
+  Pix4D) that builds its own alignment from each photo's GPS.
+- **Cloud-optimized products (COG + COPC)**: all final rasters in
+  `outputs/*.tif` (RGB, thermal, DSM, confidence mask, multispectral, D
+  band, indices) are converted to **COG** (Cloud Optimized GeoTIFF:
+  embedded overviews, readable in HTTP ranges without downloading the
+  whole file; QGIS/ArcGIS open them just like a normal GeoTIFF) as soon as
+  post-processing for EACH sensor finishes, not at the end of the whole
+  mission. ODM's georeferenced dense point clouds
+  (`odm_georeferencing/odm_georeferenced_model.laz`, from all four
+  projects) are also exported to **COPC**
+  (`outputs/point_cloud_{rgb,thermal,multispectral,dband}.copc.laz`) for
+  streaming in Potree/QGIS/CloudCompare, with the same incremental
+  criterion. A final pass with no arguments skips whatever's already up to
+  date (COG: checks the real layout; COPC: compares mtimes) and only
+  converts what's missing. Manual targets: `make export-cog` / `make
+  export-copc`.
+- **Multispectral**: the `camera+sun` calibration uses the sun sensor
+  embedded in each M3M band, no physical calibration panel needed. PPK
+  correction isn't supported yet (it requires a base station file, not
+  included); the RTK GPS already embedded in the EXIF is used instead,
+  same as RGB/thermal.
 
 ---
 
-## Documentación técnica
+## Technical documentation
 
-Ver `docs/PIPELINE.md` para:
-- Detalles de cada etapa
-- Parámetros ajustables de ODM (RGB, térmico nativo, multiespectral, banda D)
-- El despacho asíncrono por sensor y el reparto de memoria entre proyectos
-- Criterios de recorte de bordes (estilo Agisoft/Pix4D)
-- Diagnóstico de artefactos (arcos, peine, barridos)
+See `docs/PIPELINE.md` for:
+- Details of each stage
+- Adjustable ODM parameters (RGB, native thermal, multispectral, D band)
+- Per-sensor async dispatch and memory allocation between projects
+- Edge trim criteria (convex hull of the reconstructed photos' ground footprints)
+- Artifact diagnostics (arcs, combing, sweeps)
+
+---
+
+## Contributing & License
+
+* **Contributing:** Please read [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, containerized test runner instructions, and coding standards.
+* **Scripts Catalog:** See [scripts/README.md](scripts/README.md) for a breakdown of every pipeline step.
+* **License:** RAPTOR's own code is released under the [MIT License](LICENSE). The bundled DJI Thermal SDK in `dji_thermal_sdk/` keeps its own terms (see `dji_thermal_sdk/License.txt`).
