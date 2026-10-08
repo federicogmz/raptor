@@ -38,13 +38,9 @@ scratch*
 screenshot*
 take_screenshots*
 
-# Asistentes / IDEs (preserva solo los skills de diseño rastreados)
+# Asistentes / IDEs
 .claude/
-.agents/skills/*
-!.agents/skills/apple-design/
-!.agents/skills/design-taste-frontend/
-!.agents/skills/frontend-design/
-!.agents/skills/web-design-guidelines/
+.agents/
 
 # SDK (se incluye extraído pero no el zip)
 *.zip
