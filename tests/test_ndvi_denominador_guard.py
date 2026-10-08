@@ -1,14 +1,18 @@
-"""compute_z_scores() (detect_area_afectada.py) calcula NDVI = (nir-red)/
-(nir+red) — matemáticamente acotado a [-1,1] con reflectancias no
-negativas, PERO un denominador apenas distinto de cero (ruido de
-calibración en píxeles oscuros/sombra) dispara valores absurdos.
-compute_vegetation_indices.py ya tenía el piso (np.abs(a+b) > 1e-4,
-documentado ahí: "sin este piso, NDVI salía hasta ±14000 en <0.01% de los
-píxeles") pero esta fórmula DUPLICADA en detect_area_afectada.py nunca lo
-tuvo — confirmado en vivo en una misión real: NDVI entre -166 y 486.
+"""compute_vegetation_indices.py calcula NDVI = (nir-red)/(nir+red) —
+matemáticamente acotado a [-1,1] con reflectancias no negativas, PERO un
+denominador apenas distinto de cero (ruido de calibración en píxeles
+oscuros/sombra) dispara valores absurdos. Por eso el módulo exige
+np.abs(a+b) > 1e-4 antes de dividir (documentado ahí: "sin este piso, NDVI
+salía hasta ±14000 en <0.01% de los píxeles") — sin ese piso, un píxel de
+puro ruido numérico podía colarse con un NDVI de cientos/miles.
 
-Ese NDVI gobierna ndvi_ok (NDVI_CEILING) en detect_polygon(), así que
-píxeles de puro ruido numérico podían colarse como si fueran "ceniza".
+Nota histórica: esta fórmula estaba DUPLICADA (sin el piso) en
+detect_area_afectada.py, que confirmó en vivo NDVI entre -166 y 486 en una
+misión real. Ese módulo (y detect_polygon()/NDVI_CEILING, que consumían ese
+NDVI sin piso) fue eliminado por completo junto con la funcionalidad de área
+afectada — compute_vegetation_indices.py es ahora la ÚNICA fuente de NDVI,
+y siempre tuvo el piso, así que el bug de raíz ya no puede repetirse por
+duplicación de fórmula.
 """
 import os
 import sys
@@ -44,24 +48,11 @@ def _ms_raster(path, red, green, nir, rededge, alpha=None):
     ds = None
 
 
-def _th_raster(path, temp, alpha=None):
-    h, w = temp.shape
-    n_bands = 2 if alpha is not None else 1
-    ds = gdal.GetDriverByName("GTiff").Create(path, w, h, n_bands, gdal.GDT_Float32)
-    ds.SetGeoTransform(GT)
-    s = osr.SpatialReference(); s.ImportFromEPSG(EPSG)
-    ds.SetProjection(s.ExportToWkt())
-    ds.GetRasterBand(1).WriteArray(temp.astype(np.float32))
-    if alpha is not None:
-        ds.GetRasterBand(2).WriteArray(alpha.astype(np.uint8))
-    ds = None
-
-
 @pytest.fixture
 def mision(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     os.makedirs("outputs")
-    import detect_area_afectada as mod
+    import compute_vegetation_indices as mod
     return mod
 
 
@@ -77,17 +68,18 @@ class TestPisoDeNdvi:
         rededge = np.full((h, w), 0.08, np.float32)
         green = np.full((h, w), 0.06, np.float32)
         alpha = np.full((h, w), 255, np.uint8)
-        temp = np.full((h, w), 25.0, np.float32)
-        th_alpha = np.full((h, w), 255, np.uint8)
 
         _ms_raster("outputs/multispectral_orthomosaic.tif", red, green, nir, rededge, alpha)
-        _th_raster("outputs/thermal_orthomosaic.tif", temp, th_alpha)
 
-        z_severidad, temp_abs, valid, ndvi, gt, proj, W, H = mision.compute_z_scores()
+        mision.main()
+        ds = gdal.Open("outputs/indices/ndvi.tif")
+        ndvi = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
 
+        valid = np.isfinite(ndvi)
         assert np.all(np.abs(ndvi[valid]) <= 1.0 + 1e-6), \
-            f"NDVI fuera de [-1,1] en píxeles 'válidos': {ndvi[valid]}"
-        assert not valid[3, 3], "el píxel con denominador casi-cero debería quedar excluido de valid"
+            f"NDVI fuera de [-1,1] en píxeles válidos: {ndvi[valid]}"
+        assert not valid[3, 3], "el píxel con denominador casi-cero debería quedar como NaN"
 
     def test_pixeles_normales_no_se_ven_afectados(self, mision):
         h, w = 4, 4
@@ -96,13 +88,14 @@ class TestPisoDeNdvi:
         rededge = np.full((h, w), 0.08, np.float32)
         green = np.full((h, w), 0.06, np.float32)
         alpha = np.full((h, w), 255, np.uint8)
-        temp = np.full((h, w), 25.0, np.float32)
-        th_alpha = np.full((h, w), 255, np.uint8)
 
         _ms_raster("outputs/multispectral_orthomosaic.tif", red, green, nir, rededge, alpha)
-        _th_raster("outputs/thermal_orthomosaic.tif", temp, th_alpha)
 
-        _, _, valid, ndvi, _, _, _, _ = mision.compute_z_scores()
+        mision.main()
+        ds = gdal.Open("outputs/indices/ndvi.tif")
+        ndvi = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+
         esperado = (0.15 - 0.05) / (0.15 + 0.05)
-        assert valid.all()
+        assert np.isfinite(ndvi).all()
         assert np.allclose(ndvi, esperado)

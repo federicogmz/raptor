@@ -7,7 +7,6 @@ traduce en un contenedor lanzado al pedo o en un cuelgue.
 """
 import os
 import subprocess
-import sys
 
 import numpy as np
 import pytest

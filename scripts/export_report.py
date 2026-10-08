@@ -3,7 +3,7 @@
 mando (PDF directo desde el navegador con Ctrl+P).
 
 Reúne en UN archivo lo que ya calculó el pipeline, sin inventar nada:
-situation.json (área afectada, severidad, focos, temperaturas, confianza),
+situation.json (focos, temperaturas, confianza),
 coverage.json (qué fracción del área volada quedó cubierta), flight_quality
 (cómo se voló) y run_summary.json (qué productos salieron y a qué GSD), más
 vistas previas embebidas del RGB y del térmico.
@@ -84,7 +84,7 @@ def main():
     resumen = _read_json("outputs/run_summary.json") or {}
 
     # ── Tarjetas ejecutivas ─────────────────────────────────────────────
-    if sit.get("solo_termico"):
+    if sit:
         cards = f"""
       <div class="card"><div class="l">Focos térmicos activos</div>
         <div class="v">{_esc(sit.get('hotspots_activos'))}</div></div>
@@ -94,19 +94,6 @@ def main():
         <div class="v">{_esc(sit.get('temp_promedio'))} °C</div></div>
       <div class="card"><div class="l">Cobertura</div>
         <div class="v">{_esc(sit.get('cobertura_pct'))} %</div></div>"""
-    elif sit.get("severidad"):
-        sev = sit["severidad"]
-        cards = f"""
-      <div class="card"><div class="l">Área afectada</div>
-        <div class="v">{_esc(sit.get('area_ha'))} ha</div></div>
-      <div class="card"><div class="l">Severidad dominante</div>
-        <div class="v">{_esc(sev.get('dominante'))}</div></div>
-      <div class="card"><div class="l">Focos térmicos activos</div>
-        <div class="v">{_esc(sit.get('hotspots_activos'))}</div></div>
-      <div class="card"><div class="l">Vegetación comprometida</div>
-        <div class="v">{_esc(sit.get('vegetacion_comprometida_pct'))} %</div></div>
-      <div class="card"><div class="l">Severidad</div>
-        <div class="v s">Leve {_esc(sev.get('leve_pct'))}% · Mod. {_esc(sev.get('moderado_pct'))}% · Sev. {_esc(sev.get('severo_pct'))}%</div></div>"""
     else:
         cards = "<div class='card' style='grid-column:1/-1'>Sin datos de impacto detectados en esta misión.</div>"
 
@@ -122,10 +109,9 @@ def main():
     focos_rows = ""
     for h in sit.get("hotspots") or []:
         focos_rows += (f"<tr><td>{_esc(h.get('lat'))}, {_esc(h.get('lon'))}</td>"
-                       f"<td>{_esc(h.get('temp_c'))} °C</td>"
-                       f"<td>{_esc(h.get('severidad'))}</td></tr>")
+                       f"<td>{_esc(h.get('temp_c'))} °C</td></tr>")
     if not focos_rows:
-        focos_rows = "<tr><td colspan=3>Ninguno detectado</td></tr>"
+        focos_rows = "<tr><td colspan=2>Ninguno detectado</td></tr>"
 
     # ── Productos (run_summary) ─────────────────────────────────────────
     prods_rows = ""
@@ -183,7 +169,7 @@ def main():
 {aviso_html}
 <div class="grid">{cards}</div>
 <h2>Focos térmicos</h2>
-<table><tr><th>Coordenadas (lat, lon)</th><th>Temp. pico</th><th>Severidad</th></tr>{focos_rows}</table>
+<table><tr><th>Coordenadas (lat, lon)</th><th>Temp. pico</th></tr>{focos_rows}</table>
 <h2>Cobertura vs. área volada ({_esc(cov.get('area_volada_km2'))} km² volados)</h2>
 <table><tr><th>Producto</th><th>% del área volada con dato</th></tr>{cov_rows}</table>
 <h2>Calidad del levantamiento</h2>

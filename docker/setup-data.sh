@@ -46,7 +46,6 @@ fi
 echo "═══ Organizando imágenes desde: $SRC"
 echo ""
 
-# Crear directorios destino
 mkdir -p "$DATA_DIR/rgb_mosaico" "$DATA_DIR/termica_mosaico"
 
 # find -L (no el default -P): la webapp puede dejar $SRC como un SYMLINK
@@ -59,9 +58,14 @@ mkdir -p "$DATA_DIR/rgb_mosaico" "$DATA_DIR/termica_mosaico"
 # uso end-to-end de "Usar esta carpeta" con "No se encontraron imágenes".
 #
 # ── RGB ────────────────────────────────────────────────────────────
-echo "Buscando imágenes RGB (*_V.JPG, *_W.JPG) ..."
+echo "Buscando imágenes RGB (*_V.JPG, *_W.JPG o genéricas) ..."
 RGB_FILES=$(find -L "$SRC" -type f \( -iname "*_V.JPG" -o -iname "*_W.JPG" \) 2>/dev/null || true)
 RGB_COUNT=$(echo "$RGB_FILES" | grep -c "JPG" || true)
+
+if [[ "$RGB_COUNT" -eq 0 ]]; then
+  RGB_FILES=$(find -L "$SRC" -type f \( -iname "*.JPG" -o -iname "*.JPEG" -o -iname "*.PNG" -o -iname "*.TIF" -o -iname "*.TIFF" \) ! -iname "*_T.*" ! -iname "*_D.*" ! -iname "*_MS_*" 2>/dev/null || true)
+  RGB_COUNT=$(echo "$RGB_FILES" | grep -c -E "\.(JPG|JPEG|PNG|TIF|TIFF|jpg|jpeg|png|tif|tiff)" || true)
+fi
 
 if [[ "$RGB_COUNT" -eq 0 ]]; then
   echo "  ⚠ No se encontraron imágenes RGB."
@@ -114,7 +118,7 @@ fi
 
 echo ""
 echo "═══ Resumen ──────────────────────────────────"
-echo "  RGB:     $(ls "$DATA_DIR/rgb_mosaico/"*_*.JPG 2>/dev/null | wc -l) imágenes"
-echo "  Térmico: $(ls "$DATA_DIR/termica_mosaico/"*_T.JPG 2>/dev/null | wc -l) imágenes"
+echo "  RGB:     $(find "$DATA_DIR/rgb_mosaico" -maxdepth 1 -type f 2>/dev/null | wc -l) imágenes"
+echo "  Térmico: $(find "$DATA_DIR/termica_mosaico" -maxdepth 1 -type f 2>/dev/null | wc -l) imágenes"
 echo ""
 echo "Siguiente paso: docker run --gpus all -v $SRC:/input -p 8080:8080 raptor run"

@@ -1,51 +1,63 @@
-# Todo lo de aquí es regenerable corriendo el pipeline sobre data/ (ver
-# docs/PIPELINE.md) — data/ en sí (imágenes fuente) tampoco se versiona,
-# así que no tiene sentido versionar resultados intermedios/finales que
-# solo cobran sentido junto a ella. Repo = código + docs, no datos.
+# ═══════════════════════════════════════════════════════════════════
+# RAPTOR .gitignore
+# ═══════════════════════════════════════════════════════════════════
+
+# Datos y resultados del pipeline (regenerables; repo = código + docs, no datos)
 data/
+data
 processing/
+processing
 preprocessing/
+preprocessing
 outputs/
+outputs
 geovisor/tiles/
+geovisor/tiles
 runs/
 agisoft/
-# activate_mission() (core/runner.py) los deja como SYMLINKS, no carpetas —
-# un patrón con "/" al final solo matchea carpetas reales, no un symlink que
-# apunte a una (aunque apunte a algo bajo processing/ etc.), así que quedaban
-# sueltos como "untracked" cada vez que un test corría con el repo entero
-# bind-mounteado como /app (ver docs de cómo correr la suite en contenedor).
-# Sin "/" final matchea cualquier tipo de entrada con ese nombre.
-processing
-preprocessing
-outputs
-geovisor/tiles
 
-# Trabajo en progreso del paper académico (pipeline deep-research/paper-plan/
-# paper-draft) — borrador vivo, no documentación curada del repo. Vive en
-# paper/ para no mezclarse con docs/ (que sí es documentación estable).
+# Manuscrito y análisis de paper (mantenido fuera del repositorio de código)
 paper/
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 venv/
 .venv/
 .freebuff/
+.pytest_cache/
+.coverage
+htmlcov/
 
-# SDK (descargable, se incluye extraído pero no el zip)
+# Node / JS / Scratch temporal
+node_modules/
+package-lock.json
+scratch/
+scratch*
+screenshot*
+take_screenshots*
+
+# Asistentes / IDEs (preserva solo los skills de diseño rastreados)
+.claude/
+.agents/skills/*
+!.agents/skills/apple-design/
+!.agents/skills/design-taste-frontend/
+!.agents/skills/frontend-design/
+!.agents/skills/web-design-guidelines/
+
+# SDK (se incluye extraído pero no el zip)
 *.zip
 
-# Entregas exportadas: son productos de una corrida (COG/GeoJSON de cientos
-# de MB), regenerables con `./raptor run --export`. Mismo criterio que
-# outputs/ y runs/: el repo es código y documentación, no datos.
+# Entregas exportadas y sesiones
 entregas/
 sessions/
 projects/
 
-# Capturas de pantalla de depuración en la raíz.
+# Capturas de pantalla y temporales
 /*.png
-
-# Temporales / sistema
 *.log
 *.aux.xml
+*.tmp
 .DS_Store
+Thumbs.db

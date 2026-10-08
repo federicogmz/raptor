@@ -159,7 +159,7 @@ FAST_ORTHOPHOTO_RGB={fast}
         assert r.returncode == 0, r.stdout + r.stderr
         return r.stdout
 
-    def test_vistazo_agrega_fast_orthophoto(self):
+    def test_rapido_agrega_fast_orthophoto(self):
         assert "--fast-orthophoto" in self._args_rgb(fast=1)
 
     def test_estandar_no_lo_agrega(self):
@@ -171,19 +171,28 @@ FAST_ORTHOPHOTO_RGB={fast}
         assert "--dsm" in self._args_rgb(fast=1)
         assert "--dsm" in self._args_rgb(fast=0)
 
-    def test_no_se_filtra_a_otros_sensores(self):
-        """La decisión es SOLO para RGB — thermal/multispectral no deben
-        llevar --fast-orthophoto sin importar FAST_ORTHOPHOTO_RGB (banda D
-        ya lo lleva siempre, por su cuenta, y no depende de esta variable)."""
-        guion = """
+    def _args_ms(self, fast):
+        guion = f"""
 set -uo pipefail
 FEAT_QUALITY=medium; ODM_RES_CM=15; MIN_FEATURES=4000; MATCHER_NEIGHBORS=8
 PC_QUALITY=low; SFM_ALGORITHM=planar
-FAST_ORTHOPHOTO_RGB=1
-""" + _bloque_odm_args() + '\n_odm_args thermal\n_odm_args multispectral\n'
+FAST_ORTHOPHOTO_RGB={fast}
+RUN_RGB=1
+""" + _bloque_odm_args() + '\n_odm_args multispectral\n'
         r = subprocess.run(["bash", "-c", guion], capture_output=True, text=True, timeout=10)
         assert r.returncode == 0, r.stdout + r.stderr
-        assert "--fast-orthophoto" not in r.stdout
+        return r.stdout
+
+    def test_multispectral_sigue_la_misma_decision_que_rgb(self):
+        """El preset decide para TODOS los sensores, no solo RGB: ningún
+        producto multiespectral (ortomosaico, NDVI/GNDVI/NDRE/MSAVI2) consume
+        la nube densa. Cuando solo RGB la saltaba, el multiespectral quedaba
+        como nuevo camino crítico — 60 min contra los ~50 de RGB, medido en
+        medellin_palmas."""
+        assert "--fast-orthophoto" in self._args_ms(fast=1)
+        assert "--fast-orthophoto" not in self._args_ms(fast=0)
+        # --dsm se sigue pidiendo en los dos casos (sale de la dispersa).
+        assert "--dsm" in self._args_ms(fast=1)
 
 
 def _bloque_odm_mp():
@@ -224,16 +233,24 @@ FAST_ORTHOPHOTO_RGB={fast}
         assert mp < 12.3
         assert mp > 0.33
 
-    def test_otros_sensores_no_cambian(self, tmp_path):
-        """FAST_ORTHOPHOTO_RGB es una decisión de RGB — no debe afectar el
-        perfil de los demás sensores."""
-        guion = """
+    def _mps_otros(self, fast):
+        guion = f"""
 set -uo pipefail
-FAST_ORTHOPHOTO_RGB=1
+FAST_ORTHOPHOTO_RGB={fast}
 """ + _bloque_odm_mp() + '\n_odm_mp thermal\n_odm_mp multispectral\n_odm_mp dband\n'
         r = subprocess.run(["bash", "-c", guion], capture_output=True, text=True, timeout=10)
         assert r.returncode == 0, r.stdout + r.stderr
-        assert r.stdout.split() == ["0.33", "5", "5"]
+        return r.stdout.split()
+
+    def test_multispectral_baja_su_perfil_con_fast_orthophoto(self):
+        """El multiespectral también saltea la densa con el preset (ver
+        _odm_args), así que su pico de memoria por hilo baja igual que el de
+        RGB. Térmico (0.33, ya mínimo) y banda D (que usa --fast-orthophoto
+        siempre por su cuenta, no por esta variable) no cambian."""
+        th_f, ms_f, db_f = self._mps_otros(fast=1)
+        th_n, ms_n, db_n = self._mps_otros(fast=0)
+        assert (th_f, db_f) == (th_n, db_n) == ("0.33", "5")
+        assert float(ms_f) < float(ms_n) == 5.0
 
 
 def _bloque_despacho():
@@ -376,12 +393,24 @@ run_odm() { :; }
         assert "th:MAX_CONCURRENCY=sin-fijar" in r.stdout
 
     def test_una_preparacion_que_falla_no_llega_a_reconstruir(self, tmp_path):
+        """La preparación fallida corta SU PROPIA cadena de sensor (set -e
+        en el subshell, antes de llegar a run_odm) — pero con etapas
+        independientes ya no corta el resto de la corrida (antes: exit 1
+        apenas terminaba el `wait` de todos los sensores).
+
+        El bloque de despacho (_bloque_despacho) YA NO espera a ningún
+        sensor de forma eager (ver el `wait` lazy en _wait_sensor/_dep_ok,
+        que vive más abajo en el análisis cruzado, fuera de este bloque) —
+        así que el fallo real de RGB queda ahí, sin descubrir todavía, hasta
+        que algo pregunte por él. Eso se prueba en test_analisis_cruzado.py;
+        acá solo importa que el subshell de RGB no llegue a run_odm y que el
+        bloque de despacho en sí no aborte."""
         extra = r"""
 make() { [[ "$1" == "prepare-rgb" ]] && exit 1; :; }
 run_odm() { echo "NO-DEBERIA-CORRER" >> traza.txt; }
 """
         r = self._correr(tmp_path, ["RUN_RGB"], extra=extra)
-        assert r.returncode != 0 or "SALIDA=0" not in r.stdout
+        assert "SALIDA=0" in r.stdout, r.stdout + r.stderr
         assert not (tmp_path / "traza.txt").exists() or \
             "NO-DEBERIA-CORRER" not in (tmp_path / "traza.txt").read_text()
 
@@ -453,7 +482,27 @@ run_odm() {{
         assert "compute-indices" in makes
         assert "trim-edges-dband" in makes
 
-    def test_un_fallo_corta_la_corrida_y_no_arranca_lo_pendiente(self, tmp_path):
+    def test_un_fallo_no_arranca_lo_pendiente_pero_ya_no_corta_toda_la_corrida(self, tmp_path):
+        """run_odm() reintenta hasta _ODM_REINTENTOS (2) veces antes de dar
+        el sensor por perdido — reportado en vivo, dos misiones reales
+        distintas vieron a ODM/OpenSfM abortar con un "No such file or
+        directory" transitorio sobre un archivo que sí existía (workers de
+        joblib/loky bajo I/O concurrente pesado, código de la imagen base,
+        no de este repo). El stub de acá SIEMPRE falla (exit 7), así que
+        agota los dos intentos antes de dar el sensor por perdido.
+
+        Con etapas independientes, ese fallo YA NO corta el resto de la
+        corrida (antes: exit 1 apenas terminaba el `wait` de todos los
+        sensores) — pero el semáforo + FALLOFLAG (sin cambios) siguen
+        evitando que lo que estaba en cola detrás arranque a reconstruir:
+        dband nunca llega a llamar run_odm.
+
+        El bloque de despacho en sí ya no espera de forma eager a ningún
+        sensor (ver _wait_sensor/_dep_ok, más abajo en el análisis cruzado,
+        fuera de este bloque) — así que acá no hay ningún mensaje de "falló
+        la reconstrucción" que buscar: ese descubrimiento/reporte pasa
+        recién cuando algo pregunta por el sensor, probado en
+        test_analisis_cruzado.py."""
         guion = STUBS_COMUNES + f"""
 cd "{tmp_path}"
 mkdir -p outputs/logs scripts
@@ -465,10 +514,23 @@ python3() {{
   command python3 "$@"
 }}
 run_odm() {{ echo "CORRIO $1" >> traza2.txt; exit 7; }}
-""" + _bloque_despacho() + '\necho "NO-DEBERIA-LLEGAR"\n'
+""" + _bloque_despacho() + '\necho "SALIDA=$?"\n'
         r = subprocess.run(["bash", "-c", guion], capture_output=True,
                            text=True, timeout=30, cwd=str(tmp_path))
-        assert "NO-DEBERIA-LLEGAR" not in r.stdout, r.stdout
-        assert "falló al menos una reconstrucción" in r.stdout, r.stdout
+        assert "SALIDA=0" in r.stdout, r.stdout + r.stderr
+        assert "reintentando" in r.stdout, r.stdout
+        # El semáforo de UN cupo decide cuál de los dos sensores (multiespectral,
+        # banda D) lo agarra primero — no el orden en ODM_ORDEN, que no es una
+        # garantía de scheduling real. Cualquiera de los dos puede ganar la
+        # carrera y fallar primero (2 intentos, por los reintentos); lo que
+        # importa es que el OTRO quede bloqueado por FALLOFLAG con CERO intentos,
+        # sea cual sea el que ganó.
+        traza2 = (tmp_path / "traza2.txt").read_text() if (tmp_path / "traza2.txt").exists() else ""
+        corrio_ms = traza2.count("CORRIO multispectral")
+        corrio_dband = traza2.count("CORRIO dband")
+        assert (corrio_ms, corrio_dband) in [(2, 0), (0, 2)], (
+            f"exactamente un sensor tenía que intentar reconstruir (2 veces, "
+            f"por los reintentos) y el otro cero, bloqueado por FALLOFLAG: "
+            f"multispectral={corrio_ms} dband={corrio_dband}\n{traza2}")
         corridas = (tmp_path / "traza2.txt").read_text().splitlines()
-        assert len(corridas) == 1, corridas
+        assert len(corridas) == 2, corridas

@@ -52,6 +52,12 @@ def read_gps(paths):
         lat, lon = d.get("GPSLatitude"), d.get("GPSLongitude")
         if lat is None or lon is None:
             continue
+        try:
+            flat, flon = float(lat), float(lon)
+        except (ValueError, TypeError):
+            continue
+        if abs(flat) < 0.001 and abs(flon) < 0.001:
+            continue
         # exiftool devuelve DateTimeOriginal en formato EXIF "YYYY:MM:DD
         # HH:MM:SS" (dos puntos también en la fecha) — new Date() de
         # JavaScript no lo reconoce como ISO 8601 y devuelve Invalid Date en
@@ -63,7 +69,7 @@ def read_gps(paths):
         if raw_time and len(raw_time) >= 19:
             iso_time = raw_time[:10].replace(":", "-") + "T" + raw_time[11:19]
         out.append({
-            "lat": float(lat), "lon": float(lon),
+            "lat": flat, "lon": flon,
             "alt": float(d.get("GPSAltitude") or 0.0),
             "name": d.get("FileName", ""),
             "time": iso_time,
@@ -82,6 +88,13 @@ def main():
         paths = []
         for pat in patterns:
             paths.extend(glob.glob(os.path.join(folder, pat)))
+        if sensor == "rgb" and not paths and os.path.isdir(folder):
+            paths = [
+                os.path.join(folder, f) for f in os.listdir(folder)
+                if f.upper().endswith((".JPG", ".JPEG", ".PNG", ".TIF", ".TIFF"))
+                and not f.upper().endswith(("_T.JPG", "_T.JPEG", "_D.JPG", "_D.JPEG"))
+                and "_MS_" not in f.upper()
+            ]
         pts = read_gps(sorted(paths))
         if not pts:
             continue
@@ -105,6 +118,21 @@ def main():
     if not features:
         print("  ⚠ ninguna captura con GPS EXIF — sin ruta de vuelo")
         return 0
+
+    lats_pts = [ft["geometry"]["coordinates"][1] for ft in features if ft["geometry"]["type"] == "Point"]
+    lons_pts = [ft["geometry"]["coordinates"][0] for ft in features if ft["geometry"]["type"] == "Point"]
+    if lats_pts and lons_pts:
+        import math
+        min_lat, max_lat = min(lats_pts), max(lats_pts)
+        min_lon, max_lon = min(lons_pts), max(lons_pts)
+        lat_span_km = (max_lat - min_lat) * 111.0
+        lon_span_km = (max_lon - min_lon) * 111.0 * math.cos(math.radians((min_lat + max_lat) / 2.0))
+        if lat_span_km > 15.0 or lon_span_km > 15.0:
+            print(f"\n❌ ERROR CRÍTICO: Las capturas abarcan una extensión geográfica excesiva ({lat_span_km:.1f} km × {lon_span_km:.1f} km).", file=sys.stderr)
+            print("   Se detectaron fotos a distancias mayores a 15 km dentro de la misma misión.", file=sys.stderr)
+            print("   Esto ocurre cuando se mezclan vuelos de distintas zonas o misiones anteriores.", file=sys.stderr)
+            print("   Revisa la carpeta de entrada para asegurar que solo contenga fotos del vuelo actual.\n", file=sys.stderr)
+            return 1
 
     with open(OUT, "w") as f:
         json.dump({"type": "FeatureCollection", "features": features}, f)

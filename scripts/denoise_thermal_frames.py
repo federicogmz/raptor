@@ -46,8 +46,28 @@ def bilateral_3x3(img: np.ndarray, sigma_r: float = SIGMA_R) -> np.ndarray:
 
 def main():
     os.makedirs(THERMAL_DENOISE_DIR, exist_ok=True)
-    files = sorted(glob.glob(f"{THERMAL_DIR}/*.tif"))
-    print(f"Denoising {len(files)} frames (bilateral 3x3, sigma_r={SIGMA_R})…")
+    all_files = sorted(glob.glob(f"{THERMAL_DIR}/*.tif"))
+
+    # Salteo de ya procesados: un retry sobre una misión ya denoised no debería
+    # volver a correr el filtro bilateral (pixel a pixel, Python puro) sobre
+    # cientos/miles de frames que ya están listos. Se valida con gdal.Open
+    # (no solo os.path.exists) para no confiar en un archivo truncado por una
+    # corrida cortada a mitad de escritura.
+    files = []
+    ya = 0
+    for f in all_files:
+        out_f = os.path.join(THERMAL_DENOISE_DIR, os.path.basename(f))
+        if os.path.exists(out_f):
+            ds = gdal.Open(out_f)
+            if ds is not None:
+                ds = None
+                ya += 1
+                continue
+            os.remove(out_f)  # corrupto: se regenera
+        files.append(f)
+
+    print(f"Denoising {len(files)} frames nuevos (bilateral 3x3, sigma_r={SIGMA_R})"
+          + (f" — {ya} ya existentes, reutilizados" if ya else "") + "…")
     t0 = time.time()
     out_files = []
     for i, f in enumerate(files):

@@ -15,10 +15,7 @@ la cobertura de dosel es baja (<~30%) — exactamente el escenario de
 regeneración post-incendio (dosel disperso sobre ceniza/suelo expuesto).
 MSAVI2 (Qi et al. 1994) agrega un factor de ajuste de suelo autocalibrado
 por píxel para corregir eso — literatura estándar para monitorear
-regeneración de vegetación en terreno de cobertura baja, un caso de uso
-DISTINTO de "detectar la mancha quemada", donde el brillo crudo separa mejor
-que cualquier índice, incluidos SAVI y MSAVI (ver detect_area_afectada.py).
-Con cobertura de dosel alta MSAVI2
+regeneración de vegetación en terreno de cobertura baja. Con cobertura de dosel alta MSAVI2
 converge con NDVI (mismo valor, sin pérdida); diverge justo donde NDVI es
 menos confiable, que es donde aporta.
 """

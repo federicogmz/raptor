@@ -69,7 +69,13 @@ def _bloque_de_etapas():
     return src[ini:fin]
 
 
-def _correr(mode, run_rgb, run_ms, export_dir="", tmp_path=None):
+def _correr(mode, run_rgb, run_ms, export_dir="", tmp_path=None, export_products="rgb,thermal"):
+    # export_products deliberadamente SIN "confidence" ni "all" por default:
+    # DO_CONFIANZA ahora también exige que ese producto puntual esté pedido
+    # (ver el comentario grande junto a DO_CONFIANZA en entrypoint.sh — nada
+    # más lo consume), así que un export_dir puesto sin pensar en eso no
+    # debería, de rebote, sumar la etapa de confianza en tests que no la
+    # están probando a propósito.
     tmp_path.mkdir(parents=True, exist_ok=True)
     guion = STUBS + f"""
 cd "{tmp_path}"
@@ -78,6 +84,7 @@ MODE={mode}
 RUN_RGB={run_rgb}
 RUN_MULTISPECTRAL={run_ms}
 EXPORT_DIR="{export_dir}"
+EXPORT_PRODUCTS="{export_products}"
 RUN_THERMAL=0; [[ "$MODE" == "rgb+thermal" || "$MODE" == "thermal" ]] && RUN_THERMAL=1
 """ + _bloque_de_etapas() + "\necho \"FINAL $STAGE $TOTAL_STAGES\"\n"
     r = subprocess.run(["bash", "-c", guion], capture_output=True, text=True,
@@ -130,13 +137,21 @@ class TestContadorDeEtapas:
         assert len(con) == len(sin) + 1
         assert "entrega" in con[-1][2].lower()
 
-    def test_area_afectada_solo_con_multiespectral_y_termico(self, tmp_path):
-        """Necesita las dos señales; con una sola no debe contarse ni correr."""
-        def nombres(mode, ms, sub):
-            return " | ".join(n for _, _, n in _correr(mode, 1, ms, tmp_path=tmp_path / sub)[0]).lower()
-        assert "área afectada" in nombres("rgb+thermal", 1, "a")
-        assert "área afectada" not in nombres("rgb", 1, "b"), "sin térmico no corresponde"
-        assert "área afectada" not in nombres("rgb+thermal", 0, "c"), "sin MS no corresponde"
+    def test_pedir_confianza_en_la_entrega_suma_una_etapa_mas(self, tmp_path):
+        """confidence_mask.tif no lo usa nada del pipeline salvo la entrega
+        (ver DO_CONFIANZA en entrypoint.sh) — pedirla explícitamente en
+        EXPORT_PRODUCTS tiene que sumar SU PROPIA etapa además de la de
+        entrega, no pedirla no debería sumar nada de más."""
+        sin_confianza, _, total_sin, _ = _correr(
+            "rgb+thermal", 1, 1, "/export", tmp_path / "sin_confianza",
+            export_products="rgb,thermal")
+        con_confianza, _, total_con, _ = _correr(
+            "rgb+thermal", 1, 1, "/export", tmp_path / "con_confianza",
+            export_products="rgb,thermal,confidence")
+        assert total_con == total_sin + 1
+        assert len(con_confianza) == len(sin_confianza) + 1
+        assert any("confianza" in n.lower() for _, _, n in con_confianza)
+        assert not any("confianza" in n.lower() for _, _, n in sin_confianza)
 
     def test_detecta_el_desfase_si_alguien_agrega_una_etapa_sin_su_flag(self, tmp_path):
         """La red de seguridad del propio entrypoint: se agrega un stage_begin

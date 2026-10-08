@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generar tiles XYZ para geovisor Leaflet: RGB, térmico y hillshade del DSM."""
-import os, sys, json, math, subprocess, shutil, tempfile, glob, numpy as np
+import os, sys, json, math, subprocess, shutil, tempfile, glob, time, numpy as np
 from osgeo import gdal, osr
 
 gdal.UseExceptions()
@@ -481,11 +481,11 @@ def make_hillshade(src_dsm, dst_hs):
 
 
 # Capas cuyo LAYER_REGISTRY del geovisor las registra SIN condición propia
-# (a diferencia de los índices continuos, las bandas MS o el área afectada,
-# que ya se gatean solos por bounds.json/fetch): antes de esto, una misión
-# sin multiespectral igual ofrecía en el panel "Severidad", "Hotspot" y los 4
-# índices clasificados, con tiles que no existen — confuso, y en el caso de
-# rgb/thermal, un panel que promete un sensor que la misión ni siquiera voló.
+# (a diferencia de los índices continuos o las bandas MS, que ya se gatean
+# solos por bounds.json/fetch): antes de esto, una misión sin térmico igual
+# ofrecía en el panel "Hotspot" y los 4 índices clasificados, con tiles que
+# no existen — confuso, y en el caso de rgb/thermal, un panel que promete un
+# sensor que la misión ni siquiera voló.
 # Se registra acá cuáles existen DE VERDAD para que app.js registre solo esas.
 capas_disponibles = []
 
@@ -566,14 +566,13 @@ if os.path.exists(MS_IN):
 else:
     print(f"  ⚠ {MS_IN} no existe, omitiendo")
 
-# Área afectada: severidad + hotspot térmico (clases 0-4, ya en Byte con
-# nodata=0 desde compute_severity_classes.py — sin escalar). resampling
-# "near", NO "average": son clases discretas, promediar valores vecinos
-# inventaría una clase intermedia que no existe (p.ej. 2.5 entre leve y
-# moderado no significa nada).
-print("\n=== Severidad / Hotspot térmico / Índices clasificados (Tiles) ===")
-for name, path in [("severidad", "outputs/severidad_class.tif"),
-                    ("hotspot_termico", "outputs/termico_hotspot_class.tif"),
+# Hotspot térmico + índices clasificados (clases 0-4, ya en Byte con
+# nodata=0 desde compute_thermal_hotspot.py/classify_vegetation_indices.py —
+# sin escalar). resampling "near", NO "average": son clases discretas,
+# promediar valores vecinos inventaría una clase intermedia que no existe
+# (p.ej. 2.5 entre "elevado" y "caliente" no significa nada).
+print("\n=== Hotspot térmico / Índices clasificados (Tiles) ===")
+for name, path in [("hotspot_termico", "outputs/termico_hotspot_class.tif"),
                     ("ndvi_class", "outputs/indices/ndvi_class.tif"),
                     ("gndvi_class", "outputs/indices/gndvi_class.tif"),
                     ("ndre_class", "outputs/indices/ndre_class.tif"),
@@ -620,14 +619,27 @@ if os.path.exists(src_for_center):
                     "thermal_range": [THERMAL_CLIP[0], THERMAL_CLIP[1]],
                     "resolucion_cm": resoluciones,
                     # Qué capas se tesela DE VERDAD en esta misión — de acá lee
-                    # el geovisor para no ofrecer en el panel "Severidad",
-                    # "Hotspot" o los índices clasificados cuando no hay
-                    # multiespectral (o "Térmico" cuando no hubo vuelo H20T):
-                    # antes esas entradas del panel eran incondicionales y
-                    # prometían una capa sin tiles detrás.
+                    # el geovisor para no ofrecer en el panel "Hotspot" o los
+                    # índices clasificados cuando no hay multiespectral (o
+                    # "Térmico" cuando no hubo vuelo H20T): antes esas
+                    # entradas del panel eran incondicionales y prometían una
+                    # capa sin tiles detrás.
                     "capas_disponibles": capas_disponibles,
                     "index_ranges": {k: [v[0], v[1]] for k, v in index_ranges.items()},
-                    "ms_band_ranges": {k: [v[0], v[1]] for k, v in ms_band_ranges.items()}}, f)
+                    "ms_band_ranges": {k: [v[0], v[1]] for k, v in ms_band_ranges.items()},
+                    # Token de caché para las URLs de tile del geovisor
+                    # (?v=<esto>, ver app.js): un "Corregir y reintentar" sobre
+                    # la MISMA misión regenera los tiles en el MISMO path, y
+                    # cualquier navegador que ya los haya pedido antes (aunque
+                    # el header Cache-Control ya no sea "immutable") puede
+                    # tener esa respuesta guardada de una corrida anterior —
+                    # cambiar la URL entera es la única forma de garantizar
+                    # que se vuelva a pedir, sin depender de que el caché
+                    # revalide bien. Cambia en CADA corrida de generate_tiles.py
+                    # (se llama varias veces por corrida, publish_partial
+                    # incluido), no solo al reintentar — así una misión en
+                    # curso también ve los tiles parciales más nuevos.
+                    "tiles_v": int(time.time())}, f)
     print(f"  centro: [{lat:.5f}, {lon:.5f}] -> {TILES_DIR}/bounds.json")
     ds = None
 

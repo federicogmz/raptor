@@ -10,7 +10,6 @@ preparación lo restaura solo.
 import os
 import subprocess
 
-import pytest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(REPO, "scripts", "subsample_photos.py")

@@ -42,6 +42,550 @@ const INDEX_PALETTE = {name:'RdYlGn',colors:['#a50026','#d73027','#f46d43','#fda
 const INDEX_LUT = buildLUT(INDEX_PALETTE);
 
 // ═══════════════════════════════════════════════════════════════════
+// IDIOMA (EN/ES)
+// ═══════════════════════════════════════════════════════════════════
+// El diccionario y t() se declaran ACÁ, al principio del archivo, no junto
+// a applyLang()/toggleLang() más abajo (que sí quedan junto al tema, mismo
+// lugar donde vive THEME_KEY — ver esa sección). LAYER_REGISTRY y los
+// diccionarios de etiquetas (SIMPLE_HINTS, INDEX_LABELS, etc.), unas pocas
+// líneas más abajo en este mismo archivo, ya llaman a t() al construirse.
+// Con let/const declarados recién junto al tema, esa lectura temprana
+// revienta con "Cannot access before initialization" (temporal dead zone):
+// mismo bug real que liveMsBandIds/SITUATION, ver sus comentarios más abajo
+// para el mismo patrón.
+const LANG_KEY='raptor-geovisor-lang';
+const I18N={
+  en:{
+    'doc.title':'Mission status',
+    'topbar.skipLink':'Skip to the status panel',
+    'topbar.back':'Back to missions',
+    'topbar.loading':'Loading…',
+    'topbar.dateTitle':'Date of the capture shown',
+    'topbar.captureLabel':'Capture: ',
+    'topbar.reportBtn':'Generate summary',
+    'topbar.help':'Help',
+    'help.howTo':'How to use',
+    'help.rowSolo':'Solo: shows only this layer',
+    'help.rowClick':'Click on the map: see what that point means',
+    'help.rowMeasure':'Measure distance/area',
+    'help.rowTheme':'Switch light/dark theme',
+    'help.rowEsc':'Close whatever is open',
+    'help.accessibility':'Accessibility',
+    'help.textSize':'Text size',
+    'help.textSmall':'Small text',
+    'help.textNormal':'Normal text',
+    'help.textLarge':'Large text',
+    'help.highContrast':'High contrast',
+    'help.reduceMotion':'Reduce motion',
+    'help.theme':'Theme',
+    'a11y.themeToggle':'Switch theme',
+    'a11y.language':'Language',
+    'rail.stationLabel':'Station identity',
+    'rail.context':'FIELD<br>ANALYSIS',
+    'rail.footer':'GIS<br>01',
+    'map.areaLabel':'Area map',
+    'map.fitBounds':'Fit whole mission',
+    'point.cardAria':'Selected point detail',
+    'measure.title':'Measurement',
+    'measure.clear':'Clear',
+    'measure.distance':'Distance',
+    'measure.area':'Area',
+    'measure.hint':'Click to add points · double click to close the area · Esc to exit',
+    'panel.toggleAria':'Show status panel',
+    'panel.kicker':'Mission report',
+    'panel.heading':'Incident assessment',
+    'panel.closeAria':'Hide panel',
+    'panel.sub':'Priority findings to coordinate the response.',
+    'summary.loading':'Loading mission data…',
+    'ph.stageInit':'Starting…',
+    'ph.collapseAria':'Collapse progress',
+    'ph.expandAria':'Expand progress',
+    'ph.viewLogWord':' View log',
+    'ph.hideLog':' Hide log',
+    'sig.kicker':'GIS',
+    'sig.heading':'Layers and tools',
+    'sig.sub':'Layer catalog, compare, and measure.',
+    'sig.drawBtn':'Reshape',
+    'sig.drawTitle':'Reshape & delineate burned area (D)',
+    'draw.title':'Reshape & Delineation (QGIS)',
+    'draw.modeReshape':'Reshape',
+    'draw.modeCut':'Cut',
+    'draw.modeAdd':'Add',
+    'draw.modeNew':'New',
+    'draw.freehandLabel':'Freehand active',
+    'draw.assistBtn':'Suggestion',
+    'draw.smoothBtn':'Smooth',
+    'draw.undoBtn':'Undo',
+    'draw.clearBtn':'Clear',
+    'draw.saveBtn':'Save as Official Area',
+    'draw.hint':'Cross the polygon perimeter with a stroke to reshape it (QGIS style)',
+    'sig.compareBtn':'Compare',
+    'sig.compareTitle':'Compare two layers side by side (C)',
+    'sig.measureBtn':'Measure',
+    'sig.measureTitle':'Measure distance and area (M)',
+    'sig.exportBtn':'Export',
+    'sig.exportTitle':'Download an image of the current map',
+    'sig.hideAll':'Hide all',
+    'sig.hideAllTitle':'Turn off all layers',
+    'sig.reset':'Reset',
+    'sig.resetTitle':'Return to the initial view',
+    'timebar.title':'Compare over time',
+    'report.title':'Situation summary',
+    'report.closeAria':'Close',
+    'report.download':'Download image',
+    'report.loading':'Loading…',
+    'report.loadError':'Could not load the mission data.',
+    'report.noImpactCard':'No impact data, this mission has no thermal',
+    'report.activeHotspots':'Active hotspots',
+    'report.maxTemp':'Max. temperature',
+    'report.avgTemp':'Avg. temperature',
+    'report.generating':'Generating…',
+    'report.imgAlt':'Mission situation summary',
+    'report.imgError':'Could not generate the image. Turn on at least one layer on the map.',
+    'report.urgentCritical':'⚠ Risk of reignition',
+    'report.urgentGood':'✓ No critical anomalies',
+    'report.urgentNone':'No impact data',
+    'report.flightQualityLabel':'Flight quality: ',
+    'report.noImpactDataYet':'No impact data yet',
+    'reco.noThermal':'This mission has no thermal data to summarize.',
+    'reco.label':'Recommendation',
+    'val.buena':'Good',
+    'val.regular':'Fair',
+    'val.baja':'Low',
+    'val.alta':'High',
+    'val.media':'Medium',
+    'report.defaultEquipment':'UAV drone',
+    'summary.activeHotspots':'Active thermal hotspots',
+    'summary.reignitionRisk':'Risk of reignition',
+    'summary.noneDetected':'None detected',
+    'summary.maxAbbr':'max',
+    'summary.avgAbbr':'avg',
+    'summary.lastCapture':'Last capture',
+    'summary.surveyQuality':'Survey quality',
+    'summary.noDataYet':'No data yet',
+    'summary.overlap':'overlap ~',
+    'summary.flightAt':'flight at',
+    'summary.reconstructedPct':'% of photos reconstructed',
+    'summary.noImpactTitle':'No impact data yet',
+    'summary.noImpactSub':'This mission has no thermal, or the run has not reached that stage.',
+    'freshness.updated':'Updated',
+    'freshness.justNow':'just now',
+    'freshness.minAgo':'min ago',
+    'freshness.hAgo':'h ago',
+    'freshness.lowCoverage':'⚠ low coverage vs. area flown',
+    'freshness.noData':'No situation data yet',
+    'hotspot.identifiedLabel':'Hotspots identified',
+    'hotspot.rowLabel':'Hotspot',
+    'point.looking':'Looking up…',
+    'point.error':'Error',
+    'point.errorMsg':'Could not look up this point.',
+    'point.selected':'Selected point',
+    'point.outsideCoverage':'This point is outside the orthomosaic coverage, there is no data to report here.',
+    'point.temperature':'Temperature',
+    'point.vegetation':'Vegetation (NDVI)',
+    'point.date':'Date',
+    'point.confidence':'Confidence',
+    'timebar.thisCapture':'this capture',
+    'timebar.compareWith':'compare with:',
+    'timebar.compareNote':'Pixel-by-pixel visual comparison between different missions is not available yet. For now, open each mission separately from the list to compare their situation summaries.',
+    'mission.none':'No active mission',
+    'mission.processingWord':'processing…',
+    'export.generating':'⏳ Generating…',
+    'export.failMap':'Could not export the map: ',
+    'export.noLayers':'There is no visible layer to export. Turn on at least one layer in the panel.',
+    'offline.title':'No connection to the base map.',
+    'offline.body':"This mission's layers (orthomosaic, thermal, indices) still work. What's missing is the streets and satellite background, which comes from the internet.",
+    'base.streets':'🗺️ Streets',
+    'base.satellite':'🛰️ Satellite',
+    'layer.dragTitle':'Drag to reorder',
+    'layer.soloTitle':'Show only this layer',
+    'layer.zoomTitle':'Fit to this layer',
+    'layer.legendTitle':'Show description and legend',
+    'layer.opacity':'Opacity',
+    'layer.whatItMeans':'What it means:',
+    'addms.vegIndicesTitle':'🌿 Vegetation indices',
+    'addms.includedPending':'Multispectral flight included. NDVI/GNDVI/NDRE/MSAVI2 will appear here once reconstruction finishes.',
+    'addms.notYet':'This mission does not have a multispectral flight (M3M) yet. Without it there is no NDVI/GNDVI/NDRE/MSAVI2 to show.',
+    'addms.thermalIncludedPending':'Thermal flight included. Hotspots will appear here once reconstruction finishes.',
+    'addms.thermalNotYet':'This mission does not have a thermal flight yet. Without it there is no temperature to classify.',
+    'addms.ctaTitle':'🌿 Add multispectral',
+    'addms.ctaDetail':'Turns on automatic vegetation indices (NDVI/GNDVI/NDRE/MSAVI2).',
+    'addms.ctaLink':'➕ Add multispectral flight',
+    'layer.hillshade':'⛰️ Relief (DSM)',
+    'layer.rgb':'📷 RGB',
+    'layer.dband':'📷 Visible (D band)',
+    'layer.msComposite':'🎨 Multispectral (composite)',
+    'layer.thermal':'🌡️ Thermal',
+    'layer.hotspot':'♨️ Thermal hotspot',
+    'layer.flightPath':'🛩️ Flight path',
+    'layer.hull':'🔷 Convex hull',
+    'layer.ndviClass':'🌿 NDVI classified',
+    'layer.gndviClass':'🌾 GNDVI classified',
+    'layer.ndreClass':'🍃 NDRE classified',
+    'layer.msavi2Class':'🌱 MSAVI2 classified',
+    'layer.areaExperto':'📌 Burned area (Official / Expert)',
+    'layer.areaDetectada':'💡 Suggested thermal mask',
+    'sensor.rgb':'RGB',
+    'sensor.thermal':'Thermal',
+    'sensor.multispectral':'Multispectral',
+    'group.impacto':'🔥 Fire impact',
+    'group.indices':'🌿 Indices',
+    'group.opticas':'📷 Optical',
+    'group.termicas':'🌡️ Thermal',
+    'group.terreno':'⛰️ Terrain',
+    'group.vuelo':'🛩️ Flight',
+    'channel.rgb':'RGB',
+    'channel.thermal':'Thermal',
+    'channel.ms':'Multispectral',
+    'channel.waiting':'Waiting…',
+    'channel.failed':'Failed',
+    'channel.prep':'Preparation',
+    'channel.recon3d':'3D reconstruction',
+    'channel.trimExport':'Trim + export',
+    'channel.trimIndices':'Trim + indices',
+    'progress.cancel':'Cancel',
+    'progress.cancelConfirm':"Cancel the processing that's running? What's been done so far in this run will be lost.",
+    'progress.cancelling':'Cancelling…',
+    'progress.cancelFailedGeneric':'could not cancel',
+    'progress.cancelFailedAlert':'Could not cancel: ',
+    'progress.processing':'Processing…',
+    'progress.complete':'Processing complete',
+    'progress.viewFullLog':'View full log',
+    'progress.code':'code',
+    'legend.resolution':'Resolution',
+    'legend.hillshadeBody':'<p>Hillshade computed from the <b>DSM</b> (digital <i>surface</i> model): it includes vegetation and structures, it is not a bare terrain model (DTM). Visual reference only, with no units.</p>',
+    'legend.channels':'Channels',
+    'legend.custom':'Custom',
+    'legend.msCompositeBody':'<p>RGB composite built in the browser by combining 3 raw spectral bands. There is no fixed file per combination, changing the selection recomposes it on the fly.</p>',
+    'legend.range':'Range',
+    'legend.to':'to',
+    'legend.dbandSensorLine':'DJI M3M, D camera (RGB)',
+    'legend.dbandBody':'<p>Fast visible mosaic, computed from the M3M own RGB camera, a separate sensor from the 4 spectral bands (G/R/RE/NIR), not co-aligned with them. Meant for a first visual look, it does not replace the RGB orthomosaic from the M3T/H20T flight if this mission also has one.</p>',
+    'legend.hotspotBody1':'<p>ABSOLUTE temperature (not a relative anomaly: a relative threshold gives false positives on ground/crops heated by the sun). The "active hotspot" cutoff (88°C/190°F) is the operational threshold cited in drone hotspot detection literature for "active fire below the surface." Operational use: risk of reignition / mop-up.</p>',
+    'legend.hotspotBody2':'<p>Shown over the <b>entire</b> thermal coverage, without clipping to any polygon.</p>',
+    'hotspot.classNormal':'Normal',
+    'hotspot.classElevated':'Elevated',
+    'hotspot.classHot':'Hot',
+    'hotspot.classActive':'Active hotspot',
+    'idx.ndvi.label':'🌿 NDVI',
+    'idx.ndvi.desc':'Vegetation health/vigor',
+    'idx.gndvi.label':'🌾 GNDVI',
+    'idx.gndvi.desc':'Sensitive to chlorophyll',
+    'idx.ndre.label':'🍃 NDRE',
+    'idx.ndre.desc':'Stress in dense canopy',
+    'idx.msavi2.label':'🌱 MSAVI2',
+    'idx.msavi2.desc':'NDVI corrected for soil brightness, more reliable than NDVI in sparse canopy/post-fire regrowth',
+    'idxclass.ndviClass.desc':'Standard USGS cutoffs.',
+    'idxclass.gndviClass.desc':'Standard agricultural remote sensing cutoffs.',
+    'idxclass.ndreClass.desc':'Standard foliar nitrogen cutoffs (precision agriculture).',
+    'idxclass.msavi2Class.desc':'NDVI corrected for soil brightness (Qi et al. 1994), more reliable than NDVI in sparse canopy (post-fire regrowth, cover &lt;30%). Same cutoffs as NDVI (see the classify_vegetation_indices.py docstring: MSAVI2 has no well-established convention of its own, so NDVI cutoffs are reused as a starting point).',
+    'idxclass.noVeg':'No vegetation',
+    'idxclass.sparseStressed':'Sparse/stressed',
+    'idxclass.denseHealthy':'Dense and healthy',
+    'idxclass.severeStress':'Severe stress',
+    'idxclass.moderateStressed':'Moderate/stressed',
+    'idxclass.healthy':'Healthy',
+    'idxclass.nDeficiency':'N deficiency',
+    'idxclass.transition':'Transition',
+    'idxclass.healthy2':'Healthy',
+    'idxclass.optimalMature':'Optimal/mature',
+    'ms.presetCir':'False color IR (R=NIR G=Red B=Green)',
+    'ms.presetRededge':'RedEdge (R=NIR G=RedEdge B=Red)',
+    'ms.bandRed':'Red (spectral)',
+    'ms.bandGreen':'Green (spectral)',
+    'ms.bandNir':'NIR',
+    'ms.bandRededge':'RedEdge',
+    'ms.dbandRed':'Red (D band RGB)',
+    'ms.dbandGreen':'Green (D band RGB)',
+    'ms.dbandBlue':'Blue (D band RGB)',
+    'hint.hotspot_termico':'Dark red: active hotspot (≥88°C), risk of reignition, needs attention. Orange/yellow: elevated temperature, monitor.',
+    'hint.ndvi_class':'Green: dense and healthy vegetation. Yellow: sparse or stressed, monitor how it evolves. Brown: no vegetation cover.',
+    'hint.gndvi_class':'Green: healthy vegetation. Yellow: moderate stress. Red: severe stress, possible damage from heat or lack of water.',
+    'hint.ndre_class':'Dark green: optimal. Light green: healthy. Orange/red: deficiency, needs attention soon.',
+    'hint.msavi2_class':'Green: dense and healthy vegetation. Yellow: sparse or in early regrowth. Brown: no cover.',
+    'hint.ndvi':'Green = healthy, dense vegetation. Red/brown = bare soil or heavily stressed vegetation.',
+    'hint.gndvi':'Green = healthy vegetation. Red = severe stress, possible damage.',
+    'hint.ndre':'Green = healthy foliage. Red = deficiency, needs attention soon.',
+    'hint.msavi2':'Green = dense vegetation. Brown = no cover or exposed soil.',
+    'hint.rgb':'Real color image from the flight, a direct visual reference of the terrain.',
+    'hint.ms_composite':'Composite of spectral bands, brings out vegetation contrasts not visible to the naked eye.',
+    'hint.thermal':'Surface temperature scale. Hotter (warm colors) can indicate residual thermal activity.',
+    'hint.hillshade':'Terrain relief, helps locate slopes and access routes, with no thermal meaning.',
+    'hint.flight_path':'The drone real path during capture, useful for checking flight coverage.',
+  },
+  es:{
+    'doc.title':'Situación de la misión',
+    'topbar.skipLink':'Saltar al panel de situación',
+    'topbar.back':'Volver a las misiones',
+    'topbar.loading':'Cargando…',
+    'topbar.dateTitle':'Fecha de la captura mostrada',
+    'topbar.captureLabel':'Captura: ',
+    'topbar.reportBtn':'Generar resumen',
+    'topbar.help':'Ayuda',
+    'help.howTo':'Cómo usar',
+    'help.rowSolo':'Solo: muestra únicamente esta capa',
+    'help.rowClick':'Clic en el mapa: ver qué significa ese punto',
+    'help.rowMeasure':'Medir distancia/área',
+    'help.rowTheme':'Cambiar tema claro/oscuro',
+    'help.rowEsc':'Cerrar lo que esté abierto',
+    'help.accessibility':'Accesibilidad',
+    'help.textSize':'Tamaño de texto',
+    'help.textSmall':'Texto pequeño',
+    'help.textNormal':'Texto normal',
+    'help.textLarge':'Texto grande',
+    'help.highContrast':'Alto contraste',
+    'help.reduceMotion':'Reducir movimiento',
+    'help.theme':'Tema',
+    'a11y.themeToggle':'Cambiar tema',
+    'a11y.language':'Idioma',
+    'rail.stationLabel':'Identidad de la estación',
+    'rail.context':'ANÁLISIS<br>DE CAMPO',
+    'rail.footer':'SIG<br>01',
+    'map.areaLabel':'Mapa de la zona',
+    'map.fitBounds':'Encuadrar toda la misión',
+    'point.cardAria':'Detalle del punto seleccionado',
+    'measure.title':'Medición',
+    'measure.clear':'Limpiar',
+    'measure.distance':'Distancia',
+    'measure.area':'Área',
+    'measure.hint':'Clic para agregar puntos · doble clic para cerrar el área · Esc para salir',
+    'panel.toggleAria':'Mostrar panel de situación',
+    'panel.kicker':'Informe de misión',
+    'panel.heading':'Evaluación del incidente',
+    'panel.closeAria':'Ocultar panel',
+    'panel.sub':'Hallazgos priorizados para coordinar la respuesta.',
+    'summary.loading':'Cargando datos de la misión…',
+    'ph.stageInit':'Iniciando…',
+    'ph.collapseAria':'Colapsar progreso',
+    'ph.expandAria':'Expandir progreso',
+    'ph.viewLogWord':' Ver log',
+    'ph.hideLog':' Ocultar log',
+    'sig.kicker':'SIG',
+    'sig.heading':'Capas y herramientas',
+    'sig.sub':'Catálogo de capas, comparar y medir.',
+    'sig.drawBtn':'Remodelar',
+    'sig.drawTitle':'Remodelar y delimitar área afectada (D)',
+    'draw.title':'Remodelar y Delimitar (QGIS)',
+    'draw.modeReshape':'Remodelar',
+    'draw.modeCut':'Recortar',
+    'draw.modeAdd':'Añadir',
+    'draw.modeNew':'Nuevo',
+    'draw.freehandLabel':'Mano alzada activa',
+    'draw.assistBtn':'Sugerencia',
+    'draw.smoothBtn':'Suavizar',
+    'draw.undoBtn':'Deshacer',
+    'draw.clearBtn':'Limpiar',
+    'draw.saveBtn':'Guardar como Área Oficial',
+    'draw.hint':'Traza una línea que cruce el polígono para remodelar su contorno (estilo QGIS)',
+    'sig.compareBtn':'Comparar',
+    'sig.compareTitle':'Comparar dos capas lado a lado (C)',
+    'sig.measureBtn':'Medir',
+    'sig.measureTitle':'Medir distancia y área (M)',
+    'sig.exportBtn':'Exportar',
+    'sig.exportTitle':'Descargar una imagen del mapa actual',
+    'sig.hideAll':'Ocultar todo',
+    'sig.hideAllTitle':'Apagar todas las capas',
+    'sig.reset':'Restablecer',
+    'sig.resetTitle':'Volver a la vista inicial',
+    'timebar.title':'Comparar en el tiempo',
+    'report.title':'Resumen de situación',
+    'report.closeAria':'Cerrar',
+    'report.download':'Descargar imagen',
+    'report.loading':'Cargando…',
+    'report.loadError':'No se pudieron cargar los datos de la misión.',
+    'report.noImpactCard':'Sin datos de impacto, esta misión no tiene térmico',
+    'report.activeHotspots':'Focos activos',
+    'report.maxTemp':'Temp. máxima',
+    'report.avgTemp':'Temp. promedio',
+    'report.generating':'Generando…',
+    'report.imgAlt':'Resumen de situación de la misión',
+    'report.imgError':'No se pudo generar la imagen. Activa al menos una capa en el mapa.',
+    'report.urgentCritical':'⚠ Riesgo de reactivación',
+    'report.urgentGood':'✓ Sin anomalías críticas',
+    'report.urgentNone':'Sin datos de impacto',
+    'report.flightQualityLabel':'Calidad del vuelo: ',
+    'report.noImpactDataYet':'Sin datos de impacto todavía',
+    'reco.noThermal':'Esta misión no tiene datos térmicos para resumir.',
+    'reco.label':'Recomendación',
+    'val.buena':'Buena',
+    'val.regular':'Regular',
+    'val.baja':'Baja',
+    'val.alta':'Alta',
+    'val.media':'Media',
+    'report.defaultEquipment':'Dron UAV',
+    'summary.activeHotspots':'Focos térmicos activos',
+    'summary.reignitionRisk':'Riesgo de reactivación',
+    'summary.noneDetected':'Ninguno detectado',
+    'summary.maxAbbr':'máx',
+    'summary.avgAbbr':'prom',
+    'summary.lastCapture':'Última captura',
+    'summary.surveyQuality':'Calidad del levantamiento',
+    'summary.noDataYet':'Sin datos todavía',
+    'summary.overlap':'solape ~',
+    'summary.flightAt':'vuelo a',
+    'summary.reconstructedPct':'% de fotos reconstruidas',
+    'summary.noImpactTitle':'Sin datos de impacto todavía',
+    'summary.noImpactSub':'Esta misión no tiene térmico, o la corrida no llegó a esa etapa.',
+    'freshness.updated':'Actualizado',
+    'freshness.justNow':'recién',
+    'freshness.minAgo':'min',
+    'freshness.hAgo':'h',
+    'freshness.lowCoverage':'⚠ cobertura baja vs. área volada',
+    'freshness.noData':'Sin datos de situación todavía',
+    'hotspot.identifiedLabel':'Focos identificados',
+    'hotspot.rowLabel':'Foco',
+    'point.looking':'Consultando…',
+    'point.error':'Error',
+    'point.errorMsg':'No se pudo consultar este punto.',
+    'point.selected':'Punto seleccionado',
+    'point.outsideCoverage':'Este punto está fuera de la cobertura de los ortomosaicos, sin dato que reportar acá.',
+    'point.temperature':'Temperatura',
+    'point.vegetation':'Vegetación (NDVI)',
+    'point.date':'Fecha',
+    'point.confidence':'Confianza',
+    'timebar.thisCapture':'esta captura',
+    'timebar.compareWith':'comparar con:',
+    'timebar.compareNote':'La comparación visual pixel a pixel entre misiones distintas todavía no está disponible. Por ahora, abre cada misión por separado desde el listado para comparar sus resúmenes de situación.',
+    'mission.none':'Sin misión activa',
+    'mission.processingWord':'procesando…',
+    'export.generating':'⏳ Generando…',
+    'export.failMap':'No se pudo exportar el mapa: ',
+    'export.noLayers':'No hay ninguna capa visible para exportar. Activa al menos una capa en el panel.',
+    'offline.title':'Sin conexión al mapa base.',
+    'offline.body':'Las capas de esta misión (ortomosaico, térmico, índices) se ven igual. Lo que falta es el fondo de calles y satelital, que viene de internet.',
+    'base.streets':'🗺️ Calles',
+    'base.satellite':'🛰️ Satélite',
+    'layer.dragTitle':'Arrastrar para reordenar',
+    'layer.soloTitle':'Ver solo esta capa',
+    'layer.zoomTitle':'Encuadrar esta capa',
+    'layer.legendTitle':'Ver descripción y leyenda',
+    'layer.opacity':'Opacidad',
+    'layer.whatItMeans':'Qué significa:',
+    'addms.vegIndicesTitle':'🌿 Índices de vegetación',
+    'addms.includedPending':'Vuelo multiespectral incluido. NDVI/GNDVI/NDRE/MSAVI2 van a aparecer acá cuando termine la reconstrucción.',
+    'addms.notYet':'Esta misión no tiene vuelo multiespectral (M3M) todavía. Sin él no hay NDVI/GNDVI/NDRE/MSAVI2 que mostrar.',
+    'addms.thermalIncludedPending':'Vuelo térmico incluido. Los focos de calor van a aparecer acá cuando termine la reconstrucción.',
+    'addms.thermalNotYet':'Esta misión no tiene vuelo térmico todavía. Sin él no hay temperatura que clasificar.',
+    'addms.ctaTitle':'🌿 Agregar multiespectral',
+    'addms.ctaDetail':'Habilita índices de vegetación automáticos (NDVI/GNDVI/NDRE/MSAVI2).',
+    'addms.ctaLink':'➕ Agregar vuelo multiespectral',
+    'layer.hillshade':'⛰️ Relieve (DSM)',
+    'layer.rgb':'📷 RGB',
+    'layer.dband':'📷 Visible (banda D)',
+    'layer.msComposite':'🎨 Multiespectral (compuesto)',
+    'layer.thermal':'🌡️ Térmico',
+    'layer.hotspot':'♨️ Hotspot térmico',
+    'layer.flightPath':'🛩️ Ruta de vuelo',
+    'layer.hull':'🔷 Casco convexo',
+    'layer.ndviClass':'🌿 NDVI clasificado',
+    'layer.gndviClass':'🌾 GNDVI clasificado',
+    'layer.ndreClass':'🍃 NDRE clasificado',
+    'layer.msavi2Class':'🌱 MSAVI2 clasificado',
+    'layer.areaExperto':'📌 Área afectada (Oficial / Experto)',
+    'layer.areaDetectada':'💡 Máscara térmica sugerida',
+    'sensor.rgb':'RGB',
+    'sensor.thermal':'Térmico',
+    'sensor.multispectral':'Multiespectral',
+    'group.impacto':'🔥 Impacto del incendio',
+    'group.indices':'🌿 Índices',
+    'group.opticas':'📷 Ópticas',
+    'group.termicas':'🌡️ Térmicas',
+    'group.terreno':'⛰️ Terreno',
+    'group.vuelo':'🛩️ Vuelo',
+    'channel.rgb':'RGB',
+    'channel.thermal':'Térmico',
+    'channel.ms':'Multiespectral',
+    'channel.waiting':'Esperando…',
+    'channel.failed':'Falló',
+    'channel.prep':'Preparación',
+    'channel.recon3d':'Reconstrucción 3D',
+    'channel.trimExport':'Recorte + exportación',
+    'channel.trimIndices':'Recorte + índices',
+    'progress.cancel':'Cancelar',
+    'progress.cancelConfirm':'¿Cancelar el procesamiento en curso? Lo hecho hasta ahora en esta corrida se pierde.',
+    'progress.cancelling':'Cancelando…',
+    'progress.cancelFailedGeneric':'no se pudo cancelar',
+    'progress.cancelFailedAlert':'No se pudo cancelar: ',
+    'progress.processing':'Procesando…',
+    'progress.complete':'Procesamiento completo',
+    'progress.viewFullLog':'Ver log completo',
+    'progress.code':'código',
+    'legend.resolution':'Resolución',
+    'legend.hillshadeBody':'<p>Sombreado de relieve calculado sobre el <b>DSM</b> (modelo digital de <i>superficie</i>): incluye vegetación y construcciones, no es un modelo de terreno desnudo (DTM). Solo referencia visual, sin unidades.</p>',
+    'legend.channels':'Canales',
+    'legend.custom':'Personalizado',
+    'legend.msCompositeBody':'<p>Composición RGB armada en el navegador combinando 3 bandas espectrales crudas. No hay un archivo fijo por combinación, cambiar la selección recompone al vuelo.</p>',
+    'legend.range':'Rango',
+    'legend.to':'a',
+    'legend.dbandSensorLine':'DJI M3M, cámara D (RGB)',
+    'legend.dbandBody':'<p>Mosaico visible rápido, calculado a partir de la cámara RGB propia del M3M, un sensor aparte de las 4 bandas espectrales (G/R/RE/NIR), no coalineado con ellas. Pensado para una primera mirada visual, no reemplaza al ortomosaico RGB del vuelo M3T/H20T si esta misión también lo tiene.</p>',
+    'legend.hotspotBody1':'<p>Temperatura ABSOLUTA (no anomalía relativa: un umbral relativo da falsos positivos en suelo/cultivo calentado por el sol). El corte de "foco activo" (88°C/190°F) es el umbral operacional citado en literatura de detección de hotspots con drones para "fuego activo bajo superficie". Uso operacional: riesgo de reactivación / mop-up.</p>',
+    'legend.hotspotBody2':'<p>Se muestra sobre <b>toda</b> la cobertura térmica, sin recortar a ningún polígono.</p>',
+    'hotspot.classNormal':'Normal',
+    'hotspot.classElevated':'Elevado',
+    'hotspot.classHot':'Caliente',
+    'hotspot.classActive':'Foco activo',
+    'idx.ndvi.label':'🌿 NDVI',
+    'idx.ndvi.desc':'Salud/vigor de vegetación',
+    'idx.gndvi.label':'🌾 GNDVI',
+    'idx.gndvi.desc':'Sensible a clorofila',
+    'idx.ndre.label':'🍃 NDRE',
+    'idx.ndre.desc':'Estrés en dosel denso',
+    'idx.msavi2.label':'🌱 MSAVI2',
+    'idx.msavi2.desc':'NDVI corregido por brillo de suelo, más confiable que NDVI en dosel disperso/regeneración post-incendio',
+    'idxclass.ndviClass.desc':'Cortes estándar USGS.',
+    'idxclass.gndviClass.desc':'Cortes estándar de teledetección agrícola.',
+    'idxclass.ndreClass.desc':'Cortes estándar de nitrógeno foliar (agricultura de precisión).',
+    'idxclass.msavi2Class.desc':'NDVI corregido por brillo de suelo (Qi et al. 1994), más confiable que NDVI en dosel disperso (regeneración post-incendio, cobertura &lt;30%). Mismos cortes que NDVI (ver docstring de classify_vegetation_indices.py: MSAVI2 no tiene convención propia tan establecida, se reusa la de NDVI como punto de partida).',
+    'idxclass.noVeg':'Sin vegetación',
+    'idxclass.sparseStressed':'Escasa/estresada',
+    'idxclass.denseHealthy':'Densa y sana',
+    'idxclass.severeStress':'Estrés severo',
+    'idxclass.moderateStressed':'Moderada/estresada',
+    'idxclass.healthy':'Sana',
+    'idxclass.nDeficiency':'Deficiencia N',
+    'idxclass.transition':'Transición',
+    'idxclass.healthy2':'Saludable',
+    'idxclass.optimalMature':'Óptimo/maduro',
+    'ms.presetCir':'Falso color IR (R=NIR G=Red B=Green)',
+    'ms.presetRededge':'RedEdge (R=NIR G=RedEdge B=Red)',
+    'ms.bandRed':'Red (espectral)',
+    'ms.bandGreen':'Green (espectral)',
+    'ms.bandNir':'NIR',
+    'ms.bandRededge':'RedEdge',
+    'ms.dbandRed':'Red (RGB banda D)',
+    'ms.dbandGreen':'Green (RGB banda D)',
+    'ms.dbandBlue':'Blue (RGB banda D)',
+    'hint.hotspot_termico':'Rojo oscuro: foco activo (≥88°C), riesgo de reactivación, requiere atención. Naranja/amarillo: temperatura elevada, monitorear.',
+    'hint.ndvi_class':'Verde: vegetación densa y sana. Amarillo: escasa o estresada, vigilar evolución. Café: sin cobertura vegetal.',
+    'hint.gndvi_class':'Verde: vegetación sana. Amarillo: estrés moderado. Rojo: estrés severo, posible daño por calor o falta de agua.',
+    'hint.ndre_class':'Verde oscuro: óptimo. Verde claro: saludable. Naranja/rojo: deficiencia, atención en el corto plazo.',
+    'hint.msavi2_class':'Verde: vegetación densa y sana. Amarillo: escasa o en regeneración temprana. Café: sin cobertura.',
+    'hint.ndvi':'Verde = vegetación sana y densa. Rojo/café = suelo desnudo o vegetación muy estresada.',
+    'hint.gndvi':'Verde = vegetación sana. Rojo = estrés severo, posible daño.',
+    'hint.ndre':'Verde = follaje saludable. Rojo = deficiencia, atención en el corto plazo.',
+    'hint.msavi2':'Verde = vegetación densa. Café = sin cobertura o suelo expuesto.',
+    'hint.rgb':'Imagen a color real del vuelo, referencia visual directa del terreno.',
+    'hint.ms_composite':'Composición de bandas espectrales, realza contrastes de vegetación no visibles a simple vista.',
+    'hint.thermal':'Escala de temperatura de superficie, más caliente (colores cálidos) puede indicar actividad térmica residual.',
+    'hint.hillshade':'Relieve del terreno, ayuda a ubicar pendientes y accesos, sin significado térmico.',
+    'hint.flight_path':'Recorrido real del dron durante la captura, útil para verificar cobertura del vuelo.',
+  },
+};
+let LANG='en';
+function t(key){ return (I18N[LANG]&&I18N[LANG][key]) || I18N.en[key] || key; }
+// Traduce un VALOR de dato (no una clave de UI): fq.calidad/d.confianza
+// llegan del backend en español ('buena'/'regular'/'baja'/'alta'/'media',
+// ver compute_flight_quality.py y el endpoint /sample) — esto los muestra
+// en el idioma activo sin tocar el dato real ni el resto del código que
+// compara contra esos mismos valores.
+function localizeValue(raw){
+  if(raw==null||raw==='')return raw;
+  const key='val.'+String(raw).toLowerCase();
+  return (I18N.en[key]!==undefined)?t(key):raw;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // ACTIVAR LA MISIÓN DE LA URL: antes de leer nada más
 // ═══════════════════════════════════════════════════════════════════
 // /view/{mission} (la entrada normal desde la webapp) activa los symlinks
@@ -63,6 +607,33 @@ if(urlMission){
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// MISIÓN ACTUAL — nombre resuelto una sola vez, todo lo demás lo espera
+// ═══════════════════════════════════════════════════════════════════
+// Si se llegó acá con ?mission= (arranque en vivo o "Ver geovisor" desde
+// la webapp — el único flujo normal) se usa ese nombre directo, no depende
+// de qué symlink esté activo en el servidor en este instante. Sin el
+// parámetro (geovisor abierto suelto/recargado desde un bookmark viejo) se
+// cae a la misión "activa" o, si no hay ninguna corriendo, la última con
+// tiles — para no dejar la pantalla completamente huérfana.
+// Declarado ACÁ (junto a urlMission), no más abajo donde se usa por primera
+// vez (labelMission()): applyLang(), junto al tema más abajo, ya llama a
+// labelMission()/checkRelatedMissions() (que hacen `await missionReady`) en
+// su primera pasada — con missionReady declarado más abajo con `const`, esa
+// lectura temprana revienta con "Cannot access before initialization",
+// mismo bug real que liveMsBandIds/SITUATION/I18N, ver sus comentarios.
+let CURRENT_MISSION=urlMission||null;
+const missionReady=(async()=>{
+  if(CURRENT_MISSION)return CURRENT_MISSION;
+  try{
+    const d=await (await fetch('/api/missions',{cache:'no-store'})).json();
+    if(d.active){CURRENT_MISSION=d.active;return CURRENT_MISSION;}
+    const conTiles=(d.missions||[]).filter(m=>m.has_tiles);
+    if(conTiles.length){CURRENT_MISSION=conTiles[conTiles.length-1].name;return CURRENT_MISSION;}
+  }catch(e){}
+  return null;
+})();
+
+// ═══════════════════════════════════════════════════════════════════
 // bounds.json (por misión)
 // ═══════════════════════════════════════════════════════════════════
 // Centro/zoom por defecto (fallback si tiles/bounds.json no existe todavía,
@@ -76,7 +647,7 @@ let INDEX_RANGES={};   // {} si la misión no tiene datos multiespectrales (M3M)
 let MS_BAND_RANGES={};  // {} si la misión no tiene datos multiespectrales (M3M)
 let RESOLUCION_CM=null; // cm/px MEDIDOS por producto (bounds.json)
 // Qué capas TIENEN tiles de verdad (generate_tiles.py, campo capas_disponibles
-// de bounds.json): de acá salen severidad/hotspot/índices clasificados. Antes
+// de bounds.json): de acá salen hotspot/índices clasificados. Antes
 // se registraban sin condición y el panel ofrecía capas de una misión sin
 // multiespectral (o sin térmico) que no tenían ningún tile detrás.
 let CAPAS_DISPONIBLES=new Set();
@@ -94,12 +665,24 @@ let PRELIMINARY=false;
 // (pensada para una misión que arrancó SIN M3M) aparecía igual en una misión
 // que sí lo tiene, mientras la reconstrucción seguía en curso.
 let hasMsInput=false;
+let hasThermalInput=false;
 // true si esta carga inicial YA encontró un centro real (bounds.json existía,
 // aunque sea la versión "preliminary" de export_flight_path.py). Si queda en
 // false, es que se abrió el geovisor en la ventana de pocos segundos ANTES de
 // que ese archivo exista siquiera. pollBoundsForChanges() recentra una sola
 // vez apenas aparezca, en vez de dejar el mapa pegado en el respaldo fijo.
 let boundsWasReal=false;
+// Token de caché de los tiles (generate_tiles.py lo escribe fresco en CADA
+// corrida, incluida cada pasada de publish_partial) — se agrega como
+// ?v=TILES_V a toda URL de tile (ver las capas más abajo y los Grid
+// personalizados). "Corregir y reintentar" sobre la MISMA misión reescribe
+// los tiles en el MISMO path; sin esto, un navegador que ya los haya
+// pedido antes se queda con la respuesta vieja aunque Cache-Control ya no
+// sea "immutable" — cambiar la URL entera es la única forma de garantizar
+// el refetch sin depender de que el caché revalide bien. Bug real,
+// reportado en vivo: tiles viejos (mosaico más recortado) después de un
+// reintento, en algunos niveles de zoom.
+let TILES_V=0;
 try{
   const req=new XMLHttpRequest();
   req.open('GET','tiles/bounds.json?t='+Date.now(),false);
@@ -113,9 +696,15 @@ try{
     if(b.ms_band_ranges)MS_BAND_RANGES=b.ms_band_ranges;
     if(b.resolucion_cm)RESOLUCION_CM=b.resolucion_cm;
     if(b.capas_disponibles)CAPAS_DISPONIBLES=new Set(b.capas_disponibles);
+    if(b.tiles_v)TILES_V=b.tiles_v;
     PRELIMINARY=!!b.preliminary;
   }
 }catch(e){}
+// Plantilla de URL de tile con el token de caché — usada tanto por las
+// capas L.tileLayer estándar (rgb/dband/hillshade) como por el img.src de
+// los Grid personalizados de más abajo (esos leen TILES_V directo en cada
+// createTile(), así que ya quedan al día solos con cada redraw()).
+function tileTpl(name){ return `tiles/${name}/{z}/{x}/{y}.png?v=${TILES_V}`; }
 
 // ═══════════════════════════════════════════════════════════════════
 // MAP + PANES
@@ -131,7 +720,7 @@ const FitBoundsControl=L.Control.extend({
   onAdd:function(){
     const el=L.DomUtil.create('div','leaflet-bar');
     const btn=L.DomUtil.create('a','map-extra-control',el);
-    btn.href='#';btn.title='Encuadrar toda la misión';btn.setAttribute('aria-label','Encuadrar toda la misión');
+    btn.href='#';btn.title=t('map.fitBounds');btn.setAttribute('aria-label',t('map.fitBounds'));
     btn.innerHTML='⤢';
     L.DomEvent.on(btn,'click',L.DomEvent.stop).on(btn,'click',()=>{
       if(MISSION_BOUNDS)map.fitBounds(MISSION_BOUNDS,{padding:[40,40]});else map.setView(CENTER,ZOOM);
@@ -161,23 +750,38 @@ const MS_BAND_IDS=Object.keys(MS_BAND_RANGES);
 // de "Situación actual" se queda pegado en "Cargando datos de la misión…"
 // para siempre. Bug real, encontrado corriendo la página real en jsdom.
 let liveMsBandIds=[...MS_BAND_IDS];
-// flight_path acá igual que area_afectada: layersPanelHTML() filtra por
+// flight_path: layersPanelHTML() filtra por
 // layerOrder, no por LAYER_REGISTRY directo — una capa que se
 // registra (sync o vía tryLoadFlightPath()) pero nunca entra a este array
 // se dibuja en el mapa igual (el loop de defaultOn de más abajo no depende
 // de layerOrder) pero no existía ni en el sidebar ni en la leyenda flotante.
-let layerOrder=['hillshade','rgb','dband',...(MS_BAND_IDS.length?['ms_composite']:[]),'thermal',...INDEX_NAMES,'ndvi_class','gndvi_class','ndre_class','msavi2_class','severidad','hotspot_termico','area_afectada','flight_path']; // bottom → top
-layerOrder.forEach((id,i)=>map.createPane('pane-'+id).style.zIndex=210+i*10);
+// TOP → BOTTOM (coincide exactamente con el orden visual del panel de Capas).
+// El elemento en el índice 0 está arriba de todo en el panel y tiene el zIndex
+// más alto (se renderiza encima de todas las demás capas en Leaflet).
+let layerOrder=[
+  'flight_path',
+  'hull_rgb','hull_thermal','hull_multispectral',
+  'area_afectada_experto','area_afectada_detectada','hotspot_termico',
+  'ndvi_class','gndvi_class','ndre_class','msavi2_class',
+  ...INDEX_NAMES,
+  'thermal',
+  ...(MS_BAND_IDS.length?['ms_composite']:[]),'rgb','dband',
+  'hillshade'
+];
+function applyLayerOrder(){
+  const total=layerOrder.length;
+  layerOrder.forEach((id,i)=>{
+    let pane=map.getPane('pane-'+id);
+    if(!pane)pane=map.createPane('pane-'+id);
+    pane.style.zIndex=210+(total-1-i)*10;
+  });
+}
+applyLayerOrder();
 
-// "Calles": OSM crudo (colores saturados, cientos de etiquetas de comercios/
-// POI que no aportan nada en una zona rural quemada) se cambió por CARTO
-// Voyager: cartografía curada, gris-cálida, con SOLO vías/lugares/relieve
-// (la referencia real que sirve para orientarse: caminos de acceso, veredas
-// cercanas), sin el ruido visual de un mapa de ciudad. Misma licencia
-// (datos OSM), atribución obligatoria abajo a la izquierda.
-const osmBase=L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',{
-  maxZoom:21,subdomains:'abcd',
-  attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · © <a href="https://carto.com/attribution" target="_blank" rel="noopener">CARTO</a>',
+// "Calles": Reemplazado CARTO por OpenTopoMap (OSM Terrain) sin key
+const osmBase=L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{
+  maxNativeZoom: 17, maxZoom:21,subdomains:'abc',
+  attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · © <a href="https://opentopomap.org" target="_blank" rel="noopener">OpenTopoMap</a>',
 }).addTo(map);
 const satBase=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{
   maxZoom:19,attribution:'© Esri, Maxar, Earthstar Geographics',
@@ -204,30 +808,28 @@ function avisarSiSinMapaBase(){
   const d=document.createElement('div');
   d.className='aviso-offline';
   d.setAttribute('role','status');
-  d.innerHTML='<b>Sin conexión al mapa base.</b> Las capas de esta misión '
-            + '(ortomosaico, térmico, índices, área afectada) se ven igual — '
-            + 'lo que falta es el fondo de calles y satelital, que viene de '
-            + 'internet.<button class="reset" aria-label="Cerrar"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-x"/></svg></button>';
+  d.innerHTML=`<b>${t('offline.title')}</b> ${t('offline.body')}`
+            + `<button class="reset" aria-label="${t('report.closeAria')}"><svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-x"/></svg></button>`;
   d.querySelector('button').addEventListener('click',()=>d.remove());
   document.body.appendChild(d);
 }
 for(const capa of [osmBase,satBase,satLabels]) capa.on('tileerror',avisarSiSinMapaBase);
 
-const rgbLayer=L.tileLayer('tiles/rgb/{z}/{x}/{y}.png',{maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:1,pane:'pane-rgb'}).addTo(map);
+const rgbLayer=L.tileLayer(tileTpl('rgb'),{maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:1,pane:'pane-rgb'}).addTo(map);
 
 // Banda D del M3M (mosaico visible rápido, opt-in) — a diferencia de
 // rgbLayer, NO se agrega al mapa ni se registra de entrada: la mayoría de
 // las misiones no la tienen. Se registra recién si aparece en
-// capas_disponibles (ver registerDband(), mismo patrón que severidad/
-// hotspot más abajo).
-const dbandLayer=L.tileLayer('tiles/dband/{z}/{x}/{y}.png',{maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:1,pane:'pane-dband'});
+// capas_disponibles (ver registerDband(), mismo patrón que hotspot más
+// abajo).
+const dbandLayer=L.tileLayer(tileTpl('dband'),{maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:1,pane:'pane-dband'});
 
 // ── RGB con orden de canales configurable ('normal' o personalizado
 // r/g/b→cualquier canal fuente), mismo tile 'rgb' de siempre, remapeado en
 // canvas client-side. channelOrder=['r','g','b'] es la identidad (igual que
 // rgbLayer de arriba); se usa solo cuando el usuario elige un orden
 // personalizado, para no pagar el costo de canvas en el caso normal. ──
-const RgbSwizzleGrid=L.GridLayer.extend({createTile:function(coords,done){const t=document.createElement('canvas');t.width=256;t.height=256;const ctx=t.getContext('2d'),img=new Image();img.crossOrigin='anonymous';const z=coords.z,x=coords.x,y=coords.y,order=this.options.channelOrder||['r','g','b'];const CH={r:0,g:1,b:2};img.onload=function(){ctx.drawImage(img,0,0);const d=ctx.getImageData(0,0,256,256).data;const src=new Uint8ClampedArray(d);for(let i=0;i<d.length;i+=4){d[i]=src[i+CH[order[0]]];d[i+1]=src[i+CH[order[1]]];d[i+2]=src[i+CH[order[2]]];}ctx.putImageData(new ImageData(d,256,256),0,0);done(null,t);};img.onerror=function(){done(null,t);};img.src=`tiles/rgb/${z}/${x}/${y}.png`;return t;}});
+const RgbSwizzleGrid=L.GridLayer.extend({createTile:function(coords,done){const t=document.createElement('canvas');t.width=256;t.height=256;const ctx=t.getContext('2d'),img=new Image();img.crossOrigin='anonymous';const z=coords.z,x=coords.x,y=coords.y,order=this.options.channelOrder||['r','g','b'];const CH={r:0,g:1,b:2};img.onload=function(){ctx.drawImage(img,0,0);const d=ctx.getImageData(0,0,256,256).data;const src=new Uint8ClampedArray(d);for(let i=0;i<d.length;i+=4){d[i]=src[i+CH[order[0]]];d[i+1]=src[i+CH[order[1]]];d[i+2]=src[i+CH[order[2]]];}ctx.putImageData(new ImageData(d,256,256),0,0);done(null,t);};img.onerror=function(){done(null,t);};img.src=`tiles/rgb/${z}/${x}/${y}.png?v=${TILES_V}`;return t;}});
 let rgbCustomLayer=null; // instanciada bajo demanda, ver setRgbChannelOrder()
 let rgbChannelOrder=['r','g','b'];
 function setRgbChannelOrder(order){
@@ -275,15 +877,23 @@ const BandCompositeGrid=L.GridLayer.extend({createTile:function(coords,done){
     img.crossOrigin='anonymous';
     img.onload=()=>{loaded++;if(loaded===3&&!failed)combine();};
     img.onerror=()=>{if(!failed){failed=true;done(null,t);}};
-    img.src=`tiles/${bands[i]}/${z}/${x}/${y}.png`;
+    img.src=`tiles/${bands[i]}/${z}/${x}/${y}.png?v=${TILES_V}`;
   });
   return t;
 }});
+// label como getter (no string fija): se relee con t() cada vez que algo
+// accede a la propiedad, así una banda personalizada abierta antes de
+// cambiar de idioma queda al día sin tocar quien la usa (legend(), acá
+// abajo, es una closure que ya se re-ejecuta en cada render del panel).
 const MS_COMPOSITE_PRESETS={
-  cir:{label:'Falso color IR (R=NIR G=Red B=Green)',bands:['ms_nir','ms_red','ms_green']},
-  rededge:{label:'RedEdge (R=NIR G=RedEdge B=Red)',bands:['ms_nir','ms_rededge','ms_red']},
+  cir:{get label(){return t('ms.presetCir');},bands:['ms_nir','ms_red','ms_green']},
+  rededge:{get label(){return t('ms.presetRededge');},bands:['ms_nir','ms_rededge','ms_red']},
 };
-const MS_BAND_LABELS={ms_red:'Red (espectral)',ms_green:'Green (espectral)',ms_nir:'NIR',ms_rededge:'RedEdge',dband_r:'Red (RGB banda D)',dband_g:'Green (RGB banda D)',dband_b:'Blue (RGB banda D)'};
+function msBandLabel(id){
+  const KEYS={ms_red:'ms.bandRed',ms_green:'ms.bandGreen',ms_nir:'ms.bandNir',ms_rededge:'ms.bandRededge',
+    dband_r:'ms.dbandRed',dband_g:'ms.dbandGreen',dband_b:'ms.dbandBlue'};
+  return KEYS[id]?t(KEYS[id]):id;
+}
 let msCompositeBands=(MS_COMPOSITE_PRESETS.cir.bands.every(b=>MS_BAND_IDS.includes(b)))
   ? [...MS_COMPOSITE_PRESETS.cir.bands] : [MS_BAND_IDS[0],MS_BAND_IDS[1]||MS_BAND_IDS[0],MS_BAND_IDS[2]||MS_BAND_IDS[0]];
 let msCompositeLayer=MS_BAND_IDS.length? new BandCompositeGrid({bandR:msCompositeBands[0],bandG:msCompositeBands[1],bandB:msCompositeBands[2],maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:1,pane:'pane-ms_composite'}) : null; // let: registerMsComposite() la crea después si la misión arrancó sin datos MS
@@ -294,25 +904,28 @@ function setMsCompositeBands(bands){
 }
 
 // Thermal canvas layer
-const ThermalGrid=L.GridLayer.extend({createTile:function(coords,done){const t=document.createElement('canvas');t.width=256;t.height=256;const ctx=t.getContext('2d'),img=new Image();img.crossOrigin='anonymous';const z=coords.z,x=coords.x,y=coords.y;img.onload=function(){ctx.drawImage(img,0,0);const d=ctx.getImageData(0,0,256,256).data,lut=currentLUT;for(let i=0;i<d.length;i+=4){const v=d[i],idx=v*4,origA=d[i+3];d[i]=lut[idx];d[i+1]=lut[idx+1];d[i+2]=lut[idx+2];d[i+3]=origA*lut[idx+3]/255;}ctx.putImageData(new ImageData(d,256,256),0,0);done(null,t);};img.onerror=function(){done(null,t);};img.src=`tiles/thermal/${z}/${x}/${y}.png`;return t;}});
+const ThermalGrid=L.GridLayer.extend({createTile:function(coords,done){const t=document.createElement('canvas');t.width=256;t.height=256;const ctx=t.getContext('2d'),img=new Image();img.crossOrigin='anonymous';const z=coords.z,x=coords.x,y=coords.y;img.onload=function(){ctx.drawImage(img,0,0);const d=ctx.getImageData(0,0,256,256).data,lut=currentLUT;for(let i=0;i<d.length;i+=4){const v=d[i],idx=v*4,origA=d[i+3];d[i]=lut[idx];d[i+1]=lut[idx+1];d[i+2]=lut[idx+2];d[i+3]=origA*lut[idx+3]/255;}ctx.putImageData(new ImageData(d,256,256),0,0);done(null,t);};img.onerror=function(){done(null,t);};img.src=`tiles/thermal/${z}/${x}/${y}.png?v=${TILES_V}`;return t;}});
 let thermalLayer=new ThermalGrid({maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:.7,pane:'pane-thermal'}).addTo(map);
 
 // Hillshade from DSM tiles (if available)
-let hillshadeLayer=L.tileLayer('tiles/hillshade/{z}/{x}/{y}.png',{maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:.4,pane:'pane-hillshade'});
+let hillshadeLayer=L.tileLayer(tileTpl('hillshade'),{maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:.4,pane:'pane-hillshade'});
 
 // Índices de vegetación (NDVI/GNDVI/NDRE) — solo existen si la misión trae
 // datos multiespectrales (/input_ms montado). Mismo patrón canvas-remap que
 // ThermalGrid, pero con la paleta divergente fija.
-const IndexGrid=L.GridLayer.extend({createTile:function(coords,done){const t=document.createElement('canvas');t.width=256;t.height=256;const ctx=t.getContext('2d'),img=new Image();img.crossOrigin='anonymous';const z=coords.z,x=coords.x,y=coords.y,name=this.options.indexName;img.onload=function(){ctx.drawImage(img,0,0);const d=ctx.getImageData(0,0,256,256).data,lut=INDEX_LUT;for(let i=0;i<d.length;i+=4){const v=d[i],idx=v*4,origA=d[i+3];d[i]=lut[idx];d[i+1]=lut[idx+1];d[i+2]=lut[idx+2];d[i+3]=origA*lut[idx+3]/255;}ctx.putImageData(new ImageData(d,256,256),0,0);done(null,t);};img.onerror=function(){done(null,t);};img.src=`tiles/${name}/${z}/${x}/${y}.png`;return t;}});
-const INDEX_LABELS={ndvi:['🌿 NDVI','Salud/vigor de vegetación'],gndvi:['🌾 GNDVI','Sensible a clorofila'],ndre:['🍃 NDRE','Estrés en dosel denso'],msavi2:['🌱 MSAVI2','NDVI corregido por brillo de suelo, más confiable que NDVI en dosel disperso/regeneración post-incendio']};
+const IndexGrid=L.GridLayer.extend({createTile:function(coords,done){const t=document.createElement('canvas');t.width=256;t.height=256;const ctx=t.getContext('2d'),img=new Image();img.crossOrigin='anonymous';const z=coords.z,x=coords.x,y=coords.y,name=this.options.indexName;img.onload=function(){ctx.drawImage(img,0,0);const d=ctx.getImageData(0,0,256,256).data,lut=INDEX_LUT;for(let i=0;i<d.length;i+=4){const v=d[i],idx=v*4,origA=d[i+3];d[i]=lut[idx];d[i+1]=lut[idx+1];d[i+2]=lut[idx+2];d[i+3]=origA*lut[idx+3]/255;}ctx.putImageData(new ImageData(d,256,256),0,0);done(null,t);};img.onerror=function(){done(null,t);};img.src=`tiles/${name}/${z}/${x}/${y}.png?v=${TILES_V}`;return t;}});
+function indexLabelInfo(name){
+  const K={ndvi:'idx.ndvi',gndvi:'idx.gndvi',ndre:'idx.ndre',msavi2:'idx.msavi2'};
+  return K[name]?[t(K[name]+'.label'),t(K[name]+'.desc')]:[name.toUpperCase(),''];
+}
 const indexLayers={};
 INDEX_NAMES.forEach(name=>{
   indexLayers[name]=new IndexGrid({indexName:name,maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:.8,pane:'pane-'+name});
 });
 
-// Severidad / hotspot térmico: clases DISCRETAS (0=sin dato, 1-4), no un
-// gradiente continuo — cada valor de píxel mapea a un color exacto, sin
-// interpolar (interpolar inventaría una "clase 2.5" que no existe). Los
+// Hotspot térmico / índices clasificados: clases DISCRETAS (0=sin dato, 1-4),
+// no un gradiente continuo — cada valor de píxel mapea a un color exacto,
+// sin interpolar (interpolar inventaría una "clase 2.5" que no existe). Los
 // tiles ya vienen con resampling "near" (generate_tiles.py), así que solo
 // deberían aparecer los 5 valores exactos.
 function buildDiscreteLUT(colorsByClass){
@@ -323,10 +936,8 @@ function buildDiscreteLUT(colorsByClass){
   }
   return lut;
 }
-const SEVERIDAD_LUT=buildDiscreteLUT({0:[0,0,0,0],1:[34,139,34,255],2:[255,235,59,255],3:[255,152,0,255],4:[211,47,47,255]});
 const HOTSPOT_LUT=buildDiscreteLUT({0:[0,0,0,0],1:[33,150,243,80],2:[255,235,59,255],3:[255,152,0,255],4:[198,40,40,255]});
-const ClassGrid=L.GridLayer.extend({createTile:function(coords,done){const t=document.createElement('canvas');t.width=256;t.height=256;const ctx=t.getContext('2d'),img=new Image();img.crossOrigin='anonymous';const z=coords.z,x=coords.x,y=coords.y,name=this.options.layerName,lut=this.options.lut;img.onload=function(){ctx.drawImage(img,0,0);const d=ctx.getImageData(0,0,256,256).data;for(let i=0;i<d.length;i+=4){const v=d[i],idx=v*4;d[i]=lut[idx];d[i+1]=lut[idx+1];d[i+2]=lut[idx+2];d[i+3]=lut[idx+3];}ctx.putImageData(new ImageData(d,256,256),0,0);done(null,t);};img.onerror=function(){done(null,t);};img.src=`tiles/${name}/${z}/${x}/${y}.png`;return t;}});
-const severidadLayer=new ClassGrid({layerName:'severidad',lut:SEVERIDAD_LUT,maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:.85,pane:'pane-severidad'});
+const ClassGrid=L.GridLayer.extend({createTile:function(coords,done){const t=document.createElement('canvas');t.width=256;t.height=256;const ctx=t.getContext('2d'),img=new Image();img.crossOrigin='anonymous';const z=coords.z,x=coords.x,y=coords.y,name=this.options.layerName,lut=this.options.lut;img.onload=function(){ctx.drawImage(img,0,0);const d=ctx.getImageData(0,0,256,256).data;for(let i=0;i<d.length;i+=4){const v=d[i],idx=v*4;d[i]=lut[idx];d[i+1]=lut[idx+1];d[i+2]=lut[idx+2];d[i+3]=lut[idx+3];}ctx.putImageData(new ImageData(d,256,256),0,0);done(null,t);};img.onerror=function(){done(null,t);};img.src=`tiles/${name}/${z}/${x}/${y}.png?v=${TILES_V}`;return t;}});
 const hotspotLayer=new ClassGrid({layerName:'hotspot_termico',lut:HOTSPOT_LUT,maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:.85,pane:'pane-hotspot_termico'});
 
 L.control.scale({imperial:false,metric:true,position:'bottomleft'}).addTo(map);
@@ -375,37 +986,24 @@ function gsdTxt(clave){
 // access before initialization" (temporal dead zone) — mismo bug real que
 // liveMsBandIds, ver su comentario más abajo.
 let SITUATION=null;
-const SIMPLE_HINTS={
-  severidad:'Rojo: daño alto — priorizar verificación en terreno. Amarillo/naranja: revisar cuando se pueda. Verde: sin anomalía detectada.',
-  hotspot_termico:'Rojo oscuro: foco activo (≥88°C) — riesgo de reactivación, requiere atención. Naranja/amarillo: temperatura elevada, monitorear.',
-  ndvi_class:'Verde: vegetación densa y sana. Amarillo: escasa o estresada — vigilar evolución. Café: sin cobertura vegetal.',
-  gndvi_class:'Verde: vegetación sana. Amarillo: estrés moderado. Rojo: estrés severo — posible daño por calor o falta de agua.',
-  ndre_class:'Verde oscuro: óptimo. Verde claro: saludable. Naranja/rojo: deficiencia — atención en el corto plazo.',
-  msavi2_class:'Verde: vegetación densa y sana. Amarillo: escasa o en regeneración temprana. Café: sin cobertura.',
-  ndvi:'Verde = vegetación sana y densa. Rojo/café = suelo desnudo o vegetación muy estresada.',
-  gndvi:'Verde = vegetación sana. Rojo = estrés severo, posible daño.',
-  ndre:'Verde = follaje saludable. Rojo = deficiencia — atención en el corto plazo.',
-  msavi2:'Verde = vegetación densa. Café = sin cobertura o suelo expuesto.',
-  rgb:'Imagen a color real del vuelo — referencia visual directa del terreno.',
-  ms_composite:'Composición de bandas espectrales — realza contrastes de vegetación no visibles a simple vista.',
-  thermal:'Escala de temperatura de superficie — más caliente (colores cálidos) puede indicar actividad térmica residual.',
-  hillshade:'Relieve del terreno — ayuda a ubicar pendientes y accesos, sin significado térmico ni de severidad.',
-  flight_path:'Recorrido real del dron durante la captura — útil para verificar cobertura del vuelo.',
-};
+// Función, no dict estático: se relee con t() en cada render (layerCardHTML,
+// llamada desde renderCapasPanel() en cada cambio de idioma).
+function simpleHint(id){
+  const key='hint.'+id;
+  return (I18N.en[key]!==undefined)?t(key):null;
+}
 
 // ── Registro de capas para el panel "Capas" (gestor unificado) ──
 const LAYER_REGISTRY={
-  hillshade:{label:'⛰️ Relieve (DSM)',group:'terreno',layer:hillshadeLayer,defaultOn:false,defaultOpacity:.4,
-    legend:()=>`<div class="stat-row"><span class="lbl">Resolución</span><span class="val">${gsdTxt('dsm')}</span></div>
-      <p>Sombreado de relieve calculado sobre el <b>DSM</b> (modelo digital de
-      <i>superficie</i>): incluye vegetación y construcciones, no es un modelo de
-      terreno desnudo (DTM). Solo referencia visual, sin unidades.</p>`},
-  rgb:{label:'📷 RGB',group:'opticas',layer:rgbLayer,defaultOn:true,defaultOpacity:1,
+  hillshade:{label:t('layer.hillshade'),group:'terreno',layer:hillshadeLayer,defaultOn:false,defaultOpacity:.4,
+    legend:()=>`<div class="stat-row"><span class="lbl">${t('legend.resolution')}</span><span class="val">${gsdTxt('dsm')}</span></div>
+      ${t('legend.hillshadeBody')}`},
+  rgb:{label:t('layer.rgb'),group:'opticas',layer:rgbLayer,defaultOn:true,defaultOpacity:1,
     legend:()=>`<div class="stat-row"><span class="lbl">GSD</span><span class="val cool">${gsdTxt('rgb')}</span></div><div class="stat-row"><span class="lbl">Sensor</span><span class="val">DJI Zenmuse H20T (wide)</span></div>
       <div class="band-picker" style="margin-top:8px">
-        <label>Canales<select class="rgb-channel-preset">
+        <label>${t('legend.channels')}<select class="rgb-channel-preset">
           <option value="normal"${rgbChannelOrder.join(',')==='r,g,b'?' selected':''}>Normal (R-G-B)</option>
-          <option value="custom"${rgbChannelOrder.join(',')!=='r,g,b'?' selected':''}>Personalizado</option>
+          <option value="custom"${rgbChannelOrder.join(',')!=='r,g,b'?' selected':''}>${t('legend.custom')}</option>
         </select></label>
         <div class="rgb-channel-custom" style="${rgbChannelOrder.join(',')!=='r,g,b'?'':'display:none'}">
           ${['R','G','B'].map((lbl,i)=>`<label>${lbl}<select class="rgb-channel-sel" data-ch="${i}">
@@ -415,33 +1013,33 @@ const LAYER_REGISTRY={
       </div>`},
 };
 if(MS_BAND_IDS.length){
-  LAYER_REGISTRY.ms_composite={label:'🎨 Multiespectral (compuesto)',group:'opticas',layer:msCompositeLayer,defaultOn:false,defaultOpacity:1,
+  LAYER_REGISTRY.ms_composite={label:t('layer.msComposite'),group:'opticas',layer:msCompositeLayer,defaultOn:false,defaultOpacity:1,
     legend:()=>{
       const presetKey=Object.entries(MS_COMPOSITE_PRESETS).find(([,p])=>p.bands.join(',')===msCompositeBands.join(','))?.[0]||'custom';
-      return `<p>Composición RGB armada en el navegador combinando 3 bandas espectrales crudas. No hay un archivo fijo por combinación, cambiar la selección recompone al vuelo.</p>
+      return `${t('legend.msCompositeBody')}
       <div class="band-picker">
         <label>Preset<select class="ms-composite-preset">
           ${Object.entries(MS_COMPOSITE_PRESETS).map(([k,p])=>`<option value="${k}"${presetKey===k?' selected':''}>${p.label}</option>`).join('')}
-          <option value="custom"${presetKey==='custom'?' selected':''}>Personalizado</option>
+          <option value="custom"${presetKey==='custom'?' selected':''}>${t('legend.custom')}</option>
         </select></label>
         <div class="ms-composite-custom" style="${presetKey==='custom'?'':'display:none'}">
           ${['R','G','B'].map((lbl,i)=>`<label>${lbl}<select class="ms-composite-sel" data-ch="${i}">
-            ${MS_BAND_IDS.map(id=>`<option value="${id}"${msCompositeBands[i]===id?' selected':''}>${MS_BAND_LABELS[id]||id}</option>`).join('')}
+            ${MS_BAND_IDS.map(id=>`<option value="${id}"${msCompositeBands[i]===id?' selected':''}>${msBandLabel(id)}</option>`).join('')}
           </select></label>`).join('')}
         </div>
       </div>`;}};
 }
-LAYER_REGISTRY.thermal={label:'🌡️ Térmico',group:'termicas',layer:thermalLayer,defaultOn:true,defaultOpacity:.7,
+LAYER_REGISTRY.thermal={label:t('layer.thermal'),group:'termicas',layer:thermalLayer,defaultOn:true,defaultOpacity:.7,
     legend:()=>{const pal=PALETTES[currentPalette],ramp=pal.colors.join(',');return `<div class="stat-row"><span class="lbl">GSD</span><span class="val warm">${gsdTxt('thermal')}</span></div>
-      <div class="stat-row"><span class="lbl">Rango</span><span class="val warm">${THERMAL_MIN.toFixed(1)}–${THERMAL_MAX.toFixed(1)} °C</span></div>
+      <div class="stat-row"><span class="lbl">${t('legend.range')}</span><span class="val warm">${THERMAL_MIN.toFixed(1)}-${THERMAL_MAX.toFixed(1)} °C</span></div>
       <div style="margin-top:6px"><div class="legend-bar" style="background:linear-gradient(to right,${ramp})"></div>
       <div class="legend-lbl"><span>${THERMAL_MIN.toFixed(1)}°C</span><span>${((THERMAL_MIN+THERMAL_MAX)/2).toFixed(1)}°C</span><span>${THERMAL_MAX.toFixed(1)}°C</span></div></div>`;}};
 INDEX_NAMES.forEach(name=>{
-  const [label,desc]=INDEX_LABELS[name]||[name.toUpperCase(),''];
+  const [label]=indexLabelInfo(name);
   const [lo,hi]=INDEX_RANGES[name];
   LAYER_REGISTRY[name]={label,group:'indices',layer:indexLayers[name],defaultOn:false,defaultOpacity:.8,
-    legend:()=>{const ramp=INDEX_PALETTE.colors.join(',');return `<p>${desc}</p>
-      <div class="stat-row"><span class="lbl">Rango</span><span class="val cool">${lo.toFixed(2)} a ${hi.toFixed(2)}</span></div>
+    legend:()=>{const ramp=INDEX_PALETTE.colors.join(','),desc=indexLabelInfo(name)[1];return `<p>${desc}</p>
+      <div class="stat-row"><span class="lbl">${t('legend.range')}</span><span class="val cool">${lo.toFixed(2)} ${t('legend.to')} ${hi.toFixed(2)}</span></div>
       <div style="margin-top:6px"><div class="legend-bar" style="background:linear-gradient(to right,${ramp})"></div>
       <div class="legend-lbl"><span>${lo.toFixed(2)}</span><span>${((lo+hi)/2).toFixed(2)}</span><span>${hi.toFixed(2)}</span></div></div>`;}};
 });
@@ -450,54 +1048,45 @@ function classLegend(classes){
     `<div class="stat-row"><span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:${color};margin-right:6px;vertical-align:middle"></span><span class="lbl">${label}</span></div>`
   ).join('')}</div>`;
 }
-// severidad/hotspot_termico/*_class: el objeto Layer de Leaflet se crea SIEMPRE
+// hotspot_termico/*_class: el objeto Layer de Leaflet se crea SIEMPRE
 // (su pane ya existe desde el layerOrder.forEach de arriba, no cuesta nada),
 // pero la entrada en LAYER_REGISTRY (lo que hace que aparezcan en el panel de
 // Capas) se registra SOLO si bounds.json dice que hay tiles de verdad
 // (CAPAS_DISPONIBLES, ver generate_tiles.py). Antes se registraban sin
-// condición: una misión sin multiespectral (o sin térmico) igual ofrecía
-// "Severidad", "Hotspot" y los 4 índices clasificados con tiles inexistentes.
-// registerSeveridad()/registerHotspot()/registerIndexClass() se llaman una vez
-// al cargar la página (para lo que ya está listo) y de nuevo en
-// pollBoundsForChanges() (para lo que aparece mientras la misión sigue
-// procesándose), mismo patrón que registerIndexLayer()/registerMsComposite().
+// condición: una misión sin térmico igual ofrecía "Hotspot" y los 4 índices
+// clasificados con tiles inexistentes.
+// registerHotspot()/registerIndexClass() se llaman una vez al cargar la
+// página (para lo que ya está listo) y de nuevo en pollBoundsForChanges()
+// (para lo que aparece mientras la misión sigue procesándose), mismo patrón
+// que registerIndexLayer()/registerMsComposite().
 function registerDband(){
   if(LAYER_REGISTRY.dband||!CAPAS_DISPONIBLES.has('dband'))return false;
-  LAYER_REGISTRY.dband={label:'📷 Visible (banda D)',group:'opticas',layer:dbandLayer,defaultOn:false,defaultOpacity:1,
-    legend:()=>`<div class="stat-row"><span class="lbl">GSD</span><span class="val cool">${gsdTxt('dband')}</span></div><div class="stat-row"><span class="lbl">Sensor</span><span class="val">DJI M3M — cámara D (RGB)</span></div>
-      <p>Mosaico visible rápido, calculado a partir de la cámara RGB propia del M3M — un sensor aparte de las 4 bandas espectrales (G/R/RE/NIR), no coalineado con ellas. Pensado para una primera mirada visual, no reemplaza al ortomosaico RGB del vuelo M3T/H20T si esta misión también lo tiene.</p>`};
+  LAYER_REGISTRY.dband={label:t('layer.dband'),group:'opticas',layer:dbandLayer,defaultOn:false,defaultOpacity:1,
+    legend:()=>`<div class="stat-row"><span class="lbl">GSD</span><span class="val cool">${gsdTxt('dband')}</span></div><div class="stat-row"><span class="lbl">Sensor</span><span class="val">${t('legend.dbandSensorLine')}</span></div>
+      ${t('legend.dbandBody')}`};
   return true;
 }
-function registerSeveridad(){
-  if(LAYER_REGISTRY.severidad||!CAPAS_DISPONIBLES.has('severidad'))return false;
-  LAYER_REGISTRY.severidad={label:'🔥 Severidad',group:'impacto',layer:severidadLayer,defaultOn:false,defaultOpacity:.85,
-    legend:()=>`<p>Severidad relativa al vigor de vegetación sana de esta misma misión (z-score robusto de brillo multiespectral, se autocalibra a cada vuelo, no un umbral fijo). Cortes en 1/2/3 sigma (regla empírica 68-95-99.7 de control estadístico de procesos). Recortado al polígono de área afectada: el verde NO significa "fuera del incendio" (eso ya se recortó), significa terreno DENTRO del perímetro sin anomalía espectral, es decir islas reales sin quemar (roca, claro, vegetación húmeda) o huecos que el detector rellena al cerrar el contorno.</p>`+
-      classLegend([['#228B22','Isla no quemada (&lt;1σ)'],['#FFEB3B','Leve (1-2σ)'],['#FF9800','Moderado (2-3σ)'],['#D32F2F','Severo (≥3σ)']])};
-  return true;
+// Clases del hotspot térmico: función, no array estático, para poder
+// pedirla dos veces con distinto escape de HTML (&lt; en la leyenda inline
+// del panel, < crudo en LEGEND_SWATCHES/canvas del reporte) y para que se
+// releea con t() en cada idioma.
+function hotspotClasses(useEntities){
+  const lt=useEntities?'&lt;':'<';
+  return [
+    ['#2196F3',`${t('hotspot.classNormal')} (${lt}40°C)`],
+    ['#FFEB3B',`${t('hotspot.classElevated')} (40-60°C)`],
+    ['#FF9800',`${t('hotspot.classHot')} (60-88°C)`],
+    ['#C62828',`${t('hotspot.classActive')} (≥88°C)`],
+  ];
 }
 function registerHotspot(){
   if(LAYER_REGISTRY.hotspot_termico||!CAPAS_DISPONIBLES.has('hotspot_termico'))return false;
-  // defaultOn: encendida de entrada SOLO si es la única señal de impacto de
-  // esta misión (sin severidad, típicamente sin multiespectral). Ahí es el
-  // dato principal, no algo que haya que ir a descubrir en el panel de
-  // Capas. Si severidad SÍ existe, se prioriza esa (severidad queda como
-  // defaultOn:false también) para no saturar el mapa con dos capas de
-  // impacto encimadas por defecto.
-  LAYER_REGISTRY.hotspot_termico={label:'♨️ Hotspot térmico',group:'impacto',layer:hotspotLayer,defaultOn:!CAPAS_DISPONIBLES.has('severidad'),defaultOpacity:.85,
-    // "recortado" se evalúa DENTRO de la leyenda, no al registrar: así
-    // siempre refleja el estado ACTUAL de liveMsBandIds y no el de cuando se
-    // registró (el multiespectral puede seguir procesándose y aparecer
-    // después). liveMsBandIds tiene que estar declarada ANTES de este punto
-    // del archivo. renderCapasPanel() llama a este legend() de forma
-    // SÍNCRONA al armar el panel por primera vez, así que una `let` declarada
-    // más abajo revienta con "Cannot access before initialization" ahí mismo
-    // (bug real que dejaba el panel de "Situación actual" pegado en
-    // "Cargando datos de la misión…" para siempre, ver dónde se declara
-    // liveMsBandIds, junto a MS_BAND_IDS, con la nota completa).
-    legend:()=>{const recortado=liveMsBandIds.length>0;
-      return `<p>Temperatura ABSOLUTA (no anomalía relativa: un umbral relativo da falsos positivos en suelo/cultivo calentado por el sol). El corte de "foco activo" (88°C/190°F) es el umbral operacional citado en literatura de detección de hotspots con drones para "fuego activo bajo superficie". Uso operacional: riesgo de reactivación / mop-up, distinto de la severidad de daño.</p>
-      <p>${recortado?'Recortado al polígono de área afectada detectado.':'Esta misión no tiene multiespectral: se muestra sobre <b>toda</b> la cobertura térmica, sin recortar a ningún polígono.'}</p>`+
-      classLegend([['#2196F3','Normal (&lt;40°C)'],['#FFEB3B','Elevado (40-60°C)'],['#FF9800','Caliente (60-88°C)'],['#C62828','Foco activo (≥88°C)']]);}};
+  // Única señal de impacto del geovisor — encendida de entrada, es el dato
+  // principal, no algo que haya que ir a descubrir en el panel de Capas.
+  LAYER_REGISTRY.hotspot_termico={label:t('layer.hotspot'),group:'impacto',layer:hotspotLayer,defaultOn:true,defaultOpacity:.85,
+    legend:()=>`${t('legend.hotspotBody1')}
+      ${t('legend.hotspotBody2')}`+
+      classLegend(hotspotClasses(true))};
   return true;
 }
 
@@ -507,286 +1096,41 @@ const INDEX_CLASS_LUTS={
   ndre_class:buildDiscreteLUT({0:[0,0,0,0],1:[211,47,47,255],2:[255,152,0,255],3:[139,195,74,255],4:[27,94,32,255]}),
   msavi2_class:buildDiscreteLUT({0:[0,0,0,0],1:[141,110,99,255],2:[255,235,59,255],3:[76,175,80,255]}),
 };
-const INDEX_CLASS_DEFS={
-  ndvi_class:{label:'🌿 NDVI clasificado',desc:'Cortes estándar USGS.',classes:[['#8D6E63','Sin vegetación (&lt;0.1)'],['#FFEB3B','Escasa/estresada (0.1-0.6)'],['#4CAF50','Densa y sana (≥0.6)']]},
-  gndvi_class:{label:'🌾 GNDVI clasificado',desc:'Cortes estándar de teledetección agrícola.',classes:[['#D32F2F','Estrés severo (&lt;0.3)'],['#FFEB3B','Moderada/estresada (0.3-0.5)'],['#4CAF50','Sana (≥0.5)']]},
-  ndre_class:{label:'🍃 NDRE clasificado',desc:'Cortes estándar de nitrógeno foliar (agricultura de precisión).',classes:[['#D32F2F','Deficiencia N (&lt;0.2)'],['#FF9800','Transición (0.2-0.3)'],['#8BC34A','Saludable (0.3-0.6)'],['#1B5E20','Óptimo/maduro (≥0.6)']]},
-  msavi2_class:{label:'🌱 MSAVI2 clasificado',desc:'NDVI corregido por brillo de suelo (Qi et al. 1994), más confiable que NDVI en dosel disperso (regeneración post-incendio, cobertura &lt;30%). Mismos cortes que NDVI (ver docstring de compute_severity_classes.py: MSAVI2 no tiene convención propia tan establecida, se reusa la de NDVI como punto de partida).',classes:[['#8D6E63','Sin vegetación (&lt;0.1)'],['#FFEB3B','Escasa/estresada (0.1-0.6)'],['#4CAF50','Densa y sana (≥0.6)']]},
+// Solo la ESTRUCTURA (colores, cortes numéricos) queda fija acá — el label,
+// la descripción y el nombre de cada clase se resuelven con t() en
+// indexClassLabel()/indexClassDesc()/indexClassSwatches(), no como strings
+// congeladas, para que se releean solas en cada cambio de idioma.
+const INDEX_CLASS_INFO={
+  ndvi_class:{labelKey:'layer.ndviClass',descKey:'idxclass.ndviClass.desc',classes:[['#8D6E63','idxclass.noVeg','(&lt;0.1)'],['#FFEB3B','idxclass.sparseStressed','(0.1-0.6)'],['#4CAF50','idxclass.denseHealthy','(≥0.6)']]},
+  gndvi_class:{labelKey:'layer.gndviClass',descKey:'idxclass.gndviClass.desc',classes:[['#D32F2F','idxclass.severeStress','(&lt;0.3)'],['#FFEB3B','idxclass.moderateStressed','(0.3-0.5)'],['#4CAF50','idxclass.healthy','(≥0.5)']]},
+  ndre_class:{labelKey:'layer.ndreClass',descKey:'idxclass.ndreClass.desc',classes:[['#D32F2F','idxclass.nDeficiency','(&lt;0.2)'],['#FF9800','idxclass.transition','(0.2-0.3)'],['#8BC34A','idxclass.healthy2','(0.3-0.6)'],['#1B5E20','idxclass.optimalMature','(≥0.6)']]},
+  msavi2_class:{labelKey:'layer.msavi2Class',descKey:'idxclass.msavi2Class.desc',classes:[['#8D6E63','idxclass.noVeg','(&lt;0.1)'],['#FFEB3B','idxclass.sparseStressed','(0.1-0.6)'],['#4CAF50','idxclass.denseHealthy','(≥0.6)']]},
 };
+function indexClassLabel(name){ return t(INDEX_CLASS_INFO[name].labelKey); }
+function indexClassDesc(name){ return t(INDEX_CLASS_INFO[name].descKey); }
+function indexClassSwatches(name){ return INDEX_CLASS_INFO[name].classes.map(([c,key,suffix])=>[c,`${t(key)} ${suffix}`]); }
 const indexClassLayers={};
-Object.keys(INDEX_CLASS_DEFS).forEach(name=>{
+Object.keys(INDEX_CLASS_INFO).forEach(name=>{
   indexClassLayers[name]=new ClassGrid({layerName:name,lut:INDEX_CLASS_LUTS[name],maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:.85,pane:'pane-'+name});
 });
 // Swatches [color,etiqueta] por capa, para la leyenda de la imagen exportada
-// (ver drawMapLegendOnCanvas() en la sección del reporte). Los 4 índices
-// clasificados ya traen los suyos en INDEX_CLASS_DEFS[id].classes.
-// severidad/hotspot_termico arman su leyenda como HTML inline (classLegend()
-// en su registerX()), así que acá se repiten solo esos dos, no se duplica
-// nada que ya viva en un array reusable.
-const LEGEND_SWATCHES={
-  severidad:[['#228B22','Isla no quemada (<1σ)'],['#FFEB3B','Leve (1-2σ)'],['#FF9800','Moderado (2-3σ)'],['#D32F2F','Severo (≥3σ)']],
-  hotspot_termico:[['#2196F3','Normal (<40°C)'],['#FFEB3B','Elevado (40-60°C)'],['#FF9800','Caliente (60-88°C)'],['#C62828','Foco activo (≥88°C)']],
-};
+// (ver buildReportCanvas() en la sección del reporte). hotspot_termico y los
+// 4 índices clasificados arman los suyos con las funciones de arriba, no con
+// un array estático — así se releen en el idioma activo en cada exportación.
 function legendSwatchesFor(id){
-  if(LEGEND_SWATCHES[id])return LEGEND_SWATCHES[id];
-  if(INDEX_CLASS_DEFS[id])return INDEX_CLASS_DEFS[id].classes.map(([c,l])=>[c,l.replace(/&lt;/g,'<').replace(/&gt;/g,'>')]);
+  if(id==='hotspot_termico')return hotspotClasses(false);
+  if(INDEX_CLASS_INFO[id])return indexClassSwatches(id).map(([c,l])=>[c,l.replace(/&lt;/g,'<').replace(/&gt;/g,'>')]);
   return null;
 }
 function registerIndexClass(name){
   if(LAYER_REGISTRY[name]||!CAPAS_DISPONIBLES.has(name))return false;
-  const def=INDEX_CLASS_DEFS[name];
-  LAYER_REGISTRY[name]={label:def.label,group:'indices',layer:indexClassLayers[name],defaultOn:false,defaultOpacity:.85,
-    legend:()=>`<p>${def.desc}</p>`+classLegend(def.classes)};
+  LAYER_REGISTRY[name]={label:indexClassLabel(name),group:'indices',layer:indexClassLayers[name],defaultOn:false,defaultOpacity:.85,
+    legend:()=>`<p>${indexClassDesc(name)}</p>`+classLegend(indexClassSwatches(name))};
   return true;
 }
 registerDband();
-registerSeveridad();
 registerHotspot();
-Object.keys(INDEX_CLASS_DEFS).forEach(registerIndexClass);
-
-// ═══════════════════════════════════════════════════════════════════
-// Polígono del área afectada (detect_area_afectada.py): capa vectorial
-// EDITABLE: agregar/quitar polígonos sueltos, agregar/quitar vértices,
-// área en vivo en hectáreas, guardado al servidor.
-// ═══════════════════════════════════════════════════════════════════
-const areaAfectadaLayer=L.layerGroup();   // capa "real" para el panel de Capas
-areaAfectadaLayer.options.opacity=1;
-const areaEditHandlesGroup=L.layerGroup(); // vértices+basurero, solo en modo edición
-let areaEditMode=false,areaDirty=false,areaDrawingNew=false;
-let areaPolyEntries=[];      // {rings:[[LatLng,...]], layer, vertexMarkers:[], midMarkers:[], trashMarker}
-let areaOriginalGeoJSON=null;
-let areaNewRingPoints=[],areaNewPreviewLayer=null;
-
-function ringAreaM2(latlngs){
-  // shoelace en proyección equirectangular local (centrada en la latitud
-  // media del anillo), precisión de sobra a la escala de una misión de
-  // dron (pocas hectáreas, cientos de metros de extensión).
-  if(latlngs.length<3)return 0;
-  const R=6378137,meanLat=latlngs.reduce((s,p)=>s+p.lat,0)/latlngs.length*Math.PI/180;
-  const pts=latlngs.map(p=>({x:p.lng*Math.PI/180*R*Math.cos(meanLat),y:p.lat*Math.PI/180*R}));
-  let a=0;
-  for(let i=0;i<pts.length;i++){const j=(i+1)%pts.length;a+=pts[i].x*pts[j].y-pts[j].x*pts[i].y;}
-  return Math.abs(a/2);
-}
-function polygonAreaM2(rings){
-  if(!rings.length)return 0;
-  let a=ringAreaM2(rings[0]);
-  for(let i=1;i<rings.length;i++)a-=ringAreaM2(rings[i]); // huecos se restan
-  return Math.max(0,a);
-}
-function totalAreaHa(){return areaPolyEntries.reduce((s,e)=>s+polygonAreaM2(e.rings),0)/10000;}
-function updateAreaBadge(){
-  const el=document.getElementById('area-edit-ha');
-  if(el)el.textContent=totalAreaHa().toFixed(2)+' ha';
-}
-
-function geojsonToRings(geom){
-  const polys=geom.type==='MultiPolygon'?geom.coordinates:[geom.coordinates];
-  return polys.map(rings=>rings.map(ring=>ring.map(c=>L.latLng(c[1],c[0]))));
-}
-function ringsToGeojsonCoords(polys){
-  return polys.map(rings=>rings.map(ring=>ring.map(ll=>[ll.lng,ll.lat])));
-}
-
-function clearEditHandles(entry){
-  entry.vertexMarkers.forEach(m=>areaEditHandlesGroup.removeLayer(m));
-  entry.midMarkers.forEach(m=>areaEditHandlesGroup.removeLayer(m));
-  entry.vertexMarkers=[];entry.midMarkers=[];
-}
-function vertexIcon(){return L.divIcon({className:'area-vertex',iconSize:[10,10]});}
-function midIcon(){return L.divIcon({className:'area-vertex-mid',iconSize:[8,8]});}
-function rebuildMidMarkers(entry){
-  entry.midMarkers.forEach(m=>areaEditHandlesGroup.removeLayer(m));
-  const ring=entry.rings[0];
-  entry.midMarkers=ring.map((ll,i)=>{
-    const j=(i+1)%ring.length;
-    const mid=L.latLng((ll.lat+ring[j].lat)/2,(ll.lng+ring[j].lng)/2);
-    const m=L.marker(mid,{icon:midIcon(),pane:'pane-area_afectada'});
-    m.on('click',ev=>{
-      L.DomEvent.stopPropagation(ev);
-      ring.splice(i+1,0,m.getLatLng());
-      entry.layer.setLatLngs(entry.rings);
-      buildEditHandles(entry);
-      areaDirty=true;updateAreaBadge();
-    });
-    areaEditHandlesGroup.addLayer(m);
-    return m;
-  });
-}
-// Solo mueve los marcadores de punto medio ya existentes (sin recrearlos).
-// Se usa durante el arrastre de un vértice, que dispara 'drag' muchas
-// veces por segundo; recrear marcadores (rebuildMidMarkers) en cada tick
-// se ve tembloroso en polígonos con muchos vértices.
-function repositionMidMarkers(entry){
-  const ring=entry.rings[0];
-  entry.midMarkers.forEach((m,i)=>{
-    const j=(i+1)%ring.length;
-    m.setLatLng(L.latLng((ring[i].lat+ring[j].lat)/2,(ring[i].lng+ring[j].lng)/2));
-  });
-}
-function buildEditHandles(entry){
-  clearEditHandles(entry);
-  const ring=entry.rings[0];
-  ring.forEach((ll,i)=>{
-    const m=L.marker(ll,{icon:vertexIcon(),draggable:true,pane:'pane-area_afectada'});
-    m.on('drag',()=>{
-      ring[i]=m.getLatLng();
-      entry.layer.setLatLngs(entry.rings);
-      repositionMidMarkers(entry);
-      updateAreaBadge();
-    });
-    m.on('dragend',()=>{areaDirty=true;updateAreaBadge();});
-    m.on('click',ev=>{
-      L.DomEvent.stopPropagation(ev);
-      if(ring.length<=3)return; // no dejar degenerar el polígono por debajo de un triángulo
-      ring.splice(i,1);
-      entry.layer.setLatLngs(entry.rings);
-      buildEditHandles(entry);
-      areaDirty=true;updateAreaBadge();
-    });
-    entry.vertexMarkers.push(m);
-    areaEditHandlesGroup.addLayer(m);
-  });
-  rebuildMidMarkers(entry);
-  if(!entry.trashMarker){
-    entry.trashMarker=L.marker(entry.layer.getBounds().getCenter(),{icon:L.divIcon({className:'area-trash',html:'<svg viewBox="0 0 24 24" width="26" height="26"><use href="#i-trash"/></svg>',iconSize:[26,26]}),pane:'pane-area_afectada'});
-    entry.trashMarker.on('click',ev=>{L.DomEvent.stopPropagation(ev);deletePolygonEntry(entry);});
-  }
-  areaEditHandlesGroup.addLayer(entry.trashMarker);
-}
-
-function addPolygonEntry(rings){
-  const layer=L.polygon(rings,{color:'#ff1744',weight:3,fillColor:'#ff1744',fillOpacity:.05,pane:'pane-area_afectada'});
-  areaAfectadaLayer.addLayer(layer);
-  const entry={rings,layer,vertexMarkers:[],midMarkers:[],trashMarker:null};
-  areaPolyEntries.push(entry);
-  if(areaEditMode)buildEditHandles(entry);
-  return entry;
-}
-function deletePolygonEntry(entry){
-  areaAfectadaLayer.removeLayer(entry.layer);
-  clearEditHandles(entry);
-  if(entry.trashMarker)areaEditHandlesGroup.removeLayer(entry.trashMarker);
-  areaPolyEntries=areaPolyEntries.filter(e=>e!==entry);
-  areaDirty=true;updateAreaBadge();
-}
-function loadAreaAfectada(geo){
-  areaPolyEntries.forEach(e=>{areaAfectadaLayer.removeLayer(e.layer);clearEditHandles(e);if(e.trashMarker)areaEditHandlesGroup.removeLayer(e.trashMarker);});
-  areaPolyEntries=[];
-  areaOriginalGeoJSON=JSON.parse(JSON.stringify(geo));
-  const feat=geo.features&&geo.features[0];
-  if(feat)geojsonToRings(feat.geometry).forEach(rings=>addPolygonEntry(rings));
-  areaDirty=false;
-  updateAreaBadge();
-}
-
-function enterAreaEditMode(){
-  areaEditMode=true;
-  areaEditHandlesGroup.addTo(map);
-  areaPolyEntries.forEach(buildEditHandles);
-  document.getElementById('area-edit-panel').classList.add('editing');
-  document.getElementById('btn-area-edit').innerHTML='<svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-x"/></svg> Salir de edición';
-}
-function exitAreaEditMode(){
-  areaEditMode=false;
-  cancelDrawNewArea();
-  areaPolyEntries.forEach(e=>{clearEditHandles(e);if(e.trashMarker){areaEditHandlesGroup.removeLayer(e.trashMarker);e.trashMarker=null;}});
-  map.removeLayer(areaEditHandlesGroup);
-  document.getElementById('area-edit-panel').classList.remove('editing');
-  document.getElementById('btn-area-edit').textContent='✏️ Editar';
-}
-function toggleAreaEdit(){areaEditMode?exitAreaEditMode():enterAreaEditMode();}
-
-function onDrawNewAreaClick(e){
-  areaNewRingPoints.push(e.latlng);
-  if(areaNewPreviewLayer)map.removeLayer(areaNewPreviewLayer);
-  if(areaNewRingPoints.length>1)areaNewPreviewLayer=L.polyline(areaNewRingPoints,{color:'#ff1744',weight:2,dashArray:'4,4'}).addTo(map);
-}
-function finishDrawNewArea(e){
-  if(e)L.DomEvent.stopPropagation(e);
-  // Un doble-click dispara click+click+dblclick en el DOM: el último click
-  // ya agregó un punto pegado al anterior (misma posición) antes de que
-  // este handler corriera, así que se descarta para no dejar un vértice duplicado.
-  if(areaNewRingPoints.length>=2){
-    const a=areaNewRingPoints[areaNewRingPoints.length-1],b=areaNewRingPoints[areaNewRingPoints.length-2];
-    if(Math.abs(a.lat-b.lat)<1e-7&&Math.abs(a.lng-b.lng)<1e-7)areaNewRingPoints.pop();
-  }
-  if(areaNewRingPoints.length>=3){
-    addPolygonEntry([areaNewRingPoints.slice()]);
-    areaDirty=true;updateAreaBadge();
-  }
-  cancelDrawNewArea();
-}
-function cancelDrawNewArea(){
-  if(!areaDrawingNew)return;
-  areaDrawingNew=false;
-  map.off('click',onDrawNewAreaClick);
-  map.off('dblclick',finishDrawNewArea);
-  map.doubleClickZoom.enable();
-  map.getContainer().style.cursor='';
-  if(areaNewPreviewLayer){map.removeLayer(areaNewPreviewLayer);areaNewPreviewLayer=null;}
-  areaNewRingPoints=[];
-  const btn=document.getElementById('btn-area-new');
-  if(btn)btn.textContent='➕ Nueva área';
-}
-function startDrawNewArea(){
-  if(areaDrawingNew){finishDrawNewArea();return;}
-  areaDrawingNew=true;
-  areaNewRingPoints=[];
-  document.getElementById('btn-area-new').innerHTML='<svg class="ic" style="width:14px;height:14px" aria-hidden="true"><use href="#i-check"/></svg> Terminar (doble-click)';
-  map.getContainer().style.cursor='crosshair';
-  map.doubleClickZoom.disable();
-  map.on('click',onDrawNewAreaClick);
-  map.on('dblclick',finishDrawNewArea);
-}
-
-async function saveAreaAfectada(){
-  const coords=ringsToGeojsonCoords(areaPolyEntries.map(e=>e.rings));
-  const areaM2=areaPolyEntries.reduce((s,e)=>s+polygonAreaM2(e.rings),0);
-  const origProps=(areaOriginalGeoJSON&&areaOriginalGeoJSON.features&&areaOriginalGeoJSON.features[0]&&areaOriginalGeoJSON.features[0].properties)||{};
-  const geo={
-    type:'FeatureCollection',name:'area_afectada',
-    crs:{type:'name',properties:{name:'urn:ogc:def:crs:OGC:1.3:CRS84'}},
-    features:coords.length?[{
-      type:'Feature',
-      properties:{area_m2:areaM2,metodo:(origProps.metodo||'')+` — editado manualmente en el geovisor (${new Date().toISOString()})`},
-      geometry:{type:'MultiPolygon',coordinates:coords}
-    }]:[]
-  };
-  const statusEl=document.getElementById('area-edit-status');
-  statusEl.textContent='Guardando…';
-  try{
-    const resp=await fetch('api/save-area-afectada',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(geo)});
-    if(!resp.ok)throw new Error('HTTP '+resp.status);
-    areaOriginalGeoJSON=geo;
-    areaDirty=false;
-    statusEl.innerHTML='<svg class="ic" style="width:13px;height:13px;color:var(--good)" aria-hidden="true"><use href="#i-check"/></svg> Guardado';
-    setTimeout(()=>{if(statusEl.textContent.includes('Guardado'))statusEl.textContent='';},3000);
-  }catch(err){
-    statusEl.innerHTML='<svg class="ic" style="width:13px;height:13px;color:var(--critical)" aria-hidden="true"><use href="#i-x"/></svg> Error al guardar: '+err.message;
-  }
-}
-function discardAreaEdits(){
-  if(areaDirty&&!confirm('¿Descartar los cambios sin guardar?'))return;
-  loadAreaAfectada(areaOriginalGeoJSON);
-  if(areaEditMode)areaPolyEntries.forEach(buildEditHandles);
-  document.getElementById('area-edit-status').textContent='';
-}
-
-// Se carga sync (mismo patrón que bounds.json). Si la misión no tiene
-// multiespectral+térmico, el archivo no existe y se omite sin error.
-areaAfectadaLayer.setOpacity=function(v){areaPolyEntries.forEach(e=>e.layer.setStyle({opacity:v,fillOpacity:.05*v}));};
-try{
-  const req=new XMLHttpRequest();
-  req.open('GET','outputs/area_afectada.geojson',false);
-  req.send(null);
-  if(req.status===200){
-    loadAreaAfectada(JSON.parse(req.responseText));
-    document.getElementById('area-edit-panel').classList.add('visible');
-    LAYER_REGISTRY.area_afectada={label:'📐 Polígono área afectada',group:'impacto',layer:areaAfectadaLayer,defaultOn:true,defaultOpacity:1,
-      legend:()=>`<p>Contorno detectado automáticamente (ver capa Severidad para la metodología), editable con el botón 📐 sobre el mapa. Referencia espacial de dónde se recortan severidad/hotspot, no reemplaza una verificación en terreno.</p>`};
-  }
-}catch(e){}
+Object.keys(INDEX_CLASS_INFO).forEach(registerIndexClass);
 
 // ── Ruta de vuelo ────────────────────────────────────────────────────
 // La escribe scripts/export_flight_path.py ANTES de invocar a ODM, desde el
@@ -800,6 +1144,27 @@ const flightLayer=L.featureGroup();
 flightLayer.setOpacity=function(v){
   flightLayer.eachLayer(l=>{if(l.setStyle)l.setStyle({opacity:v,fillOpacity:v*.85});});
 };
+// Nombre de sensor traducido (mismas 3 claves rgb/thermal/multispectral en
+// todo el archivo: flight_path, cascos convexos, HUD de progreso).
+function sensorLabel(sensor){
+  const K={rgb:'sensor.rgb',thermal:'sensor.thermal',multispectral:'sensor.multispectral'};
+  return K[sensor]?t(K[sensor]):sensor;
+}
+function sensorCountLabel(sensor){
+  return sensor==='rgb'?'RGB':sensorLabel(sensor).toLowerCase();
+}
+// Cuerpo de la leyenda de "Ruta de vuelo": función (no template estático)
+// para que se releea con t() en cada idioma, igual que el resto de las
+// leyendas de este archivo.
+function flightPathLegendBody(resumen){
+  return LANG==='es'
+    ? `<p>Recorrido y posición de cada captura, según el GPS embebido en
+        las fotos (${resumen}). Se genera antes de la reconstrucción, así que está
+        disponible mientras el procesamiento sigue en curso.</p>`
+    : `<p>Path and position of each capture, from the GPS embedded in
+        the photos (${resumen}). Generated before reconstruction, so it is
+        available while processing is still running.</p>`;
+}
 try{
   const req=new XMLHttpRequest();
   req.open('GET','outputs/flight_path.geojson',false);
@@ -822,34 +1187,129 @@ try{
       }
     });
     if(tally.multispectral)hasMsInput=true;
-    const SN={rgb:'RGB',thermal:'térmico',multispectral:'multiespectral'};
-    const resumen=Object.entries(tally).map(([s,n])=>`${n} ${SN[s]||s}`).join(' · ');
+    if(tally.thermal)hasThermalInput=true;
     // Encendida por defecto solo mientras la corrida está en curso: una vez
     // que hay ortomosaicos, el recorrido estorba más de lo que aporta.
-    LAYER_REGISTRY.flight_path={label:'🛩️ Ruta de vuelo',group:'vuelo',layer:flightLayer,
+    LAYER_REGISTRY.flight_path={label:t('layer.flightPath'),group:'vuelo',layer:flightLayer,
       defaultOn:PRELIMINARY,defaultOpacity:1,
-      legend:()=>`<p>Recorrido y posición de cada captura, según el GPS embebido en
-        las fotos (${resumen}). Se genera antes de la reconstrucción, así que está
-        disponible mientras el procesamiento sigue en curso.</p>`};
+      legend:()=>{
+        const resumen=Object.entries(tally).map(([s,n])=>`${n} ${sensorCountLabel(s)}`).join(' · ');
+        return flightPathLegendBody(resumen);
+      }};
+  }
+}catch(e){}
+
+// ── Cascos convexos (trim_low_overlap_edges.py::_footprint_hull_mask) ──
+// El polígono REAL que se usa para recortar cada mosaico, no una
+// aproximación. Reportado en vivo: sin poder ver el casco en sí, un mosaico
+// que se veía mal recortado no decía si el problema era el casco (mal
+// calculado) o algo aguas abajo (alpha crudo de ODM, filtro de parches
+// sueltos) — esta capa lo separa a simple vista. Apagada por defecto (es
+// una herramienta de validación, no algo para mirar en el uso normal); los
+// tres sensores comparten el mismo color que ya usa Ruta de vuelo.
+const HULL_SC={rgb:'#58a6ff',thermal:'#f0883e',multispectral:'#3fb950'};
+function hullLegendBody(sensor){
+  const name=sensorLabel(sensor).toLowerCase();
+  return LANG==='es'
+    ? `<p>Polígono REAL usado para recortar el mosaico ${name}: el
+        casco convexo de las huellas en el suelo de todas las fotos de ese sensor que entraron a la
+        reconstrucción. Si el mosaico se ve recortado por DENTRO de este contorno, el problema no es el
+        casco; si el mosaico se sale de este contorno, sí lo es.</p>`
+    : `<p>Actual polygon used to trim the ${name} mosaic: the
+        convex hull of the ground footprints of every photo from that sensor that went into the
+        reconstruction. If the mosaic looks trimmed INSIDE this outline, the hull is not the problem;
+        if the mosaic extends past this outline, it is.</p>`;
+}
+function _loadHullSync(sensor){
+  if(LAYER_REGISTRY['hull_'+sensor])return;
+  try{
+    const req=new XMLHttpRequest();
+    req.open('GET',`outputs/hull_${sensor}.geojson`,false);
+    req.send(null);
+    if(req.status!==200)return;
+    const gj=JSON.parse(req.responseText);
+    const c=HULL_SC[sensor];
+    const layer=L.geoJSON(gj,{style:{color:c,weight:2,opacity:.9,fill:false,dashArray:'2,6'}});
+    layer.setOpacity=function(v){layer.setStyle({opacity:v});};
+    LAYER_REGISTRY['hull_'+sensor]={label:`${t('layer.hull')} · ${sensorLabel(sensor)}`,group:'vuelo',
+      layer,defaultOn:false,defaultOpacity:1,
+      legend:()=>hullLegendBody(sensor)};
+  }catch(e){}
+}
+['rgb','thermal','multispectral'].forEach(_loadHullSync);
+
+// ── Capas de Área Quemada (Validación Experto vs Detección Algorítmica) ──
+try{
+  const req=new XMLHttpRequest();
+  req.open('GET','outputs/area_afectada_experto.geojson',false);
+  req.send(null);
+  if(req.status===200){
+    const gj=JSON.parse(req.responseText);
+    const totalHa=gj.properties?.total_area_ha||0;
+    const totalM2=gj.properties?.total_area_m2||0;
+    const layer=L.geoJSON(gj,{
+      pane:'pane-area_afectada_experto',
+      style:{color:'#ff6d00',weight:3,opacity:.95,fillColor:'#ff9100',fillOpacity:.25,dashArray:'6,4'},
+      onEachFeature:(ft,l)=>{
+        l.bindPopup(`<strong>📌 Área Afectada Manual (Experto)</strong><br>`+
+                    `Área: <b>${ft.properties.area_ha||totalHa} ha</b> (${ft.properties.area_m2||totalM2} m²)<br>`+
+                    `Origen: ${ft.properties.origen||'Digitación experta en campo'}`);
+      }
+    });
+    layer.setOpacity=function(v){layer.setStyle({opacity:v,fillOpacity:v*.25});};
+    LAYER_REGISTRY.area_afectada_experto={
+      label:t('layer.areaExperto')||'📌 Área afectada (Oficial / Experto)',
+      group:'impacto',
+      layer,
+      defaultOn:true,
+      defaultOpacity:1,
+      legend:()=>LANG==='es'
+        ? `<p><b>Delimitación oficial validada:</b> Polígono oficial de área afectada levantado por fotointerpretación experta o delimitación asistida en RAPTOR. Superficie: <b>${totalHa} ha</b> (${totalM2} m²).</p>`
+        : `<p><b>Official validated area:</b> Official burned area polygon from expert photointerpretation or assisted delineation in RAPTOR. Area: <b>${totalHa} ha</b> (${totalM2} m²).</p>`
+    };
+  }
+}catch(e){}
+
+try{
+  const req=new XMLHttpRequest();
+  req.open('GET','outputs/area_afectada_detectada.geojson',false);
+  req.send(null);
+  if(req.status===200){
+    const gj=JSON.parse(req.responseText);
+    const totalHa=gj.properties?.total_area_ha||0;
+    const totalM2=gj.properties?.total_area_m2||0;
+    const layer=L.geoJSON(gj,{
+      pane:'pane-area_afectada_detectada',
+      style:{color:'#f59e0b',weight:2,opacity:.8,fillColor:'#fbbf24',fillOpacity:.2,dashArray:'4,4'},
+      onEachFeature:(ft,l)=>{
+        l.bindPopup(`<strong>💡 Máscara Térmica Sugerida (Guía de Apoyo)</strong><br>`+
+                    `Superficie sugerida: <b>${ft.properties.area_ha||totalHa} ha</b> (${ft.properties.area_m2||totalM2} m²)<br>`+
+                    `Uso: Apoyo visual para la herramienta de delimitación interactiva.`);
+      }
+    });
+    layer.setOpacity=function(v){layer.setStyle({opacity:v,fillOpacity:v*.2});};
+    LAYER_REGISTRY.area_afectada_detectada={
+      label:t('layer.areaDetectada')||'💡 Máscara térmica sugerida',
+      group:'impacto',
+      layer,
+      defaultOn:false,
+      defaultOpacity:0.8,
+      legend:()=>LANG==='es'
+        ? `<p><b>Máscara térmica sugerida:</b> Guía visual generada por gradiente térmico radiométrico para asistir la delimitación pericial con la herramienta interactiva.</p>`
+        : `<p><b>Suggested thermal mask:</b> Visual guide generated from radiometric thermal gradients to assist expert polygon delineation.</p>`
+    };
   }
 }catch(e){}
 
 // Orden pensado para decisión, no para flujo técnico: lo que más pesa para
-// decidir dónde actuar (severidad, hotspots, área) va primero, no al final
-// de un scroll, que es donde quedaba con el orden "técnico" anterior.
-const GROUP_LABELS={impacto:'🔥 Impacto del incendio',indices:'🌿 Índices',opticas:'📷 Ópticas',termicas:'🌡️ Térmicas',terreno:'⛰️ Terreno',vuelo:'🛩️ Vuelo'};
-const GROUP_ORDER=['impacto','indices','opticas','termicas','terreno','vuelo'];
+// decidir dónde actuar (hotspots) va primero, no al final de un scroll, que
+// es donde quedaba con el orden "técnico" anterior.
+function groupLabel(group){ return t('group.'+group); }
+const GROUP_ORDER=['vuelo','impacto','indices','termicas','opticas','terreno'];
 
 Object.entries(LAYER_REGISTRY).forEach(([id,def])=>{
   if(def.defaultOn)def.layer.addTo(map);
 });
-
-function applyLayerOrder(){
-  layerOrder.forEach((id,i)=>{
-    const pane=map.getPane('pane-'+id);
-    if(pane)pane.style.zIndex=210+i*10;
-  });
-}
 
 // ═══════════════════════════════════════════════════════════════════
 // COMPARE SLIDER
@@ -857,18 +1317,15 @@ function applyLayerOrder(){
 // Fábrica de instancias de capa para el comparador: cada lado usa su
 // PROPIA instancia (Leaflet no permite una misma capa en dos mapas a la
 // vez), armada con la misma receta que la capa original de LAYER_REGISTRY.
-// area_afectada (vectorial) queda afuera a propósito: el comparador es
-// para capas ráster lado a lado, no tiene sentido ahí.
 const RASTER_LAYER_FACTORY={
-  hillshade:()=>L.tileLayer('tiles/hillshade/{z}/{x}/{y}.png',{maxZoom:21,maxNativeZoom:20,minZoom:14}),
-  rgb:()=>L.tileLayer('tiles/rgb/{z}/{x}/{y}.png',{maxZoom:21,maxNativeZoom:20,minZoom:14}),
+  hillshade:()=>L.tileLayer(tileTpl('hillshade'),{maxZoom:21,maxNativeZoom:20,minZoom:14}),
+  rgb:()=>L.tileLayer(tileTpl('rgb'),{maxZoom:21,maxNativeZoom:20,minZoom:14}),
   thermal:()=>new ThermalGrid({maxZoom:21,maxNativeZoom:20,minZoom:14}),
   ...(MS_BAND_IDS.length?{ms_composite:()=>new BandCompositeGrid({bandR:msCompositeBands[0],bandG:msCompositeBands[1],bandB:msCompositeBands[2],maxZoom:21,maxNativeZoom:20,minZoom:14})}:{}),
-  severidad:()=>new ClassGrid({layerName:'severidad',lut:SEVERIDAD_LUT,maxZoom:21,maxNativeZoom:20,minZoom:14}),
   hotspot_termico:()=>new ClassGrid({layerName:'hotspot_termico',lut:HOTSPOT_LUT,maxZoom:21,maxNativeZoom:20,minZoom:14}),
 };
 INDEX_NAMES.forEach(name=>{RASTER_LAYER_FACTORY[name]=()=>new IndexGrid({indexName:name,maxZoom:21,maxNativeZoom:20,minZoom:14});});
-Object.keys(INDEX_CLASS_DEFS).forEach(name=>{RASTER_LAYER_FACTORY[name]=()=>new ClassGrid({layerName:name,lut:INDEX_CLASS_LUTS[name],maxZoom:21,maxNativeZoom:20,minZoom:14});});
+Object.keys(INDEX_CLASS_INFO).forEach(name=>{RASTER_LAYER_FACTORY[name]=()=>new ClassGrid({layerName:name,lut:INDEX_CLASS_LUTS[name],maxZoom:21,maxNativeZoom:20,minZoom:14});});
 const COMPARABLE_IDS=layerOrder.filter(id=>RASTER_LAYER_FACTORY[id]);
 
 let compareActive=false,compareLeftMap=null,compareRightMap=null;
@@ -889,12 +1346,12 @@ function buildCompareSelect(side){
   const sel=document.createElement('select');
   sel.className='compare-select';
   // COMPARABLE_IDS es la lista ESTÁTICA de todo tipo de capa ráster posible
-  // (RASTER_LAYER_FACTORY existe para los 4 índices y sus clasificados,
-  // severidad y hotspot sin importar la misión), pero LAYER_REGISTRY[id]
-  // solo existe para lo que ESTA misión realmente tiene tiles (ver
-  // CAPAS_DISPONIBLES). Antes esto iteraba COMPARABLE_IDS sin filtrar y
-  // `.label` sobre un LAYER_REGISTRY[id] undefined (p.ej. 'severidad' en una
-  // misión sin multiespectral) tiraba un TypeError sin capturar que cortaba
+  // (RASTER_LAYER_FACTORY existe para los 4 índices y sus clasificados y
+  // hotspot sin importar la misión), pero LAYER_REGISTRY[id] solo existe
+  // para lo que ESTA misión realmente tiene tiles (ver CAPAS_DISPONIBLES).
+  // Antes esto iteraba COMPARABLE_IDS sin filtrar y `.label` sobre un
+  // LAYER_REGISTRY[id] undefined (p.ej. un índice en una misión sin
+  // multiespectral) tiraba un TypeError sin capturar que cortaba
   // toggleCompare() a la mitad: el ancho de #compare-left-map nunca se
   // fijaba y los listeners de sincronización de mover un mapa nunca se
   // conectaban. Los dos mapas del comparador quedaban del todo
@@ -988,8 +1445,8 @@ function renderCapasPanel(){
 // interpretación y los focos identificados dentro de la tarjeta Hotspot ──
 function basePickerHTML(){
   return `<div class="base-picker">
-    <button class="${currentBase==='osm'?'active':''}" data-base="osm">🗺️ Calles</button>
-    <button class="${currentBase==='sat'?'active':''}" data-base="sat">🛰️ Satélite</button>
+    <button class="${currentBase==='osm'?'active':''}" data-base="osm">${t('base.streets')}</button>
+    <button class="${currentBase==='sat'?'active':''}" data-base="sat">${t('base.satellite')}</button>
     </div>`;
 }
 function layerCardHTML(id){
@@ -998,28 +1455,27 @@ function layerCardHTML(id){
   const opacity=Math.round((def.layer.options.opacity??1)*100);
   return `<div class="layer-card${shown?' is-on':''}" data-id="${id}" data-name="${def.label.toLowerCase()}">
     <div class="layer-card-head">
-      <span class="layer-handle" title="Arrastrar para reordenar">⠿</span>
+      <span class="layer-handle" title="${t('layer.dragTitle')}">⠿</span>
       <label class="layer-name"><input type="checkbox" class="layer-vis" data-id="${id}" ${shown?'checked':''}><span class="nm">${def.label}</span></label>
       <span class="layer-tools">
-        <button class="layer-solo" data-id="${id}" title="Ver solo esta capa"><svg class="ic ic-dot" aria-hidden="true"><use href="#i-dot"/></svg></button>
-        <button class="layer-zoom" data-id="${id}" title="Encuadrar esta capa"><svg class="ic" aria-hidden="true"><use href="#i-frame"/></svg></button>
-        <button class="layer-legend-toggle" data-id="${id}" title="Ver descripción y leyenda"><svg class="ic" aria-hidden="true"><use href="#i-chev-down"/></svg></button>
+        <button class="layer-solo" data-id="${id}" title="${t('layer.soloTitle')}"><svg class="ic ic-dot" aria-hidden="true"><use href="#i-dot"/></svg></button>
+        <button class="layer-zoom" data-id="${id}" title="${t('layer.zoomTitle')}"><svg class="ic" aria-hidden="true"><use href="#i-frame"/></svg></button>
+        <button class="layer-legend-toggle" data-id="${id}" title="${t('layer.legendTitle')}"><svg class="ic" aria-hidden="true"><use href="#i-chev-down"/></svg></button>
       </span>
     </div>
     <div class="layer-card-opacity">
-      <span>Opacidad</span>
+      <span>${t('layer.opacity')}</span>
       <input type="range" class="layer-opacity" data-id="${id}" min="0" max="100" value="${opacity}">
       <span class="layer-opacity-val">${opacity}%</span>
     </div>
-    <div class="layer-legend-body" data-id="${id}">${SIMPLE_HINTS[id]?`<div class="interpret"><b>Qué significa:</b> ${SIMPLE_HINTS[id]}</div>`:''}${def.legend()}${id==='hotspot_termico'?hotspotListHTML():''}</div>
+    <div class="layer-legend-body" data-id="${id}">${simpleHint(id)?`<div class="interpret"><b>${t('layer.whatItMeans')}</b> ${simpleHint(id)}</div>`:''}${def.legend()}${id==='hotspot_termico'?hotspotListHTML():''}</div>
   </div>`;
 }
 // Grupo vacío porque a esta misión le falta el vuelo multiespectral (no
 // porque no haya nada que mostrar): en vez de que la sección desaparezca sin
 // explicación, se dice por qué. NDVI es la señal primaria de la que salen
-// el polígono de área afectada, la severidad y estos índices (ver
-// detect_area_afectada.py); el hotspot térmico NO depende de esto y ya se
-// muestra sin multiespectral (scripts/compute_thermal_hotspot.py). El botón
+// estos índices (ver classify_vegetation_indices.py); el hotspot térmico NO
+// depende de esto (scripts/compute_thermal_hotspot.py). El botón
 // para agregar el vuelo vive UNA sola vez, fijo al pie del sidebar (ver
 // renderFooterAddMsCta()); antes también aparecía acá adentro, duplicado
 // con el del pie cada vez que ambos estaban visibles a la vez.
@@ -1037,7 +1493,7 @@ function addMsCtaHTML(titulo, detalle){
   return `<div class="layer-group" data-group="addms-cta">
     <div class="layer-group-title">${titulo}</div>
     <div class="addms-cta"><p>${detalle}</p>
-      <a class="btn primary sm" href="${href}">➕ Agregar vuelo multiespectral</a></div>
+      <a class="btn primary sm" href="${href}">${t('addms.ctaLink')}</a></div>
   </div>`;
 }
 function layersPanelHTML(){
@@ -1050,20 +1506,18 @@ function layersPanelHTML(){
       // reconstruyendo. hasMsInput (del tally de flight_path.geojson, ver
       // arriba) distingue los dos casos para no invitar a "agregar" un
       // vuelo que ya está incluido y en curso.
-      if(group==='indices'&&!MS_BAND_IDS.length)
+      if(group==='indices'&&!liveMsBandIds.length)
         html+=hasMsInput
-          ? addMsEmptyGroupHTML('🌿 Índices de vegetación','Vuelo multiespectral incluido — NDVI/GNDVI/NDRE/MSAVI2 van a aparecer acá cuando termine la reconstrucción.')
-          : addMsEmptyGroupHTML('🌿 Índices de vegetación',
-            'Esta misión no tiene vuelo multiespectral (M3M) todavía, sin él no hay NDVI/GNDVI/NDRE/MSAVI2 que mostrar.');
-      else if(group==='impacto'&&!MS_BAND_IDS.length&&!CAPAS_DISPONIBLES.has('hotspot_termico'))
-        html+=hasMsInput
-          ? addMsEmptyGroupHTML('🔥 Área afectada y severidad','Vuelo multiespectral incluido — área afectada y severidad van a aparecer acá cuando termine la reconstrucción.')
-          : addMsEmptyGroupHTML('🔥 Área afectada y severidad',
-            'Sin multiespectral no hay NDVI, y el polígono de área afectada y la severidad se calculan a partir de esa señal.');
+          ? addMsEmptyGroupHTML(t('addms.vegIndicesTitle'),t('addms.includedPending'))
+          : addMsEmptyGroupHTML(t('addms.vegIndicesTitle'),t('addms.notYet'));
+      else if(group==='impacto'&&!CAPAS_DISPONIBLES.has('hotspot_termico'))
+        html+=hasThermalInput
+          ? addMsEmptyGroupHTML(t('layer.hotspot'),t('addms.thermalIncludedPending'))
+          : addMsEmptyGroupHTML(t('layer.hotspot'),t('addms.thermalNotYet'));
       return;
     }
     html+=`<div class="layer-group" data-group="${group}">
-      <div class="layer-group-title">${GROUP_LABELS[group]}</div>
+      <div class="layer-group-title">${groupLabel(group)}</div>
       <div class="layer-list" data-group="${group}">${ids.map(layerCardHTML).join('')}</div>
     </div>`;
   });
@@ -1160,20 +1614,21 @@ function initLayerDrag(){
       e.preventDefault();
       const card=handle.closest('.layer-card');
       const list=handle.closest('.layer-list');
-      const cards=()=>Array.from(list.querySelectorAll('.layer-card'));
       card.classList.add('dragging');
       handle.setPointerCapture(e.pointerId);
 
       function onMove(ev){
         const y=ev.clientY;
-        const siblings=cards().filter(c=>c!==card);
-        for(const sib of siblings){
-          const r=sib.getBoundingClientRect();
+        const allCards=Array.from(document.querySelectorAll('.layer-card')).filter(c=>c!==card);
+        for(const other of allCards){
+          const r=other.getBoundingClientRect();
           const mid=r.top+r.height/2;
-          if(y<mid&&sib.compareDocumentPosition(card)&Node.DOCUMENT_POSITION_FOLLOWING){
-            list.insertBefore(card,sib);break;
-          }else if(y>mid&&sib.compareDocumentPosition(card)&Node.DOCUMENT_POSITION_PRECEDING){
-            list.insertBefore(card,sib.nextSibling);break;
+          const targetList=other.closest('.layer-list');
+          if(!targetList) continue;
+          if(y<mid&&other.compareDocumentPosition(card)&Node.DOCUMENT_POSITION_FOLLOWING){
+            targetList.insertBefore(card,other);break;
+          }else if(y>mid&&other.compareDocumentPosition(card)&Node.DOCUMENT_POSITION_PRECEDING){
+            targetList.insertBefore(card,other.nextSibling);break;
           }
         }
       }
@@ -1182,13 +1637,16 @@ function initLayerDrag(){
         handle.releasePointerCapture(e.pointerId);
         document.removeEventListener('pointermove',onMove);
         document.removeEventListener('pointerup',onUp);
-        // Recalcular layerOrder GLOBAL a partir del orden actual dentro de
-        // cada grupo (el orden entre grupos ya lo fija GROUP_ORDER).
+        // Recalcular layerOrder GLOBAL a partir del orden visual actual en el panel (top -> bottom).
+        // Lo que el usuario ve arriba de todo en el panel se mapea al índice 0 de layerOrder
+        // (y por tanto a la capa que se renderiza más arriba / zIndex más alto en el mapa).
         const newOrder=[];
-        GROUP_ORDER.forEach(group=>{
-          const groupList=document.querySelector(`.layer-list[data-group="${group}"]`);
-          if(!groupList)return;
-          groupList.querySelectorAll('.layer-card').forEach(c=>newOrder.push(c.dataset.id));
+        document.querySelectorAll('.layer-card').forEach(c=>{
+          const cid=c.dataset.id;
+          if(cid && !newOrder.includes(cid)) newOrder.push(cid);
+        });
+        layerOrder.forEach(id=>{
+          if(!newOrder.includes(id)) newOrder.push(id);
         });
         layerOrder=newOrder;
         applyLayerOrder();
@@ -1210,14 +1668,14 @@ window.addEventListener('beforeunload',e=>{
 // ═══════════════════════════════════════════════════════════════════
 // PRODUCTOS PROGRESIVOS: la corrida agrega capas mientras sigue viva
 // ═══════════════════════════════════════════════════════════════════
-// RGB/térmico/hillshade/severidad/hotspot/índices-clasificados YA están
-// registrados desde el arranque (sus tiles pueden no existir todavía,
-// simplemente no cargan hasta que aparecen; un .redraw() los recupera, ver
-// más abajo). Lo que SÍ falta registrar en caliente son los productos que
-// ni siquiera existían como CONCEPTO al cargar la página: los índices
-// continuos, el compuesto multiespectral y el polígono de área afectada.
-// Si la misión se abrió con bounds.json todavía "preliminary" (solo ruta de
-// vuelo), ninguno de los tres tenía datos para calcular su rango de color.
+// RGB/térmico/hillshade/hotspot/índices-clasificados YA están registrados
+// desde el arranque (sus tiles pueden no existir todavía, simplemente no
+// cargan hasta que aparecen; un .redraw() los recupera, ver más abajo). Lo
+// que SÍ falta registrar en caliente son los productos que ni siquiera
+// existían como CONCEPTO al cargar la página: los índices continuos y el
+// compuesto multiespectral. Si la misión se abrió con bounds.json todavía
+// "preliminary" (solo ruta de vuelo), ninguno de los dos tenía datos para
+// calcular su rango de color.
 // (liveMsBandIds se declara arriba, junto a MS_BAND_IDS; ver el comentario
 // ahí sobre por qué no puede vivir acá.)
 
@@ -1230,14 +1688,14 @@ function ensurePane(id){
 }
 function registerIndexLayer(name){
   if(LAYER_REGISTRY[name])return false;
-  const [label,desc]=INDEX_LABELS[name]||[name.toUpperCase(),''];
+  const [label]=indexLabelInfo(name);
   const [lo,hi]=INDEX_RANGES[name];
   ensurePane(name);
   indexLayers[name]=new IndexGrid({indexName:name,maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:.8,pane:'pane-'+name});
   RASTER_LAYER_FACTORY[name]=()=>new IndexGrid({indexName:name,maxZoom:21,maxNativeZoom:20,minZoom:14});
   LAYER_REGISTRY[name]={label,group:'indices',layer:indexLayers[name],defaultOn:false,defaultOpacity:.8,
-    legend:()=>{const ramp=INDEX_PALETTE.colors.join(',');return `<p>${desc}</p>
-      <div class="stat-row"><span class="lbl">Rango</span><span class="val cool">${lo.toFixed(2)} a ${hi.toFixed(2)}</span></div>
+    legend:()=>{const ramp=INDEX_PALETTE.colors.join(','),desc=indexLabelInfo(name)[1];return `<p>${desc}</p>
+      <div class="stat-row"><span class="lbl">${t('legend.range')}</span><span class="val cool">${lo.toFixed(2)} ${t('legend.to')} ${hi.toFixed(2)}</span></div>
       <div style="margin-top:6px"><div class="legend-bar" style="background:linear-gradient(to right,${ramp})"></div>
       <div class="legend-lbl"><span>${lo.toFixed(2)}</span><span>${((lo+hi)/2).toFixed(2)}</span><span>${hi.toFixed(2)}</span></div></div>`;}};
   return true;
@@ -1250,46 +1708,29 @@ function registerMsComposite(){
     : [liveMsBandIds[0],liveMsBandIds[1]||liveMsBandIds[0],liveMsBandIds[2]||liveMsBandIds[0]];
   msCompositeLayer=new BandCompositeGrid({bandR:msCompositeBands[0],bandG:msCompositeBands[1],bandB:msCompositeBands[2],maxZoom:21,maxNativeZoom:20,minZoom:14,opacity:1,pane:'pane-ms_composite'});
   RASTER_LAYER_FACTORY.ms_composite=()=>new BandCompositeGrid({bandR:msCompositeBands[0],bandG:msCompositeBands[1],bandB:msCompositeBands[2],maxZoom:21,maxNativeZoom:20,minZoom:14});
-  LAYER_REGISTRY.ms_composite={label:'🎨 Multiespectral (compuesto)',group:'opticas',layer:msCompositeLayer,defaultOn:false,defaultOpacity:1,
+  LAYER_REGISTRY.ms_composite={label:t('layer.msComposite'),group:'opticas',layer:msCompositeLayer,defaultOn:false,defaultOpacity:1,
     legend:()=>{
       const presetKey=Object.entries(MS_COMPOSITE_PRESETS).find(([,p])=>p.bands.join(',')===msCompositeBands.join(','))?.[0]||'custom';
-      return `<p>Composición RGB armada en el navegador combinando 3 bandas espectrales crudas. No hay un archivo fijo por combinación, cambiar la selección recompone al vuelo.</p>
+      return `${t('legend.msCompositeBody')}
       <div class="band-picker">
         <label>Preset<select class="ms-composite-preset">
           ${Object.entries(MS_COMPOSITE_PRESETS).map(([k,p])=>`<option value="${k}"${presetKey===k?' selected':''}>${p.label}</option>`).join('')}
-          <option value="custom"${presetKey==='custom'?' selected':''}>Personalizado</option>
+          <option value="custom"${presetKey==='custom'?' selected':''}>${t('legend.custom')}</option>
         </select></label>
         <div class="ms-composite-custom" style="${presetKey==='custom'?'':'display:none'}">
           ${['R','G','B'].map((lbl,i)=>`<label>${lbl}<select class="ms-composite-sel" data-ch="${i}">
-            ${liveMsBandIds.map(id=>`<option value="${id}"${msCompositeBands[i]===id?' selected':''}>${MS_BAND_LABELS[id]||id}</option>`).join('')}
+            ${liveMsBandIds.map(id=>`<option value="${id}"${msCompositeBands[i]===id?' selected':''}>${msBandLabel(id)}</option>`).join('')}
           </select></label>`).join('')}
         </div>
       </div>`;}};
   return true;
 }
-async function tryLoadAreaAfectada(){
-  if(LAYER_REGISTRY.area_afectada)return false;
-  try{
-    const r=await fetch('outputs/area_afectada.geojson?t='+Date.now(),{cache:'no-store'});
-    if(!r.ok)return false;
-    const geo=await r.json();
-    ensurePane('area_afectada');
-    loadAreaAfectada(geo);
-    document.getElementById('area-edit-panel').classList.add('visible');
-    LAYER_REGISTRY.area_afectada={label:'📐 Polígono área afectada',group:'impacto',layer:areaAfectadaLayer,defaultOn:true,defaultOpacity:1,
-      legend:()=>`<p>Contorno detectado automáticamente (ver capa Severidad para la metodología), editable con el botón 📐 sobre el mapa. Referencia espacial de dónde se recortan severidad/hotspot, no reemplaza una verificación en terreno.</p>`};
-    areaAfectadaLayer.addTo(map);
-    return true;
-  }catch(e){ return false; }
-}
-
 // Reintento de outputs/flight_path.geojson: el bloque de arriba lo intenta
 // una sola vez, sync, al cargar la página. Si el geovisor se abre en los
 // pocos segundos entre "arrancó la corrida" y "export_flight_path.py terminó
 // de escribir el archivo" (el caso normal: la webapp redirige acá apenas
 // arranca el pipeline), esa lectura da 404 y la capa queda sin registrar para
-// siempre, aunque el archivo aparezca 2 segundos después. Mismo patrón que
-// tryLoadAreaAfectada().
+// siempre, aunque el archivo aparezca 2 segundos después.
 async function tryLoadFlightPath(){
   if(LAYER_REGISTRY.flight_path)return false;
   try{
@@ -1312,14 +1753,83 @@ async function tryLoadFlightPath(){
       }
     });
     if(tally.multispectral)hasMsInput=true;
-    const SN={rgb:'RGB',thermal:'térmico',multispectral:'multiespectral'};
-    const resumen=Object.entries(tally).map(([s,n])=>`${n} ${SN[s]||s}`).join(' · ');
-    LAYER_REGISTRY.flight_path={label:'🛩️ Ruta de vuelo',group:'vuelo',layer:flightLayer,
+    if(tally.thermal)hasThermalInput=true;
+    LAYER_REGISTRY.flight_path={label:t('layer.flightPath'),group:'vuelo',layer:flightLayer,
       defaultOn:PRELIMINARY,defaultOpacity:1,
-      legend:()=>`<p>Recorrido y posición de cada captura, según el GPS embebido en
-        las fotos (${resumen}). Se genera antes de la reconstrucción, así que está
-        disponible mientras el procesamiento sigue en curso.</p>`};
+      legend:()=>{
+        const resumen=Object.entries(tally).map(([s,n])=>`${n} ${sensorCountLabel(s)}`).join(' · ');
+        return flightPathLegendBody(resumen);
+      }};
     if(PRELIMINARY)flightLayer.addTo(map);
+    return true;
+  }catch(e){ return false; }
+}
+
+// Reintento de outputs/hull_<sensor>.geojson — mismo patrón que
+// tryLoadFlightPath: el casco de cada sensor aparece recién cuando SU
+// trim_edges termina, así que si el geovisor se abrió antes, la lectura
+// sync del arranque (_loadHullSync) no lo encuentra.
+async function tryLoadHull(sensor){
+  if(LAYER_REGISTRY['hull_'+sensor])return false;
+  try{
+    const r=await fetch(`outputs/hull_${sensor}.geojson?t=`+Date.now(),{cache:'no-store'});
+    if(!r.ok)return false;
+    const gj=await r.json();
+    const c=HULL_SC[sensor];
+    const layer=L.geoJSON(gj,{style:{color:c,weight:2,opacity:.9,fill:false,dashArray:'2,6'}});
+    layer.setOpacity=function(v){layer.setStyle({opacity:v});};
+    LAYER_REGISTRY['hull_'+sensor]={label:`${t('layer.hull')} · ${sensorLabel(sensor)}`,group:'vuelo',
+      layer,defaultOn:false,defaultOpacity:1,
+      legend:()=>hullLegendBody(sensor)};
+    return true;
+  }catch(e){ return false; }
+}
+
+async function tryLoadBurnedArea(kind){
+  const id='area_afectada_'+kind;
+  if(LAYER_REGISTRY[id])return false;
+  ensurePane(id);
+  try{
+    const r=await fetch(`outputs/${id}.geojson?t=`+Date.now(),{cache:'no-store'});
+    if(!r.ok)return false;
+    const gj=await r.json();
+    const totalHa=gj.properties?.total_area_ha||0;
+    const totalM2=gj.properties?.total_area_m2||0;
+    const isExp=(kind==='experto');
+    const layer=L.geoJSON(gj,{
+      pane:'pane-'+id,
+      style:{
+        color:isExp?'#ff6d00':'#d50000',
+        weight:3,
+        opacity:.95,
+        fillColor:isExp?'#ff9100':'#ff1744',
+        fillOpacity:isExp?.25:.35,
+        dashArray:isExp?'6,4':undefined
+      },
+      onEachFeature:(ft,l)=>{
+        const h=ft.properties.area_ha||totalHa;
+        const m=ft.properties.area_m2||totalM2;
+        const title=isExp?'📌 Área Afectada Manual (Experto)':'🤖 Área Afectada (Algoritmo Multi-Sensor)';
+        const det=isExp?`Origen: ${ft.properties.origen||'Digitación de campo'}`:`Método: ${ft.properties.metodo||'Fusión Térmica (ΔT ≥ +6°C) + Infrarrojo/MSAVI2'}`;
+        l.bindPopup(`<strong>${title}</strong><br>Superficie: <b>${h} ha</b> (${m} m²)<br>${det}`);
+      }
+    });
+    layer.setOpacity=function(v){layer.setStyle({opacity:v,fillOpacity:v*(isExp?.25:.35)});};
+    LAYER_REGISTRY[id]={
+      label:t('layer.'+(isExp?'areaExperto':'areaDetectada'))||(isExp?'📌 Área afectada (Experto)':'🤖 Área afectada (Algoritmo)'),
+      group:'impacto',
+      layer,
+      defaultOn:true,
+      defaultOpacity:1,
+      legend:()=>LANG==='es'
+        ? (isExp
+            ? `<p><b>Delimitación manual experta:</b> Polígono levantado por fotointerpretación y validación en campo tras la emergencia. Superficie total: <b>${totalHa} ha</b> (${totalM2} m²).</p>`
+            : `<p><b>Detección automática multi-sensor:</b> Polígono generado por fusión de anomalía térmica ($\Delta T \ge +6\text{°C}$) e índice de vegetación/NIR. Superficie detectada: <b>${totalHa} ha</b> (${totalM2} m²).</p>`)
+        : (isExp
+            ? `<p><b>Expert ground truth:</b> Polygon delineated by photointerpretation and field validation after the emergency. Total area: <b>${totalHa} ha</b> (${totalM2} m²).</p>`
+            : `<p><b>Multi-sensor automated detection:</b> Polygon generated from thermal anomaly ($\Delta T \ge +6\text{°C}$) and vegetation index/NIR drop. Detected area: <b>${totalHa} ha</b> (${totalM2} m²).</p>`)
+    };
+    layer.addTo(map);
     return true;
   }catch(e){ return false; }
 }
@@ -1359,8 +1869,40 @@ async function pollBoundsForChanges(){
     // tryLoadFlightPath() de más abajo registraría la ruta de vuelo pero
     // apagada, aunque la corrida siga en curso y sea justo lo único que hay
     // para mostrar. Se refresca acá con el dato fresco de esta lectura.
-    if(b.preliminary!==undefined)PRELIMINARY=!!b.preliminary;
+    //
+    // OJO: la asignación es INCONDICIONAL — `b.preliminary` viene undefined
+    // (no `false`) apenas generate_tiles.py reescribe bounds.json con la
+    // versión definitiva (no incluye la marca, ver su docstring "lo pisa sin
+    // la marca al terminar"). Con el guard `if(b.preliminary!==undefined)`
+    // que había antes, esa reescritura NUNCA se veía acá — PRELIMINARY se
+    // quedaba en `true` para siempre una vez que arrancaba en true, y la
+    // ruta de vuelo (abajo) jamás se apagaba sola aunque ya hubiera mosaico
+    // disponible. Bug real, reportado en vivo.
+    const wasPreliminary=PRELIMINARY;
+    PRELIMINARY=!!b.preliminary;
+    // Recién con un mosaico real disponible (PRELIMINARY true→false) la ruta
+    // de vuelo estorba más de lo que aporta (mismo criterio que su
+    // `defaultOn` al registrarse) — se apaga sola, no hace falta que el
+    // usuario la destilde a mano. Si el usuario ya la había apagado antes,
+    // `map.hasLayer` da false y esto no hace nada.
+    if(wasPreliminary&&!PRELIMINARY&&LAYER_REGISTRY.flight_path&&map.hasLayer(flightLayer)){
+      map.removeLayer(flightLayer);
+      renderCapasPanel();
+    }
     if(b.thermal_range){THERMAL_MIN=b.thermal_range[0];THERMAL_MAX=b.thermal_range[1];}
+    // Tiles regenerados (nuevo tiles_v): los Grid personalizados (thermal,
+    // índices, hotspot, ms_composite) leen TILES_V directo en
+    // cada createTile(), así que el redraw() genérico de más abajo alcanza
+    // para esos. rgb/dband/hillshade son L.tileLayer ESTÁNDAR: su plantilla
+    // de URL queda fija al construirse, redraw() sobre ellas re-pide los
+    // mismos tiles con la MISMA url vieja — necesitan setUrl() explícito
+    // acá para que la próxima pasada use el nuevo ?v=.
+    if(b.tiles_v&&b.tiles_v!==TILES_V){
+      TILES_V=b.tiles_v;
+      rgbLayer.setUrl(tileTpl('rgb'));
+      dbandLayer.setUrl(tileTpl('dband'));
+      hillshadeLayer.setUrl(tileTpl('hillshade'));
+    }
     let added=false;
     if(b.index_ranges)Object.entries(b.index_ranges).forEach(([name,range])=>{
       INDEX_RANGES[name]=range;
@@ -1374,24 +1916,24 @@ async function pollBoundsForChanges(){
     if(b.capas_disponibles){
       CAPAS_DISPONIBLES=new Set(b.capas_disponibles);
       if(registerDband())added=true;
-      if(registerSeveridad())added=true;
       // A diferencia del registro inicial (línea ~448, seguido del loop que
       // agrega al mapa toda capa con defaultOn), un registro que llega
       // DESPUÉS, con la misión todavía procesando, nunca pasa por ese loop: sin
       // esto, hotspot_termico podía terminar con defaultOn:true y aun así
       // no aparecer solo hasta que el usuario lo tildara a mano.
       if(registerHotspot()){added=true;if(LAYER_REGISTRY.hotspot_termico.defaultOn)hotspotLayer.addTo(map);}
-      Object.keys(INDEX_CLASS_DEFS).forEach(n=>{if(registerIndexClass(n))added=true;});
+      Object.keys(INDEX_CLASS_INFO).forEach(n=>{if(registerIndexClass(n))added=true;});
     }
     if(await tryLoadFlightPath())added=true;
-    if(await tryLoadAreaAfectada())added=true;
+    for(const s of ['rgb','thermal','multispectral'])if(await tryLoadHull(s))added=true;
+    for(const k of ['experto','detectada'])if(await tryLoadBurnedArea(k))added=true;
     if(added)renderCapasPanel();
     // Redibuja TODAS las capas ráster ya registradas: sus tiles pueden haber
     // mejorado (rgb/thermal/hillshade están registrados desde el arranque,
     // sin depender de capas_disponibles, así que un producto preliminar puede
     // haberse reemplazado por el final entre una pasada y la siguiente).
     Object.values(LAYER_REGISTRY).forEach(d=>{ if(d.layer.redraw)d.layer.redraw(); });
-    // situation.json aparece recién en la etapa de severidad (bastante
+    // situation.json aparece recién en la etapa de hotspot (bastante
     // después que bounds.json cambie por primera vez). Se reintenta cada
     // vez que bounds.json cambia, no solo una vez al final. flight_quality.json
     // sigue el mismo patrón (aparece bastante antes, en la etapa de recorte
@@ -1440,7 +1982,6 @@ function phTick(){
     const live=phServerElapsed+(Date.now()-phServerElapsedAt)/1000;
     el.textContent=fmtElapsed(live);
   }
-  renderPhaseTimers();
 }
 function toggleProgressLog(){
   const log=document.getElementById('ph-log'),btn=document.getElementById('ph-log-toggle');
@@ -1450,7 +1991,7 @@ function toggleProgressLog(){
   // los emojis ▴/▾ que desentonaban con el sprite SVG del resto de la UI).
   btn.classList.toggle('open',open);
   const lbl=document.getElementById('ph-log-label');
-  if(lbl)lbl.textContent=open?' Ocultar log':' Ver log';
+  if(lbl)lbl.textContent=open?t('ph.hideLog'):t('ph.viewLogWord');
   if(open)log.scrollTop=log.scrollHeight;
 }
 // Colapsa el CUADRO entero (barra + fases + log), no solo el log — deja a
@@ -1462,7 +2003,7 @@ function toggleProgressHud(){
   const btn=document.getElementById('ph-collapse-toggle');
   const collapsed=hud.classList.toggle('collapsed');
   btn.setAttribute('aria-expanded',String(!collapsed));
-  btn.setAttribute('aria-label',collapsed?'Expandir progreso':'Colapsar progreso');
+  btn.setAttribute('aria-label',collapsed?t('ph.expandAria'):t('ph.collapseAria'));
 }
 document.getElementById('ph-collapse-toggle')?.addEventListener('click',toggleProgressHud);
 function phSetStage(html){
@@ -1476,184 +2017,115 @@ function phSetStage(html){
   const el=document.getElementById('ph-stage');
   if(el)el.innerHTML=html;
 }
-function phSetBar(pct){
-  const el=document.getElementById('ph-bar-fill');
-  if(el)el.style.width=Math.max(0,Math.min(100,pct))+'%';
-}
-
 // ═══════════════════════════════════════════════════════════════════
-// CHECKLIST DE FASES: ph-stage ([n/total] nombre) muestra el nombre real
-// de la etapa, pero "total" NO es el total del pipeline — son TRES
-// contadores independientes que se pisan en el mismo canal:
-//   1. Cada target del Makefile (prepare-rgb, prepare-multispectral,
-//      sdk-convert, etc.) se anuncia a sí mismo como "1/1" (progress.py
-//      stage-header con esos valores fijos en el Makefile).
-//   2. ODM (scripts/odm_progress_filter.py) reporta SUS propios 13 pasos
-//      internos (dataset→...→postprocess) como "n/13" — y arranca de nuevo
-//      en "1/13" en cada sensor (RGB, después térmico, después MS), que es
-//      justo el "se reinicia por sensor" reportado.
-//   3. Recién las etapas de POST-procesamiento (docker/entrypoint.sh,
-//      stage_begin) usan un total real del pipeline — pero solo cubre esa
-//      cola, no el pipeline completo.
-// Unificar los tres en un solo n/total de verdad es un cambio de fondo en
-// el backend (entrypoint.sh + Makefile + odm_progress_filter.py) que no
-// vale la pena arriesgar mientras hay una misión real corriendo. Esto en
-// cambio es 100% del lado del navegador: mapea el NOMBRE de cada etapa
-// real (ya es texto fijo y conocido, no algo que cambie por sensor) contra
-// una lista de fases grandes conocida de antemano, y va tildando/resaltando
-// esa lista a medida que los nombres van llegando — sin depender de que
-// los números sean coherentes entre sí.
-// Cada fase "grande" (stage_begin en entrypoint.sh) envuelve varios targets
-// de Make que TAMBIÉN emiten su propio stage-header — match() tiene que
-// cubrir el nombre del envoltorio Y el de cada sub-paso real adentro,
-// si no cualquier sub-paso sin match cae en el fallback de abajo (se
-// agrega como fase nueva en vez de quedar adentro de la fase que ya
-// estaba en curso). Nombres sacados de docker/entrypoint.sh + Makefile.
-const PHASE_CATALOG=[
-  {key:'flight_path',label:'Ruta de vuelo',when:()=>true,
-    desc:'Arma el recorrido del vuelo y la fecha de captura desde el GPS/tiempo EXIF de las fotos — no espera a la reconstrucción 3D, así que el geovisor ya muestra algo real desde el principio.',
-    match:n=>n==='Ruta de vuelo'},
-  // RGB, multiespectral, térmico y banda D se preparan EN PARALELO (docker/
-  // entrypoint.sh, jobs de fondo + wait, presupuesto de concurrencia
-  // compartido) — antes eran fases separadas y secuenciales, pero como
-  // ahora corren a la vez, sus eventos de "stage" llegan intercalados sin
-  // ningún orden fijo entre sí. Separarlas en el checklist causaría que una
-  // llegara "antes" de la otra por pura casualidad del intercalado, no
-  // porque una fase haya empezado después de la otra — se muestran juntas,
-  // como lo que son: una sola fase paralela. "Preparación banda D" tiene
-  // que estar en este match() igual que las demás — si se olvida, cae en
-  // el fallback de advancePhase() y aparece como si fuera secuencial,
-  // aunque el bash de abajo la corra al mismo tiempo que el resto.
-  {key:'prep',label:'Preparación (en paralelo)',when:()=>true,
-    desc:'Organiza las fotos de cada sensor para que ODM las pueda reconstruir: copia las RGB, convierte el térmico de °C nativo del SDK de DJI y le pasa un filtro de ruido, y prepara las bandas multiespectrales y la banda D del M3M. Todo esto corre A LA VEZ, no una etapa atrás de la otra — son datos independientes entre sí.',
-    match:n=>n==='Preparación imágenes RGB'||n==='Preparación bandas multiespectrales'
-      ||n==='Conversión R-JPEG → °C (DJI SDK)'||n==='Filtro bilateral (denoise)'
-      ||n==='Preparación térmica nativa (ODM)'||n==='Preparación banda D (RGB, M3M)'},
-  {key:'odm_rgb',label:'Reconstrucción 3D — RGB',when:ctx=>ctx.rgb,
-    desc:'SfM + nube de puntos densa (MVS) del vuelo RGB — arma el modelo de superficie y el ortomosaico visible. Es la reconstrucción más pesada de la corrida.',
-    match:n=>n.startsWith('ODM RGB')},
-  {key:'odm_thermal',label:'Reconstrucción 3D — Térmico',when:ctx=>ctx.thermal,
-    desc:'Reconstrucción 3D del vuelo térmico con el renderizador nativo de ODM y la calibración radiométrica del sensor — el ortomosaico térmico real (temperaturas en °C) sale de acá, no de un blending propio.',
-    match:n=>n.startsWith('ODM THERMAL')},
-  {key:'odm_ms',label:'Reconstrucción 3D — Multiespectral',when:ctx=>ctx.ms,
-    desc:'Reconstrucción del vuelo multiespectral (M3M): calibra a reflectancia con el sensor de sol embebido y alinea las 4 bandas de cada captura.',
-    match:n=>n.startsWith('ODM MULTISPECTRAL')},
-  {key:'odm_dband',label:'Reconstrucción 3D — Banda D',when:ctx=>ctx.dband,
-    desc:'Reconstrucción rápida de la cámara RGB propia del M3M (banda D) — un mosaico visible adicional, sin modelo de superficie (no pide --dsm a propósito).',
-    match:n=>n.startsWith('ODM DBAND')},
-  // El recorte/índices de cada sensor ahora arranca de fondo apenas termina
-  // SU reconstrucción (docker/entrypoint.sh, POST_PIDS + wait) y corre EN
-  // PARALELO con la reconstrucción del sensor siguiente — no una etapa
-  // atrás de la otra como antes (por eso una sola fase 'trim', mismo
-  // criterio que 'prep' más arriba: eventos intercalados sin orden fijo
-  // entre sí no se pueden separar en fases secuenciales sin mentir sobre
-  // el orden real).
-  {key:'trim',label:'Recorte de bordes + índices (en paralelo)',when:()=>true,
-    desc:'Limpia el modelo de superficie de valores erróneos, recorta los bordes de baja confianza de cada sensor y calcula los índices de vegetación — todo esto arranca apenas termina la reconstrucción de CADA sensor, sin esperar a las demás.',
-    match:n=>n==='Recorte de bordes + índices (en paralelo con la reconstrucción)'
-      ||n==='Limpieza del DSM'||n==='Recorte de bordes del DSM'||n==='Recorte de bordes RGB'
-      ||n==='Recorte de bordes térmicos'||n==='Recorte de bordes multiespectrales'
-      ||n==='Índices de vegetación (NDVI/GNDVI/NDRE)'||n==='Recorte de bordes banda D'},
-  {key:'confianza',label:'Máscara de confianza',when:ctx=>ctx.rgb&&ctx.thermal,
-    desc:'Cruza RGB y térmico para marcar qué zonas del ortomosaico térmico tienen suficiente respaldo de cámaras, y mide la calidad del levantamiento (solape, velocidad de vuelo).',
-    match:n=>n==='Máscara de confianza'||n==='Calidad del levantamiento'
-      // Hotspot + resumen de situación SOLO corren acá cuando la misión NO
-      // tiene multiespectral (si lo tiene, corren en el bloque de 'area' de
-      // más abajo) — no se agregan acá para no desambiguar mal: mejor que
-      // "Resumen de situación" caiga en el fallback (se agrega suelto al
-      // final) que no que se confunda con la fase de área ya en curso.
-      },
-  {key:'area',label:'Área afectada y severidad',when:ctx=>ctx.thermal&&ctx.ms,
-    desc:'Cruza el NDVI (multiespectral) con la anomalía térmica para delimitar el área afectada y clasificarla en niveles de severidad — necesita las dos señales juntas.',
-    match:n=>n==='Área afectada + clasificación de severidad'||n==='Detección de área afectada'
-      ||n==='Clasificación de severidad'||n==='Resumen de situación'},
-  {key:'tiles',label:'Generación de tiles',when:()=>true,
-    desc:'Genera los tiles XYZ que sirve el geovisor para cada capa disponible hasta este punto.',
-    match:n=>n==='Generación de tiles XYZ'},
-  {key:'cog',label:'Exportación cloud-optimized',when:()=>true,
-    desc:'Reescribe los ráster y nubes de puntos finales en formato cloud-optimized (COG/COPC) — un SIG puede leer solo la parte que necesita sin descargar el archivo entero.',
-    match:n=>n==='Exportación cloud-optimized (COG + COPC)'||n==='Rasters finales → COG'||n==='Nubes de puntos → COPC'},
-  // "Exportación a carpeta de entrega" queda afuera a propósito: no hay
-  // forma de saber desde acá si ESTA corrida la va a tener (depende de con
-  // qué --export se levantó el contenedor, no de mode/has_multispectral).
-  // Si aparece, advancePhase() la agrega sola (ver el fallback de abajo).
-];
-let PHASES=[];
-function buildPhaseList(ctx){
-  PHASES=PHASE_CATALOG.filter(p=>p.when(ctx)).map(p=>
-    ({key:p.key,label:p.label,desc:p.desc,match:p.match,status:'pending',startedAt:null,endedAt:null}));
-  renderPhases();
+// 3 PROGRESOS INDEPENDIENTES (RGB / térmico / multiespectral): cada sensor
+// corre su propia cadena preparación→ODM→recorte/exportación en un subshell
+// propio (docker/entrypoint.sh, despacho por sensor) — con una sola barra
+// global (lo que había antes, ver el historial de este archivo) el "n/total"
+// que se mostraba no era un progreso real del pipeline: eran TRES contadores
+// distintos pisándose en el mismo canal (cada target de Make se anuncia
+// "1/1", ODM reinicia en "1/13" por cada sensor) y la barra "retrocedía"
+// cada vez que otro sensor de fondo imprimía su propio evento. Acá cada
+// sensor tiene su PROPIO 0-100%, calculado 100% del lado del navegador
+// (mismo principio que antes: mapear el NOMBRE fijo de cada etapa contra
+// una lista conocida de antemano) — sin tocar el backend.
+//
+// Los eventos "bar" (% en vivo durante MVS/depthmaps de ODM,
+// odm_progress_filter.py) NO llevan qué sensor los generó — solo
+// current/total/label (el ETA), no el nombre de la etapa — así que con
+// sensores reconstruyendo en paralelo no hay forma confiable de saber a
+// cuál atribuirlos: se ignoran a propósito. El avance por checkpoint de
+// abajo, más el n/13 real de ODM (que SÍ viaja en los eventos "stage"), ya
+// da bastante resolución sin arriesgar una barra saltando al sensor
+// equivocado.
+function channelLabel(ch){ return t('channel.'+ch); }
+// Checkpoints reales (Makefile/ODM) de la cadena de CADA sensor, en orden.
+// El marcado odm:true además interpola con el n/total real que manda el
+// evento "stage" de odm_progress_filter.py (13 etapas internas de ODM) dentro
+// de su propio tramo, en vez de saltar de golpe al llegar. Nombres sacados
+// de docker/entrypoint.sh + Makefile — mismo criterio que el catálogo de
+// fases que reemplaza esto. `match` compara contra el nombre de etapa que
+// manda el SERVIDOR (Python, siempre en español) — eso NO se traduce, es un
+// identificador, no texto de UI; `labelKey` sí, resuelto con t() recién en
+// updateChannel(), para que quede al día si cambia el idioma entre eventos.
+const CHANNEL_STEPS={
+  rgb:[
+    {labelKey:'channel.prep', match:n=>n==='Preparación imágenes RGB'},
+    {labelKey:'channel.recon3d', match:n=>n.startsWith('ODM RGB'), odm:true},
+    {labelKey:'channel.trimExport',
+     match:n=>n==='Limpieza del DSM'||n==='Recorte de bordes del DSM'||n==='Recorte de bordes RGB'},
+  ],
+  thermal:[
+    {labelKey:'channel.prep',
+     match:n=>n==='Conversión R-JPEG → °C (DJI SDK)'||n==='Filtro bilateral (denoise)'
+       ||n==='Preparación térmica nativa (ODM)'},
+    {labelKey:'channel.recon3d', match:n=>n.startsWith('ODM THERMAL'), odm:true},
+    {labelKey:'channel.trimExport', match:n=>n==='Recorte de bordes térmicos'},
+  ],
+  ms:[
+    {labelKey:'channel.prep', match:n=>n==='Preparación bandas multiespectrales'},
+    {labelKey:'channel.recon3d', match:n=>n.startsWith('ODM MULTISPECTRAL'), odm:true},
+    {labelKey:'channel.trimIndices',
+     match:n=>n==='Recorte de bordes multiespectrales'||n==='Índices de vegetación (NDVI/GNDVI/NDRE)'},
+  ],
+};
+// A qué canal pertenece el nombre de etapa que llega por SSE — null para
+// todo lo que NO es de un solo sensor (ruta de vuelo, banda D, máscara de
+// confianza, hotspot térmico, tiles, COG/COPC, entrega): a propósito quedan
+// fuera de los 3 progresos, que son solo rgb/térmico/ms.
+function channelFor(name){
+  for(const [ch,steps] of Object.entries(CHANNEL_STEPS))
+    if(steps.some(s=>s.match(name)))return ch;
+  return null;
 }
-// t: epoch en SEGUNDOS del servidor (progress.py, ver el comentario de
-// _emit_progress) — no Date.now(). Así el tiempo por fase sale bien aunque
-// se reconecte/recargue a mitad de una corrida de horas: la SSE reproduce
-// el historial completo desde el principio en cada conexión nueva, y esos
-// eventos viejos traen su propio t real en vez de "ahora".
-function advancePhase(name,t){
-  if(!name)return;
-  const now=t?t*1000:Date.now();
-  let idx=PHASES.findIndex(p=>p.match(name));
-  if(idx===-1){
-    // No matchea ningún catálogo conocido — pasa con sub-pasos reales que a
-    // propósito se dejaron afuera del match() (p.ej. "Hotspot térmico" en
-    // una misión térmica sin multiespectral, ver el comentario en
-    // 'thermal_post') y con fases que no se pueden predecir de antemano
-    // ("Exportación a carpeta de entrega"). Se inserta INMEDIATAMENTE
-        // DESPUÉS de la última fase done/current, no al final del array: si
-    // se agregara al final sin más, cualquier fase posterior YA cargada
-    // (p.ej. 'tiles'/'cog') quedaría marcada 'done' de pura casualidad de
-    // orden del array, antes de haber pasado de verdad.
-    const after=PHASES.reduce((acc,p,i)=>(p.status==='done'||p.status==='current')?i:acc,-1);
-    idx=after+1;
-    PHASES.splice(idx,0,{key:'extra-'+name,label:name,desc:null,match:n=>n===name,status:'pending',
-      startedAt:null,endedAt:null});
-  }
-  PHASES.forEach((p,i)=>{
-    const eraCurrent=p.status==='current';
-    p.status=i<idx?'done':i===idx?'current':'pending';
-    if(eraCurrent&&p.status!=='current'&&!p.endedAt)p.endedAt=now;
-    if(p.status==='current'&&!p.startedAt)p.startedAt=now;
+let CHANNELS={};   // {rgb:{pct,phase,status}, ...} — solo los sensores activos en ESTA corrida
+function buildChannels(ctx){
+  CHANNELS={};
+  ['rgb','thermal','ms'].forEach(ch=>{
+    if(ctx[ch])CHANNELS[ch]={pct:0,phase:t('channel.waiting'),status:'pending'};
   });
-  renderPhases();
+  renderChannels();
 }
-function fmtPhaseDuration(ms){
-  const s=Math.max(0,Math.round(ms/1000));
-  if(s<60)return `${s}s`;
-  const m=Math.floor(s/60),ss=s%60;
-  return ss?`${m}m ${ss}s`:`${m}m`;
+function updateChannel(name,n,total){
+  const ch=channelFor(name);
+  if(!ch||!CHANNELS[ch])return;
+  const steps=CHANNEL_STEPS[ch],idx=steps.findIndex(s=>s.match(name));
+  if(idx===-1)return;
+  let pct=(idx/steps.length)*100;
+  if(steps[idx].odm&&n&&total)pct+=((n-1)/total)*(100/steps.length);
+  const c=CHANNELS[ch];
+  c.status='running';
+  c.phase=t(steps[idx].labelKey)+(steps[idx].odm&&n&&total?` (${n}/${total})`:'');
+  // Nunca retrocede: dos invocaciones de ODM por sensor (ver run_odm() en
+  // docker/entrypoint.sh, fase SfM liviana + fase MVS pesada) reimprimen
+  // "Running dataset stage" desde 1 aunque sea un no-op real la segunda vez.
+  c.pct=Math.max(c.pct||0,Math.min(99,Math.round(pct)));
+  renderChannels();
 }
-// Cada fase es un <details> — el usuario despliega la que le interese para
-// saber QUÉ hace de verdad esa etapa, en vez de solo un nombre corto en la
-// lista. Sin desc (fallback de advancePhase(), nombres de sub-pasos que no
-// están en PHASE_CATALOG) se muestra sin flecha, no hay nada que desplegar.
-// Duración: "done" muestra cuánto tardó (endedAt-startedAt); "current"
-// muestra un cronómetro EN VIVO desde que arrancó (lo actualiza phTick(),
-// mismo intervalo de 1s que ya usa el reloj general — ver renderPhaseTimers()
-// más abajo, así no hace falta re-renderizar la lista entera cada segundo).
-function phaseDurationHTML(p){
-  if(p.status==='done'&&p.startedAt&&p.endedAt)
-    return `<span class="ph-phase-dur">${fmtPhaseDuration(p.endedAt-p.startedAt)}</span>`;
-  if(p.status==='current'&&p.startedAt)
-    return `<span class="ph-phase-dur ph-phase-live" data-started="${p.startedAt}">${fmtPhaseDuration(Date.now()-p.startedAt)}</span>`;
-  return '';
+// Al terminar la corrida entera: lo que ya llegó a (casi) 100% se cierra en
+// 100/done sin importar si OTRO sensor fue el que falló; lo que se quedó
+// atrás cuando la corrida terminó mal es, con alta probabilidad, el sensor
+// que rompió — se marca "failed" en vez de dejarlo pegado a mitad de barra
+// sin explicación.
+function finishChannels(ok){
+  Object.values(CHANNELS).forEach(c=>{
+    if(ok||c.pct>=99){c.pct=100;c.status='done';}
+    else c.status='failed';
+  });
+  renderChannels();
 }
-function renderPhases(){
-  const box=document.getElementById('ph-phases');
+function renderChannels(){
+  const box=document.getElementById('ph-channels');
   if(!box)return;
-  box.innerHTML=PHASES.map(p=>
-    p.desc
-      ? `<li class="${p.status}"><details><summary><span class="ph-phase-dot"></span>${p.label}${phaseDurationHTML(p)}</summary>`
-        + `<div class="ph-phase-desc">${p.desc}</div></details></li>`
-      : `<li class="${p.status} ph-phase-nodesc"><span class="ph-phase-dot"></span>${p.label}${phaseDurationHTML(p)}</li>`
-  ).join('');
-}
-// Actualiza SOLO el número del cronómetro de la fase en curso, sin
-// reconstruir toda la lista (evita perder el <details> abierto del usuario
-// cada segundo) — se llama desde phTick(), que ya corre cada 1s.
-function renderPhaseTimers(){
-  const el=document.querySelector('.ph-phase-live');
-  if(!el)return;
-  el.textContent=fmtPhaseDuration(Date.now()-Number(el.dataset.started));
+  box.innerHTML=Object.entries(CHANNELS).map(([ch,c])=>`
+    <li class="ph-channel ${c.status}">
+      <div class="ph-channel-head">
+        <span class="ph-channel-name">${channelLabel(ch)}</span>
+        <span class="ph-channel-phase">${c.status==='failed'?t('channel.failed'):c.phase}</span>
+        <span class="ph-channel-pct">${c.pct}%</span>
+      </div>
+      <div class="ph-bar"><div class="ph-bar-fill" style="width:${c.pct}%"></div></div>
+    </li>`).join('');
 }
 
 const MAX_PH_LOG_LINES=600; // ventana acotada: una corrida entera son miles de líneas
@@ -1661,6 +2133,9 @@ let phLogLines=[];
 function phAppendLog(line){
   phLogLines.push(line);
   if(phLogLines.length>MAX_PH_LOG_LINES)phLogLines=phLogLines.slice(-MAX_PH_LOG_LINES);
+  phRenderLog();
+}
+function phRenderLog(){
   const box=document.getElementById('ph-log');
   if(!box)return;
   box.textContent=phLogLines.join('\n');
@@ -1685,16 +2160,16 @@ function connectLiveMission(mission){
     if(actions){
       actions.innerHTML='';
       const cancel=document.createElement('button');
-      cancel.className='btn sm';cancel.innerHTML='<svg class="ic" style="width:13px;height:13px" aria-hidden="true"><use href="#i-x"/></svg> Cancelar';
+      cancel.className='btn sm';cancel.innerHTML=`<svg class="ic" style="width:13px;height:13px" aria-hidden="true"><use href="#i-x"/></svg> ${t('progress.cancel')}`;
       cancel.onclick=async()=>{
-        if(!confirm('¿Cancelar el procesamiento en curso? Lo hecho hasta ahora en esta corrida se pierde.'))return;
-        cancel.disabled=true;cancel.textContent='Cancelando…';
+        if(!confirm(t('progress.cancelConfirm')))return;
+        cancel.disabled=true;cancel.textContent=t('progress.cancelling');
         try{
           const r=await fetch(`/api/missions/${encodeURIComponent(mission)}/cancel`,{method:'POST'});
-          if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.detail||'no se pudo cancelar');}
+          if(!r.ok){const j=await r.json().catch(()=>({}));throw new Error(j.detail||t('progress.cancelFailedGeneric'));}
         }catch(e){
-          alert('No se pudo cancelar: '+e.message);
-          cancel.disabled=false;cancel.innerHTML='<svg class="ic" style="width:13px;height:13px" aria-hidden="true"><use href="#i-x"/></svg> Cancelar';
+          alert(t('progress.cancelFailedAlert')+e.message);
+          cancel.disabled=false;cancel.innerHTML=`<svg class="ic" style="width:13px;height:13px" aria-hidden="true"><use href="#i-x"/></svg> ${t('progress.cancel')}`;
         }
       };
       actions.appendChild(cancel);
@@ -1706,15 +2181,11 @@ function connectLiveMission(mission){
       phServerElapsed=d.elapsed||0; phServerElapsedAt=Date.now();
       if(phTimerInterval)clearInterval(phTimerInterval);
       phTimerInterval=setInterval(phTick,1000); phTick();
-      if(d.mode)phSetStage('Conectado, esperando la primera etapa…');
-      buildPhaseList({rgb:d.mode!=='thermal'&&d.mode!=='none',
-        thermal:(d.mode||'').includes('thermal'),ms:!!d.has_multispectral,dband:!!d.dband});
+      if(d.mode)phSetStage(t('progress.processing'));
+      buildChannels({rgb:d.mode!=='thermal'&&d.mode!=='none',
+        thermal:(d.mode||'').includes('thermal'),ms:!!d.has_multispectral});
     }else if(d.kind==='progress'){
-      if(d.event==='stage'){ phSetStage(`[${d.n}/${d.total}] ${d.name}`); phSetBar(0); advancePhase(d.name,d.t); }
-      else if(d.event==='bar'){
-        const cur=parseFloat(d.current||0), tot=parseFloat(d.total||100)||100;
-        phSetBar((cur/tot)*100);
-      }else if(d.event==='done'){ phSetBar(100); }
+      if(d.event==='stage')updateChannel(d.name,d.n?parseInt(d.n,10):null,d.total?parseInt(d.total,10):null);
     }else if(d.kind==='log'){
       phAppendLog(d.line);
     }else if(d.kind==='done'){
@@ -1725,29 +2196,24 @@ function connectLiveMission(mission){
       const ok=d.returncode===0;
       hud.classList.add(ok?'done':'failed');
       phSetStage(ok
-        ? '<svg class="ic" style="width:13px;height:13px;color:var(--good)" aria-hidden="true"><use href="#i-check"/></svg> Procesamiento completo'
-        : `<svg class="ic" style="width:13px;height:13px;color:var(--critical)" aria-hidden="true"><use href="#i-x"/></svg> Falló (código ${d.returncode})`);
-      // La última fase que haya llegado a estar "current" nunca recibe su
-      // propio endedAt (nada la reemplaza) — se completa acá, al terminar
-      // la corrida entera, mejor aproximación que un endedAt=null.
-      PHASES.forEach(p=>{ if(p.status==='current'&&!p.endedAt)p.endedAt=Date.now(); });
-      if(ok){phSetBar(100);PHASES.forEach(p=>p.status='done');}
-      renderPhases();
+        ? `<svg class="ic" style="width:13px;height:13px;color:var(--good)" aria-hidden="true"><use href="#i-check"/></svg> ${t('progress.complete')}`
+        : `<svg class="ic" style="width:13px;height:13px;color:var(--critical)" aria-hidden="true"><use href="#i-x"/></svg> ${t('channel.failed')} (${t('progress.code')} ${d.returncode})`);
+      finishChannels(ok);
       const actions=document.getElementById('ph-actions');
       if(actions){
         actions.innerHTML='';
         if(!ok){
           const b=document.createElement('button');
-          b.className='btn sm';b.textContent='Ver log completo';
+          b.className='btn sm';b.textContent=t('progress.viewFullLog');
           b.onclick=toggleProgressLog;
           actions.appendChild(b);
         }
         const close=document.createElement('button');
-        close.className='btn sm primary';close.textContent='Cerrar';
+        close.className='btn sm primary';close.textContent=t('report.closeAria');
         close.onclick=()=>hud.classList.remove('visible');
         actions.appendChild(close);
       }
-      pollBoundsForChanges(); // última pasada: productos finales (severidad, área, etc.)
+      pollBoundsForChanges(); // última pasada: productos finales (hotspot, índices, etc.)
       es.close();
       // Recién ahora, con la corrida terminada, tiene sentido re-etiquetar
       // "productos de la misión" (antes decía cuántas misiones hay en la
@@ -1758,9 +2224,84 @@ function connectLiveMission(mission){
   es.onerror=()=>{
     // Si el servidor nunca trackeó esta misión como activa (link viejo,
     // otra sesión), la primera respuesta ya viene con status 404. No hay
-    // "reintentos infinitos silenciosos": se cierra y no se muestra nada.
-    if(!hud.classList.contains('visible')){ es.close(); if(boundsPoll)clearInterval(boundsPoll); }
+    // "reintentos infinitos silenciosos": se cierra y no se muestra nada,
+    // a menos que haya una reanudación activa en outputs/resume_status.json.
+    if(!hud.classList.contains('visible')){
+      es.close();
+      if(boundsPoll)clearInterval(boundsPoll);
+      pollResumeStatus(mission, hud);
+    }
   };
+}
+
+let resumePoll=null;
+function pollResumeStatus(mission, hud){
+  let wasRunning=false;
+  async function check(){
+    try{
+      const r=await fetch(`/geovisor/outputs/resume_status.json?t=${Date.now()}`, {cache:'no-store'});
+      if(!r.ok){
+        if(resumePoll){ clearInterval(resumePoll); resumePoll=null; }
+        return;
+      }
+      const s=await r.json();
+      if(!s){
+        if(resumePoll){ clearInterval(resumePoll); resumePoll=null; }
+        return;
+      }
+      // Si la misión no está corriendo y nunca la vimos correr en esta sesión de página,
+      // no mostrar el HUD de progreso: la misión ya finalizó.
+      if(!s.running && !wasRunning){
+        if(resumePoll){ clearInterval(resumePoll); resumePoll=null; }
+        if(hud){
+          hud.classList.remove('visible');
+          hud.classList.remove('running');
+        }
+        return;
+      }
+
+      // Si está corriendo o acaba de terminar mientras la observábamos:
+      wasRunning=true;
+      hud.classList.add('visible');
+      labelMission();
+      if(s.elapsed_s !== undefined){
+        phServerElapsed=s.elapsed_s; phServerElapsedAt=Date.now();
+        if(!phTimerInterval){ phTimerInterval=setInterval(phTick,1000); phTick(); }
+      }
+      if(s.stage) phSetStage(s.stage + (s.substage ? ` <span style="font-size:11px;opacity:0.75">(${s.substage})</span>` : ''));
+      buildChannels({rgb:true, thermal:true, ms:false});
+      if(s.channel_progress){
+        updateChannel(s.channel_progress.name, s.channel_progress.n, s.channel_progress.total);
+      }
+      if(s.log_tail && Array.isArray(s.log_tail) && s.log_tail.length){
+        phLogLines=s.log_tail;
+        phRenderLog();
+      }
+      if(s.done || !s.running){
+        phDone=true;
+        if(phTimerInterval) clearInterval(phTimerInterval);
+        hud.classList.remove('running');
+        hud.classList.add(s.error?'failed':'done');
+        phSetStage(s.error
+          ? `<svg class="ic" style="width:13px;height:13px;color:var(--critical)" aria-hidden="true"><use href="#i-x"/></svg> Falló`
+          : `<svg class="ic" style="width:13px;height:13px;color:var(--good)" aria-hidden="true"><use href="#i-check"/></svg> ${s.stage||'Completado'}`);
+        finishChannels(!s.error);
+        const actions=document.getElementById('ph-actions');
+        if(actions){
+          actions.innerHTML='';
+          const close=document.createElement('button');
+          close.className='btn sm primary'; close.textContent=t('report.closeAria');
+          close.onclick=()=>hud.classList.remove('visible');
+          actions.appendChild(close);
+        }
+        if(resumePoll){ clearInterval(resumePoll); resumePoll=null; }
+        pollBoundsForChanges();
+        labelMission();
+      }
+    }catch(_){}
+  }
+  check();
+  if(!resumePoll) resumePoll=setInterval(check, 2000);
 }
 if(urlMission)connectLiveMission(urlMission);
 
@@ -1799,6 +2340,81 @@ function toggleTheme(){
   if(!t)t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';
   applyTheme(t);
 })();
+
+// ═══════════════════════════════════════════════════════════════════
+// IDIOMA (EN/ES): apply/toggle/init — mismo patrón que el tema arriba.
+// El diccionario I18N y t() viven al principio del archivo, no acá (ver su
+// propio comentario sobre por qué).
+// ═══════════════════════════════════════════════════════════════════
+// Etiquetas de LAYER_REGISTRY: quedan grabadas como string plana en cada
+// entrada (no como función, para no tocar los pocos lugares que leen
+// `.label` directo — layerCardHTML(), buildCompareSelect(), la leyenda del
+// reporte). Se recalculan acá, a mano, cada vez que cambia el idioma.
+function refreshLayerLabels(){
+  const setLbl=(id,val)=>{ if(LAYER_REGISTRY[id])LAYER_REGISTRY[id].label=val; };
+  setLbl('hillshade',t('layer.hillshade'));
+  setLbl('rgb',t('layer.rgb'));
+  setLbl('dband',t('layer.dband'));
+  setLbl('ms_composite',t('layer.msComposite'));
+  setLbl('thermal',t('layer.thermal'));
+  setLbl('hotspot_termico',t('layer.hotspot'));
+  setLbl('flight_path',t('layer.flightPath'));
+  INDEX_NAMES.forEach(name=>{ setLbl(name,indexLabelInfo(name)[0]); });
+  Object.keys(INDEX_CLASS_INFO).forEach(name=>{ setLbl(name,indexClassLabel(name)); });
+  ['rgb','thermal','multispectral'].forEach(sensor=>{ setLbl('hull_'+sensor,`${t('layer.hull')} · ${sensorLabel(sensor)}`); });
+}
+function applyLang(lang){
+  LANG=lang==='es'?'es':'en';
+  document.documentElement.setAttribute('lang',LANG);
+  document.querySelectorAll('[data-i18n]').forEach(el=>{ el.textContent=t(el.getAttribute('data-i18n')); });
+  document.querySelectorAll('[data-i18n-html]').forEach(el=>{ el.innerHTML=t(el.getAttribute('data-i18n-html')); });
+  document.querySelectorAll('[data-i18n-title]').forEach(el=>{ el.setAttribute('title',t(el.getAttribute('data-i18n-title'))); });
+  document.querySelectorAll('[data-i18n-aria-label]').forEach(el=>{ el.setAttribute('aria-label',t(el.getAttribute('data-i18n-aria-label'))); });
+  const btn=document.getElementById('btn-lang'); if(btn)btn.textContent=LANG==='en'?'ES':'EN';
+  document.title=t('doc.title');
+  // Control de Leaflet "Encuadrar toda la misión": FitBoundsControl lo arma
+  // con L.DomUtil, no vive en index.html, así que no tiene data-i18n — se
+  // refresca a mano por su clase.
+  const fitBtn=document.querySelector('.map-extra-control');
+  if(fitBtn){ fitBtn.title=t('map.fitBounds'); fitBtn.setAttribute('aria-label',t('map.fitBounds')); }
+  refreshLayerLabels();
+  // El grueso de la interfaz (panel de Capas, tarjetas de resumen, franja de
+  // situación, comparar en el tiempo, nombre de la misión) NO se arma con
+  // data-i18n: son funciones JS que reconstruyen su HTML entero cada vez que
+  // corren (ver sus propios comentarios más abajo). Re-correrlas acá es lo
+  // que de verdad cambia el idioma ahí — re-etiquetar atributos no alcanza.
+  // Todas van guardadas: esta función se llama por primera vez desde
+  // initLang() (ver más abajo), mucho antes de que loadSituation()/
+  // initPanel() terminen de traer datos reales.
+  try{ renderCapasPanel(); }catch(e){}
+  try{ renderSituationHeader(); }catch(e){}
+  try{ renderSummaryCards(); }catch(e){}
+  try{ checkRelatedMissions(); }catch(e){}
+  try{ labelMission(); }catch(e){}
+  try{
+    if(Object.keys(CHANNELS).length){
+      Object.values(CHANNELS).forEach(c=>{ if(c.status==='pending')c.phase=t('channel.waiting'); });
+      renderChannels();
+    }
+  }catch(e){}
+  // Selectores del comparador (si ya está abierto): sus <option> quedan con
+  // las etiquetas del idioma anterior hasta que se releen acá.
+  try{
+    if(compareActive){
+      document.querySelectorAll('.compare-select').forEach(sel=>{
+        Array.from(sel.options).forEach(opt=>{ if(LAYER_REGISTRY[opt.value])opt.textContent=LAYER_REGISTRY[opt.value].label; });
+      });
+    }
+  }catch(e){}
+  try{ localStorage.setItem(LANG_KEY,LANG); }catch(e){}
+}
+function toggleLang(){ applyLang(LANG==='en'?'es':'en'); }
+(function initLang(){
+  let l=null;
+  try{ l=localStorage.getItem(LANG_KEY); }catch(e){}
+  applyLang(l==='es'?'es':'en'); // default SIEMPRE inglés, nunca navigator.language
+})();
+document.getElementById('btn-lang')?.addEventListener('click',toggleLang);
 
 // ═══════════════════════════════════════════════════════════════════
 // ACCIONES SOBRE CAPAS (solo / encuadrar / apagar todo / restablecer)
@@ -1900,13 +2516,14 @@ async function captureMapSnapshot(){
     ctx.fillRect(0,0,rect.width,rect.height+PAD_BOTTOM);
 
     // Capas ráster: cualquier <img>/<canvas> dentro del pane de una capa
-    // encendida, en el mismo orden en que se dibujan en el mapa real.
+    // encendida, en el mismo orden en que se dibujan en el mapa real (de abajo hacia arriba).
     let anyRaster=false;
-    layerOrder.forEach(id=>{
+    const drawOrder=[...layerOrder].reverse();
+    drawOrder.forEach(id=>{
       const def=LAYER_REGISTRY[id];
       if(!def||!map.hasLayer(def.layer))return;
       const pane=map.getPane('pane-'+id);
-      if(!pane)return; // capas vectoriales (área/vuelo) se dibujan aparte, abajo
+      if(!pane)return; // capas vectoriales (vuelo) se dibujan aparte, abajo
       const opacity=def.layer.options?.opacity??1;
       if(opacity<=0)return;
       pane.querySelectorAll('img,canvas').forEach(el=>{
@@ -1922,20 +2539,6 @@ async function captureMapSnapshot(){
 
     // Vectores: se reproyectan a mano (lat/lng → pixel de pantalla) y se
     // dibujan con las mismas primitivas de canvas, no dependen de leer DOM.
-    if(map.hasLayer(areaAfectadaLayer)){
-      areaPolyEntries.forEach(entry=>{
-        ctx.beginPath();
-        entry.rings.forEach(ring=>{
-          ring.forEach((ll,i)=>{
-            const p=map.latLngToContainerPoint(ll);
-            if(i===0)ctx.moveTo(p.x,p.y);else ctx.lineTo(p.x,p.y);
-          });
-          ctx.closePath();
-        });
-        ctx.fillStyle='rgba(255,23,68,.05)';ctx.fill();
-        ctx.strokeStyle='#ff1744';ctx.lineWidth=2;ctx.stroke();
-      });
-    }
     if(map.hasLayer(flightLayer)){
       flightLayer.eachLayer(l=>{
         if(l instanceof L.Polyline&&!(l instanceof L.Polygon)){
@@ -1990,8 +2593,8 @@ async function captureMapSnapshot(){
     // "modo operativo", no necesita ninguno; el nombre del archivo alcanza).
     const missionName=document.getElementById('incident-name')?.textContent||'';
 
-    if(!anyRaster&&!map.hasLayer(areaAfectadaLayer)&&!map.hasLayer(flightLayer)){
-      throw new Error('No hay ninguna capa visible para exportar. Activa al menos una capa en el panel.');
+    if(!anyRaster&&!map.hasLayer(flightLayer)){
+      throw new Error(t('export.noLayers'));
     }
     return {canvas,width,height,missionName};
   }
@@ -2000,7 +2603,7 @@ async function captureMapSnapshot(){
 async function exportView(){
   const btn=document.getElementById('btn-export');
   const original=btn.innerHTML;
-  btn.disabled=true;btn.innerHTML='⏳ Generando…';
+  btn.disabled=true;btn.innerHTML=t('export.generating');
   try{
     const {canvas,missionName}=await captureMapSnapshot();
     const url=canvas.toDataURL('image/png');
@@ -2009,7 +2612,7 @@ async function exportView(){
     a.href=url;a.download=`${safeMission}_${new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')}.png`;
     a.click();
   }catch(err){
-    alert('No se pudo exportar el mapa: '+err.message);
+    alert(t('export.failMap')+err.message);
   }finally{
     btn.disabled=false;btn.innerHTML=original;
   }
@@ -2023,51 +2626,28 @@ async function exportView(){
 // operativo). Esta es la versión para compartir con quien no va a abrir el
 // geovisor.
 // ═══════════════════════════════════════════════════════════════════
-function wrapCanvasText(ctx,text,x,y,maxWidth,lineHeight,maxLines){
-  const words=text.split(' ');
-  let line='',lines=[];
-  for(const w of words){
-    const test=line?line+' '+w:w;
-    if(ctx.measureText(test).width>maxWidth&&line){ lines.push(line); line=w; }
-    else line=test;
-  }
-  if(line)lines.push(line);
-  if(maxLines&&lines.length>maxLines){
-    lines=lines.slice(0,maxLines);
-    lines[maxLines-1]=lines[maxLines-1].replace(/\s*\S*$/,'')+'…';
-  }
-  lines.forEach((l,i)=>ctx.fillText(l,x,y+i*lineHeight));
-  return lines.length*lineHeight;
-}
 function buildRecommendationText(s){
-  if(!s)return 'Esta misión no tiene datos de impacto (multiespectral+térmico, o térmico solo) para resumir.';
-  const focos=`${s.hotspots_activos} foco${s.hotspots_activos===1?'':'s'} térmico${s.hotspots_activos===1?'':'s'} `+
-    `activo${s.hotspots_activos===1?'':'s'}`;
-  if(s.solo_termico){
-    // Sin multiespectral no hay severidad/área que reportar (ver
-    // detect_area_afectada.py: su señal primaria es NDVI). El resumen se
-    // recorta a lo único que el térmico solo puede decir. Esta pieza es
-    // para COMPARTIR fuera del geovisor (ver comentario de sección más
-    // abajo): no menciona lo que falta ni invita a agregar un vuelo (esa
-    // acción vive en la app, no tiene sentido en una imagen que ya salió de
-    // ahí) y en cambio reporta temperatura real de TODO el ortomosaico
-    // térmico, no solo el pico de un foco activo (que puede no haber
-    // ninguno y aun así haber datos de temperatura que reportar).
-    const temp=s.temp_max!=null?`. Temp. superficial: máx ${s.temp_max}°C, promedio ${s.temp_promedio}°C`:'';
-    // La calidad del vuelo va aparte, en su propia píldora (ver
-    // buildReportCanvas()), mezclarla acá duplicaba la misma cifra dos
-    // veces en la misma imagen.
-    return `${focos}${temp}.`;
-  }
-  if(s.sin_impacto_detectado){
-    // Corrió con los dos sensores pero ningún píxel superó el umbral — no
-    // hay severidad/área que reportar, pero sí temperatura real medida
-    // (mismo criterio que la rama solo_termico de arriba).
-    const temp=s.temp_max!=null?`. Temp. superficial: máx ${s.temp_max}°C, promedio ${s.temp_promedio}°C`:'';
-    return `Sin área afectada detectable${temp}.`;
-  }
-  return `${focos}, severidad dominante ${s.severidad.dominante}.`+
-    (s.severidad.severo_pct>0?' Se recomienda priorizar verificación en terreno en las zonas de severidad alta.':'');
+  if(!s)return t('reco.noThermal');
+  // Pluralización propia (no t()): la concordancia de género/número entre
+  // "foco/focos térmico/térmicos activo/activos" (es) y "hotspot/hotspots"
+  // (en) no es un simple lookup por clave, depende del número real.
+  const n=s.hotspots_activos;
+  const focos=LANG==='es'
+    ? `${n} foco${n===1?'':'s'} térmico${n===1?'':'s'} activo${n===1?'':'s'}`
+    : `${n} active thermal hotspot${n===1?'':'s'}`;
+  // Esta pieza es para COMPARTIR fuera del geovisor (ver comentario de
+  // sección más abajo): reporta temperatura real de TODO el ortomosaico
+  // térmico, no solo el pico de un foco activo (que puede no haber ninguno
+  // y aun así haber datos de temperatura que reportar).
+  const temp=s.temp_max!=null
+    ? (LANG==='es'
+        ? `. Temp. superficial: máx ${s.temp_max}°C, promedio ${s.temp_promedio}°C`
+        : `. Surface temperature: max ${s.temp_max}°C, average ${s.temp_promedio}°C`)
+    : '';
+  // La calidad del vuelo va aparte, en su propia píldora (ver
+  // buildReportCanvas()), mezclarla acá duplicaba la misma cifra dos veces
+  // en la misma imagen.
+  return `${focos}${temp}.`;
 }
 function roundRectPath(ctx,x,y,w,h,r){
   const rr=Math.min(r,w/2,h/2);
@@ -2083,7 +2663,7 @@ async function buildReportCanvas(){
   const {canvas:mapCanvas,width:mapW,height:mapH,missionName}=await captureMapSnapshot();
   const s=SITUATION||await loadSituation();
   const fq=FLIGHT_QUALITY||await loadFlightQuality();
-  const mission=missionName||displayName(await missionReady)||'Situación del incendio';
+  const mission=missionName||displayName(await missionReady)||t('doc.title');
 
   const cs=getComputedStyle(document.documentElement);
   const tok=n=>cs.getPropertyValue(n).trim();
@@ -2095,24 +2675,14 @@ async function buildReportCanvas(){
     critical=tok('--critical'),criticalSoft=tok('--critical-soft');
   const F=(w,sz)=>`${w} ${sz}px "Public Sans",sans-serif`;
 
-  const sevKey=s?.severidad?.dominante;
-  const sevLabel={leve:'Leve',moderado:'Moderada',severo:'Severa'}[sevKey]||'—';
-  const sevColor={leve:good,moderado:warning,severo:critical}[sevKey]||inkMuted;
-  const sevSoft={leve:goodSoft,moderado:warningSoft,severo:criticalSoft}[sevKey]||surface2;
-  // Urgencia general de la misión: 3 niveles, atados a lo mismo que YA se
-  // muestra en las tarjetas de arriba (focos activos, severidad dominante),
-  // no un umbral aparte que pueda contradecirlas. Antes esto se disparaba
-  // con CUALQUIER % de severidad "severo" mayor a cero (hasta un 1% por
-  // ruido de clasificación ya lo activaba), así que podía decir "requiere
-  // atención" en rojo con "0 focos activos" bien visible arriba: la propia
-  // imagen se contradecía. Ahora el rojo queda reservado para lo que
-  // realmente lo amerita: foco activo real, o que la severidad DOMINANTE
-  // (no un resto minoritario) sea severa.
-  const urgentLevel=!s?'none':s.hotspots_activos>0?'critical':sevKey==='severo'?'critical':sevKey==='moderado'?'warning':'good';
-  const urgentLabel={critical:s?.hotspots_activos>0?'⚠ Riesgo de reactivación':'⚠ Requiere atención',
-    warning:'◐ Seguimiento recomendado',good:'✓ Sin anomalías críticas',none:'Sin datos de impacto'}[urgentLevel];
-  const urgentColor={critical,warning,good,none:inkMuted}[urgentLevel];
-  const urgentSoft={critical:criticalSoft,warning:warningSoft,good:goodSoft,none:surface2}[urgentLevel];
+  // Urgencia general de la misión: atada a lo mismo que YA se muestra en las
+  // tarjetas de arriba (focos activos), no un umbral aparte que pueda
+  // contradecirlas.
+  const urgentLevel=!s?'none':s.hotspots_activos>0?'critical':'good';
+  const urgentLabel={critical:t('report.urgentCritical'),
+    good:t('report.urgentGood'),none:t('report.urgentNone')}[urgentLevel];
+  const urgentColor={critical,good,none:inkMuted}[urgentLevel];
+  const urgentSoft={critical:criticalSoft,good:goodSoft,none:surface2}[urgentLevel];
   // Calidad del LEVANTAMIENTO (compute_flight_quality.py), no confianza del
   // dato de impacto. Ver renderSummaryCards()/flightQualityCardHTML() para
   // la explicación completa de por qué se reemplazó ese concepto.
@@ -2137,7 +2707,7 @@ async function buildReportCanvas(){
 
   // Franja de acento arriba de todo, la única nota de color puramente
   // decorativa de la pieza, a propósito: ancla la identidad de la
-  // herramienta sin competir con el semántico (severidad/confianza) que sí
+  // herramienta sin competir con el semántico (confianza/urgencia) que sí
   // significa algo.
   ctx.fillStyle=accent;ctx.fillRect(0,0,mapW,TOPBAR_H);
 
@@ -2147,12 +2717,12 @@ async function buildReportCanvas(){
   ctx.fillStyle=ink;ctx.font=F(700,23);ctx.textAlign='left';
   ctx.fillText(mission,PAD,headY+38);
   ctx.fillStyle=inkMuted;ctx.font=F(500,13.5);
-  ctx.fillText(s?fmtFecha(s.captura):'Sin datos de impacto todavía',PAD,headY+60);
+  ctx.fillText(s?fmtFecha(s.captura):t('report.noImpactDataYet'),PAD,headY+60);
   if(fq){
     // Calidad del levantamiento como píldora de color, no texto suelto,
     // mismo lenguaje visual que los "chips" del panel en vivo.
     ctx.font=F(700,12.5);
-    const pillLbl=`Calidad del vuelo: ${fq.calidad}`;
+    const pillLbl=`${t('report.flightQualityLabel')}${localizeValue(fq.calidad)}`;
     const pillW=ctx.measureText(pillLbl).width+28;
     const pillX=mapW-PAD-pillW,pillY=headY+22;
     roundRectPath(ctx,pillX,pillY,pillW,26,13);
@@ -2164,22 +2734,14 @@ async function buildReportCanvas(){
   // ── Fila de métricas: 3 tarjetas reales, no columnas separadas por líneas ──
   const statsY=headY+HEADER_H;
   ctx.fillStyle=surface;ctx.fillRect(0,statsY,mapW,STATS_H);
-  // Sin multiespectral no hay tarjeta de "Área y severidad" que mostrar.
-  // Antes decía "Sin MS" (lo que FALTA); una pieza para compartir fuera del
-  // geovisor no debería anunciar ausencias, así que en su lugar van
-  // estadísticas de temperatura reales de todo el ortomosaico térmico
-  // (compute_situation_summary.py::_resumen_solo_termico), que siempre
-  // existen tenga o no focos activos.
-  const stats=!s?[['—','','Sin datos de impacto',inkMuted,surface2]]
-    :(s.solo_termico||s.sin_impacto_detectado)?[
-      [`${s.hotspots_activos}`,'','Focos activos',s.hotspots_activos>0?critical:ink,s.hotspots_activos>0?criticalSoft:surface2],
-      [s.temp_max!=null?`${s.temp_max}`:'—','°C','Temp. máxima',ink,surface2],
-      [s.temp_promedio!=null?`${s.temp_promedio}`:'—','°C','Temp. promedio',ink,surface2],
-    ]:[
-    [`${s.area_ha}`,'ha','Área afectada',ink,surface2],
-    [`${s.hotspots_activos}`,'','Focos activos',s.hotspots_activos>0?critical:ink,s.hotspots_activos>0?criticalSoft:surface2],
-    [sevLabel,'','Severidad dominante',sevColor,sevSoft],
-  ];
+  // Estadísticas de temperatura reales de todo el ortomosaico térmico
+  // (compute_situation_summary.py), que siempre existen tenga o no focos
+  // activos.
+  const stats=!s?[['—','',t('report.urgentNone'),inkMuted,surface2]]:[
+      [`${s.hotspots_activos}`,'',t('report.activeHotspots'),s.hotspots_activos>0?critical:ink,s.hotspots_activos>0?criticalSoft:surface2],
+      [s.temp_max!=null?`${s.temp_max}`:'—','°C',t('report.maxTemp'),ink,surface2],
+      [s.temp_promedio!=null?`${s.temp_promedio}`:'—','°C',t('report.avgTemp'),ink,surface2],
+    ];
   const gap=12, cardW=(mapW-PAD*2-gap*(stats.length-1))/stats.length, cardH=STATS_H-24;
   stats.forEach(([val,unit,lbl,color,soft],i)=>{
     const cx0=PAD+i*(cardW+gap), cy0=statsY+12;
@@ -2213,7 +2775,7 @@ async function buildReportCanvas(){
   ctx.beginPath();ctx.moveTo(0,mapY);ctx.lineTo(mapW,mapY);ctx.stroke();
 
   // ── Leyenda de la capa temática visible: reportado que la imagen exportada
-  // mostraba el mapa coloreado (severidad/hotspot/índice) sin decir qué
+  // mostraba el mapa coloreado (hotspot/índice) sin decir qué
   // significa cada color, algo que SÍ se ve en pantalla (panel de Capas o
   // leyenda flotante del modo simple). Se toma la primera capa VISIBLE de
   // layerOrder que tenga swatches (ya viene en orden de prioridad de
@@ -2290,7 +2852,6 @@ function startMeasure(){
   document.getElementById('btn-measure').classList.add('active');
   document.getElementById('measure-panel').classList.add('visible');
   map.getContainer().style.cursor='crosshair';
-  if(typeof areaEditMode!=='undefined'&&areaEditMode)toggleAreaEdit();
 }
 function stopMeasure(){
   measureActive=false;
@@ -2343,6 +2904,16 @@ function refreshMeasure(){
     measurePts.length>=3?fmtArea(ringArea(measurePts)):'—';
 }
 map.on('click',e=>{
+  if(drawActive){
+    if(!freehandEnabled){
+      strokePts.push(e.latlng);
+      if(strokePolyline)map.removeLayer(strokePolyline);
+      strokePolyline=L.polyline(strokePts,{
+        color:'#ff3d00',weight:3,dashArray:'6,4',pane:'pane-draw'
+      }).addTo(map);
+    }
+    return;
+  }
   if(!measureActive)return;
   measurePts.push(e.latlng);
   const m=L.marker(e.latlng,{pane:'pane-measure',icon:L.divIcon({className:'measure-node',
@@ -2350,51 +2921,657 @@ map.on('click',e=>{
   measureMarks.push(m);
   refreshMeasure();
 });
-map.on('dblclick',e=>{ if(measureActive){L.DomEvent.stop(e);} });
+map.on('dblclick',e=>{
+  if(drawActive){
+    L.DomEvent.stop(e);
+    if(!freehandEnabled&&strokePts.length>=2){
+      applyStroke(strokePts);
+      if(strokePolyline){map.removeLayer(strokePolyline);strokePolyline=null;}
+      strokePts=[];
+    }
+    return;
+  }
+  if(measureActive){L.DomEvent.stop(e);}
+});
 
 // ═══════════════════════════════════════════════════════════════════
-// ATAJOS DE TECLADO (un solo listener — había dos registrados por separado
-// para 'b'/'c'/Escape, que se disparaban dos veces por tecla: apretar "C"
-// abría y cerraba el comparador en el mismo evento, indistinguible de que
-// el atajo no funcionara)
+// DELIMITACIÓN, REMODELADO TIPO QGIS (RESHAPE) Y MANO ALZADA (FREEHAND)
+// ═══════════════════════════════════════════════════════════════════
+let drawActive=false;
+let drawMode='reshape'; // 'reshape' | 'cut' | 'add' | 'draw'
+let freehandEnabled=true;
+let isDrawingStroke=false;
+let strokePts=[];
+let strokePolyline=null;
+let drawPts=[];
+let drawPoly=null;
+let drawLine=null;
+let drawMarks=[];
+let drawMidMarks=[];
+let drawUndoStack=[];
+const drawPane=map.createPane('pane-draw');
+drawPane.style.zIndex=695;
+
+function setDrawMode(mode){
+  drawMode=mode;
+  ['reshape','cut','add','draw'].forEach(m=>{
+    const btn=document.getElementById('btn-mode-'+m);
+    if(btn)btn.classList.toggle('active',m===mode);
+  });
+  updateDrawHint();
+}
+
+function toggleFreehandMode(enabled){
+  freehandEnabled=!!enabled;
+  updateDrawHint();
+}
+
+function updateDrawHint(){
+  const el=document.getElementById('draw-hint');
+  if(!el)return;
+  if(drawMode==='reshape'){
+    el.textContent=freehandEnabled
+      ?(LANG==='es'?'✏️ Arrastra una línea cruzando el polígono para remodelar su borde (QGIS)':'✏️ Drag a stroke crossing the polygon to reshape its boundary (QGIS)')
+      :(LANG==='es'?'Haz clics cruzando el polígono y doble clic para remodelar':'Click across the polygon and double click to reshape');
+  }else if(drawMode==='cut'){
+    el.textContent=freehandEnabled
+      ?(LANG==='es'?'🪓 Arrastra un lazo o trazo sobre el sobrante para recortarlo':'🪓 Drag a loop over unwanted parts to cut and remove them')
+      :(LANG==='es'?'Haz clics rodeando el sobrante y doble clic para recortar':'Click around unwanted parts and double click to cut');
+  }else if(drawMode==='add'){
+    el.textContent=freehandEnabled
+      ?(LANG==='es'?'➕ Arrastra un lazo para añadir un nuevo lóbulo o área quemada':'➕ Drag a loop to add and merge a new burned lobe')
+      :(LANG==='es'?'Haz clics rodeando la nueva zona y doble clic para añadir':'Click around new area and double click to add');
+  }else if(drawMode==='draw'){
+    el.textContent=freehandEnabled
+      ?(LANG==='es'?'✏️ Arrastra a mano alzada para trazar un nuevo polígono':'✏️ Drag freehand to draw a brand new polygon')
+      :(LANG==='es'?'Haz clics y doble clic para cerrar un nuevo polígono':'Click vertices and double click to close new polygon');
+  }
+}
+
+function pushDrawUndo(){
+  drawUndoStack.push(drawPts.map(p=>L.latLng(p.lat,p.lng)));
+  if(drawUndoStack.length>30)drawUndoStack.shift();
+  updateUndoButtonState();
+}
+
+function undoDrawAction(){
+  if(drawUndoStack.length>0){
+    drawPts=drawUndoStack.pop();
+    refreshDraw();
+    updateUndoButtonState();
+  }
+}
+
+function updateUndoButtonState(){
+  const btn=document.getElementById('btn-draw-undo');
+  if(btn)btn.disabled=(drawUndoStack.length===0);
+}
+
+function extractPolygonCoords(turfFeature){
+  if(!turfFeature||!turfFeature.geometry)return [];
+  const geom=turfFeature.geometry;
+  if(geom.type==='Polygon'){
+    return geom.coordinates[0].slice(0,-1).map(c=>L.latLng(c[1],c[0]));
+  }
+  if(geom.type==='MultiPolygon'){
+    let maxArea=-1;
+    let bestCoords=null;
+    geom.coordinates.forEach(polyCoords=>{
+      try{
+        const p=turf.polygon(polyCoords);
+        const a=turf.area(p);
+        if(a>maxArea){maxArea=a;bestCoords=polyCoords[0];}
+      }catch(e){}
+    });
+    if(bestCoords){
+      return bestCoords.slice(0,-1).map(c=>L.latLng(c[1],c[0]));
+    }
+  }
+  return [];
+}
+
+function applyStroke(pts){
+  if(!pts||pts.length<2)return;
+  let coords=pts.map(p=>[p.lng,p.lat]);
+
+  if(typeof turf!=='undefined'&&coords.length>=3){
+    try{
+      const ls=turf.lineString(coords);
+      const simp=turf.simplify(ls,{tolerance:0.00001,highQuality:true});
+      if(simp&&simp.geometry&&simp.geometry.coordinates.length>=2){
+        coords=simp.geometry.coordinates;
+      }
+    }catch(e){}
+  }
+
+  if(drawPts.length<3||drawMode==='draw'){
+    if(coords.length>=3){
+      pushDrawUndo();
+      drawPts=coords.map(c=>L.latLng(c[1],c[0]));
+      refreshDraw();
+    }
+    return;
+  }
+
+  const currentCoords=drawPts.map(p=>[p.lng,p.lat]);
+  if(currentCoords[0][0]!==currentCoords[currentCoords.length-1][0]||
+     currentCoords[0][1]!==currentCoords[currentCoords.length-1][1]){
+    currentCoords.push([currentCoords[0][0],currentCoords[0][1]]);
+  }
+
+  if(typeof turf==='undefined'){
+    if(drawMode==='add'){
+      pushDrawUndo();
+      drawPts=[...drawPts,...pts];
+      refreshDraw();
+    }
+    return;
+  }
+
+  try{
+    const currentPoly=turf.polygon([currentCoords]);
+
+    if(drawMode==='cut'){
+      const cutCoords=[...coords];
+      if(cutCoords[0][0]!==cutCoords[cutCoords.length-1][0]||cutCoords[0][1]!==cutCoords[cutCoords.length-1][1]){
+        cutCoords.push([cutCoords[0][0],cutCoords[0][1]]);
+      }
+      if(cutCoords.length>=4){
+        const cutPoly=turf.polygon([cutCoords]);
+        const diff=turf.difference(turf.featureCollection([currentPoly,cutPoly]));
+        if(diff){
+          const newPts=extractPolygonCoords(diff);
+          if(newPts.length>=3){
+            pushDrawUndo();
+            drawPts=newPts;
+            refreshDraw();
+            return;
+          }
+        }
+      }
+    }else if(drawMode==='add'){
+      const addCoords=[...coords];
+      if(addCoords[0][0]!==addCoords[addCoords.length-1][0]||addCoords[0][1]!==addCoords[addCoords.length-1][1]){
+        addCoords.push([addCoords[0][0],addCoords[0][1]]);
+      }
+      if(addCoords.length>=4){
+        const addPoly=turf.polygon([addCoords]);
+        const un=turf.union(turf.featureCollection([currentPoly,addPoly]));
+        if(un){
+          const newPts=extractPolygonCoords(un);
+          if(newPts.length>=3){
+            pushDrawUndo();
+            drawPts=newPts;
+            refreshDraw();
+            return;
+          }
+        }
+      }
+    }else if(drawMode==='reshape'){
+      const boundaryLine=turf.polygonToLine(currentPoly);
+      const cutLine=turf.lineString(coords);
+      const inter=turf.lineIntersect(cutLine,boundaryLine);
+
+      if(inter&&inter.features&&inter.features.length>=2){
+        const midIdx=Math.floor(coords.length/2);
+        const midPt=turf.point(coords[midIdx]);
+        const isMidInside=turf.booleanPointInPolygon(midPt,currentPoly);
+
+        const strokeLoop=[...coords,coords[0]];
+        const strokePoly=turf.polygon([strokeLoop]);
+
+        if(isMidInside){
+          const diff=turf.difference(turf.featureCollection([currentPoly,strokePoly]));
+          if(diff){
+            const newPts=extractPolygonCoords(diff);
+            if(newPts.length>=3){
+              pushDrawUndo();
+              drawPts=newPts;
+              refreshDraw();
+              return;
+            }
+          }
+        }else{
+          const un=turf.union(turf.featureCollection([currentPoly,strokePoly]));
+          if(un){
+            const newPts=extractPolygonCoords(un);
+            if(newPts.length>=3){
+              pushDrawUndo();
+              drawPts=newPts;
+              refreshDraw();
+              return;
+            }
+          }
+        }
+      }else{
+        const loopCoords=[...coords,coords[0]];
+        const loopPoly=turf.polygon([loopCoords]);
+        const center=turf.centerOfMass(loopPoly);
+        const isCenterInside=turf.booleanPointInPolygon(center,currentPoly);
+
+        if(isCenterInside){
+          const diff=turf.difference(turf.featureCollection([currentPoly,loopPoly]));
+          if(diff){
+            const newPts=extractPolygonCoords(diff);
+            if(newPts.length>=3){
+              pushDrawUndo();
+              drawPts=newPts;
+              refreshDraw();
+              return;
+            }
+          }
+        }else{
+          const un=turf.union(turf.featureCollection([currentPoly,loopPoly]));
+          if(un){
+            const newPts=extractPolygonCoords(un);
+            if(newPts.length>=3){
+              pushDrawUndo();
+              drawPts=newPts;
+              refreshDraw();
+              return;
+            }
+          }
+        }
+      }
+    }
+  }catch(err){
+    console.warn('Error applying stroke:',err);
+  }
+}
+
+// Eventos pointer en contenedor para trazo a mano alzada ultra fluido y táctil
+const mapEl=map.getContainer();
+
+mapEl.addEventListener('pointerdown',e=>{
+  if(!drawActive)return;
+  if(e.target.closest('#draw-panel,#report-panel,#sidebar,.leaflet-control'))return;
+  if(e.button!==0)return;
+
+  if(freehandEnabled){
+    isDrawingStroke=true;
+    map.dragging.disable();
+    const rect=mapEl.getBoundingClientRect();
+    const pt=map.containerPointToLatLng([e.clientX-rect.left,e.clientY-rect.top]);
+    strokePts=[pt];
+    if(strokePolyline)map.removeLayer(strokePolyline);
+    strokePolyline=L.polyline(strokePts,{
+      color:'#ff3d00',weight:3.5,dashArray:'4,4',pane:'pane-draw',interactive:false
+    }).addTo(map);
+  }
+});
+
+mapEl.addEventListener('pointermove',e=>{
+  if(!drawActive||!isDrawingStroke||!freehandEnabled)return;
+  const rect=mapEl.getBoundingClientRect();
+  const pt=map.containerPointToLatLng([e.clientX-rect.left,e.clientY-rect.top]);
+  const lastPt=strokePts[strokePts.length-1];
+  if(!lastPt||map.distance(lastPt,pt)>=1.0){
+    strokePts.push(pt);
+    if(strokePolyline)strokePolyline.setLatLngs(strokePts);
+  }
+});
+
+window.addEventListener('pointerup',()=>{
+  if(drawActive&&isDrawingStroke&&freehandEnabled){
+    isDrawingStroke=false;
+    if(strokePts.length>=2){
+      applyStroke(strokePts);
+    }
+    if(strokePolyline){
+      map.removeLayer(strokePolyline);
+      strokePolyline=null;
+    }
+    strokePts=[];
+  }
+});
+
+function toggleDraw(){ drawActive?stopDraw():startDraw(); }
+function startDraw(){
+  if(measureActive)stopMeasure();
+  drawActive=true;
+  if(freehandEnabled)map.dragging.disable();
+  document.getElementById('btn-draw')?.classList.add('active');
+  document.getElementById('draw-panel')?.classList.add('visible');
+  mapEl.classList.add('draw-freehand-cursor');
+  updateDrawHint();
+  updateUndoButtonState();
+  
+  if(drawPts.length===0 && LAYER_REGISTRY.area_afectada_experto?.layer){
+    try{
+      const gj=LAYER_REGISTRY.area_afectada_experto.layer.toGeoJSON();
+      importGeoJSONToDraw(gj);
+      if(drawPoly){
+        map.fitBounds(drawPoly.getBounds(),{paddingTopLeft:[80,340],paddingBottomRight:[80,340]});
+      }
+    }catch(e){}
+  }
+}
+
+function stopDraw(){
+  drawActive=false;
+  isDrawingStroke=false;
+  map.dragging.enable();
+  document.getElementById('btn-draw')?.classList.remove('active');
+  document.getElementById('draw-panel')?.classList.remove('visible');
+  mapEl.classList.remove('draw-freehand-cursor');
+  if(strokePolyline){map.removeLayer(strokePolyline);strokePolyline=null;}
+  clearDrawMarkers();
+}
+
+function clearDraw(){
+  if(drawPts.length>0)pushDrawUndo();
+  drawPts=[];
+  if(drawPoly)map.removeLayer(drawPoly);
+  if(drawLine)map.removeLayer(drawLine);
+  drawPoly=drawLine=null;
+  clearDrawMarkers();
+  updateDrawStats();
+}
+
+function clearDrawMarkers(){
+  drawMarks.forEach(m=>map.removeLayer(m));drawMarks=[];
+  drawMidMarks.forEach(m=>map.removeLayer(m));drawMidMarks=[];
+}
+
+function smoothDrawContour(){
+  if(drawPts.length<3)return;
+  pushDrawUndo();
+  let pts=drawPts.map(p=>({lat:p.lat,lng:p.lng}));
+  for(let it=0;it<2;it++){
+    const smoothed=[];
+    const n=pts.length;
+    for(let i=0;i<n;i++){
+      const p0=pts[i],p1=pts[(i+1)%n];
+      smoothed.push(
+        {lat:0.75*p0.lat+0.25*p1.lat, lng:0.75*p0.lng+0.25*p1.lng},
+        {lat:0.25*p0.lat+0.75*p1.lat, lng:0.25*p0.lng+0.75*p1.lng}
+      );
+    }
+    pts=smoothed;
+  }
+  drawPts=pts.map(p=>L.latLng(p.lat,p.lng));
+  refreshDraw();
+}
+
+async function loadThermalSuggestion(){
+  const btn=document.getElementById('btn-draw-assist');
+  if(btn)btn.disabled=true;
+  try{
+    const res=await fetch(`outputs/area_afectada_detectada.geojson?t=${Date.now()}`);
+    if(!res.ok)throw new Error("No hay sugerencia");
+    const gj=await res.json();
+    pushDrawUndo();
+    importGeoJSONToDraw(gj);
+  }catch(e){
+    alert(LANG==='es'?'No hay sugerencia térmica disponible para esta misión.':'No thermal suggestion available.');
+  }finally{
+    if(btn)btn.disabled=false;
+  }
+}
+
+function importGeoJSONToDraw(gj){
+  if(!gj)return;
+  let coords=null;
+  if(gj.type==='FeatureCollection'&&gj.features?.length>0){
+    let maxArea=-1;
+    for(const f of gj.features){
+      if(f.geometry?.type==='Polygon'){
+        const c=f.geometry.coordinates[0];
+        if(c&&c.length>maxArea){maxArea=c.length;coords=c;}
+      }else if(f.geometry?.type==='MultiPolygon'){
+        for(const poly of f.geometry.coordinates){
+          const c=poly[0];
+          if(c&&c.length>maxArea){maxArea=c.length;coords=c;}
+        }
+      }
+    }
+  }else if(gj.type==='Feature'&&gj.geometry?.type==='Polygon'){
+    coords=gj.geometry.coordinates[0];
+  }else if(gj.type==='Polygon'){
+    coords=gj.coordinates[0];
+  }
+
+  if(coords&&coords.length>=3){
+    if(typeof turf!=='undefined'&&coords.length>250){
+      try{
+        const closed=[...coords];
+        if(closed[0][0]!==closed[closed.length-1][0]||closed[0][1]!==closed[closed.length-1][1]){
+          closed.push([closed[0][0],closed[0][1]]);
+        }
+        const simp=turf.simplify(turf.polygon([closed]),{tolerance:0.000001,highQuality:true});
+        if(simp&&simp.geometry&&simp.geometry.coordinates[0].length>=4){
+          coords=simp.geometry.coordinates[0];
+        }
+      }catch(e){}
+    }
+    drawPts=coords.slice(0,coords.length-1).map(c=>L.latLng(c[1],c[0]));
+    refreshDraw();
+  }
+}
+
+function countContainedHotspots(){
+  if(drawPts.length<3)return 0;
+  const hsLayer=LAYER_REGISTRY.hotspot_termico?.layer;
+  if(!hsLayer)return 0;
+  let count=0;
+  try{
+    const gj=hsLayer.toGeoJSON();
+    for(const ft of gj.features||[]){
+      if(ft.geometry?.type==='Point'){
+        const [lng,lat]=ft.geometry.coordinates;
+        if(pointInPolygon([lng,lat],drawPts.map(p=>[p.lng,p.lat]))){
+          count++;
+        }
+      }
+    }
+  }catch(e){}
+  return count;
+}
+
+function pointInPolygon(point,vs){
+  const x=point[0],y=point[1];
+  let inside=false;
+  for(let i=0,j=vs.length-1;i<vs.length;j=i++){
+    const xi=vs[i][0],yi=vs[i][1];
+    const xj=vs[j][0],yj=vs[j][1];
+    const intersect=((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi);
+    if(intersect)inside=!inside;
+  }
+  return inside;
+}
+
+function updateDrawStats(){
+  if(drawPts.length<3){
+    document.getElementById('draw-area').textContent='0.00 ha';
+    document.getElementById('draw-m2').textContent='0 m²';
+    document.getElementById('draw-perimeter').textContent='0 m';
+    document.getElementById('draw-hotspots').textContent='0';
+    return;
+  }
+  const areaM2=ringArea(drawPts);
+  const areaHa=areaM2/10000.0;
+  document.getElementById('draw-area').textContent=(areaHa>=1?areaHa.toFixed(3):areaHa.toFixed(4))+' ha';
+  document.getElementById('draw-m2').textContent=Math.round(areaM2).toLocaleString()+' m²';
+
+  let perim=0;
+  for(let i=0;i<drawPts.length;i++){
+    perim+=map.distance(drawPts[i],drawPts[(i+1)%drawPts.length]);
+  }
+  document.getElementById('draw-perimeter').textContent=fmtDist(perim);
+  document.getElementById('draw-hotspots').textContent=countContainedHotspots()+(LANG==='es'?' focos':' hotspots');
+}
+
+function refreshDraw(){
+  if(drawPoly)map.removeLayer(drawPoly);
+  if(drawLine)map.removeLayer(drawLine);
+  drawPoly=drawLine=null;
+  clearDrawMarkers();
+
+  if(drawPts.length>=2){
+    drawLine=L.polyline(drawPts,{color:'#ff6d00',weight:3,dashArray:'6,4',pane:'pane-draw',interactive:false}).addTo(map);
+  }
+
+  if(drawPts.length>=3){
+    drawPoly=L.polygon(drawPts,{color:'#ff6d00',weight:2.5,fillColor:'#ff9100',fillOpacity:.28,pane:'pane-draw',interactive:false}).addTo(map);
+  }
+
+  // Si no estamos dibujando trazos rápidos, mostrar nodos
+  if(drawPts.length<=60){
+    drawPts.forEach((pt,idx)=>{
+      const m=L.marker(pt,{
+        pane:'pane-draw',draggable:true,
+        icon:L.divIcon({className:'draw-node',iconSize:[12,12],iconAnchor:[6,6]})
+      }).addTo(map);
+
+      m.on('dragstart',()=>pushDrawUndo());
+      m.on('drag',e=>{
+        drawPts[idx]=e.target.getLatLng();
+        if(drawLine)drawLine.setLatLngs(drawPts);
+        if(drawPoly)drawPoly.setLatLngs(drawPts);
+        updateDrawStats();
+      });
+      m.on('dragend',()=>refreshDraw());
+      m.on('contextmenu',e=>{
+        L.DomEvent.stop(e);
+        pushDrawUndo();
+        drawPts.splice(idx,1);
+        refreshDraw();
+      });
+      drawMarks.push(m);
+
+      if(drawPts.length>=2){
+        const nextIdx=(idx+1)%drawPts.length;
+        if(idx<drawPts.length-1||drawPts.length>=3){
+          const nextPt=drawPts[nextIdx];
+          const midLat=(pt.lat+nextPt.lat)/2;
+          const midLng=(pt.lng+nextPt.lng)/2;
+          const midM=L.marker([midLat,midLng],{
+            pane:'pane-draw',draggable:true,
+            icon:L.divIcon({className:'draw-midnode',iconSize:[8,8],iconAnchor:[4,4]})
+          }).addTo(map);
+
+          midM.on('dragstart',()=>{
+            pushDrawUndo();
+            drawPts.splice(nextIdx===0?drawPts.length:nextIdx,0,midM.getLatLng());
+          });
+          midM.on('drag',e=>{
+            const targetIdx=nextIdx===0?drawPts.length-1:nextIdx;
+            drawPts[targetIdx]=e.target.getLatLng();
+            if(drawLine)drawLine.setLatLngs(drawPts);
+            if(drawPoly)drawPoly.setLatLngs(drawPts);
+            updateDrawStats();
+          });
+          midM.on('dragend',()=>refreshDraw());
+          drawMidMarks.push(midM);
+        }
+      }
+    });
+  }
+
+  updateDrawStats();
+}
+
+async function saveDrawPolygon(){
+  if(drawPts.length<3){
+    alert(LANG==='es'?'Debes trazar al menos 3 puntos para cerrar un polígono.':'Draw at least 3 points to form a polygon.');
+    return;
+  }
+
+  const saveBtn=document.getElementById('btn-draw-save');
+  const saveText=document.getElementById('btn-draw-save-text');
+  if(saveBtn)saveBtn.disabled=true;
+  if(saveText)saveText.textContent=(LANG==='es'?'Guardando...':'Saving...');
+
+  const coordinates=[drawPts.map(p=>[p.lng,p.lat])];
+  coordinates[0].push([drawPts[0].lng,drawPts[0].lat]);
+
+  const areaM2=ringArea(drawPts);
+  const areaHa=areaM2/10000.0;
+
+  const geojson={
+    type:'FeatureCollection',
+    name:'Area_Afectada_Experto',
+    properties:{
+      total_area_m2:Math.round(areaM2*10)/10,
+      total_area_ha:Math.round(areaHa*10000)/10000,
+      features_count:1,
+      origen:'Delimitación interactiva en Geovisor RAPTOR',
+      hotspots_count:countContainedHotspots()
+    },
+    features:[{
+      type:'Feature',
+      geometry:{type:'Polygon',coordinates},
+      properties:{
+        tipo:'Área Afectada (Delimitación Oficial)',
+        area_m2:Math.round(areaM2*10)/10,
+        area_ha:Math.round(areaHa*10000)/10000,
+        origen:'Delimitación interactiva en Geovisor RAPTOR'
+      }
+    }]
+  };
+
+  const urlParams=new URLSearchParams(window.location.search);
+  const mission=urlParams.get('mission')||'';
+
+  try{
+    const res=await fetch(`/api/missions/${mission}/save-area`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({geojson})
+    });
+
+    const result=await res.json();
+    if(!res.ok)throw new Error(result.detail||'Error al guardar');
+
+    if(LAYER_REGISTRY.area_afectada_experto){
+      map.removeLayer(LAYER_REGISTRY.area_afectada_experto.layer);
+      delete LAYER_REGISTRY.area_afectada_experto;
+    }
+    await tryLoadBurnedArea('experto');
+
+    if(saveText)saveText.textContent=(LANG==='es'?'✓ Guardado':'✓ Saved');
+    setTimeout(()=>{
+      if(saveText)saveText.textContent=(LANG==='es'?'Guardar como Área Oficial':'Save as Official Area');
+      if(saveBtn)saveBtn.disabled=false;
+    },2000);
+
+  }catch(err){
+    alert((LANG==='es'?'Error al guardar área: ':'Failed to save area: ')+err.message);
+    if(saveText)saveText.textContent=(LANG==='es'?'Guardar como Área Oficial':'Save as Official Area');
+    if(saveBtn)saveBtn.disabled=false;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ATAJOS DE TECLADO
 // ═══════════════════════════════════════════════════════════════════
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
     if(helpMenu&&helpMenu.classList.contains('open')){closeHelpMenu();return;}
-    if(document.getElementById('report-overlay').classList.contains('open')){closeReport();return;}
+    if(document.getElementById('report-overlay')?.classList?.contains('open')){closeReport();return;}
     if(document.getElementById('point-card').classList.contains('visible')){closePointCard();return;}
-    if(areaDrawingNew){cancelDrawNewArea();return;}
+    if(drawActive){stopDraw();return;}
     if(measureActive){stopMeasure();return;}
+  }
+  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){
+    if(drawActive){
+      e.preventDefault();
+      undoDrawAction();
+      return;
+    }
   }
   if(e.target.matches('input,textarea,select'))return;
   if(e.ctrlKey||e.metaKey||e.altKey)return;
   const k=e.key.toLowerCase();
   if(k==='t'){toggleTheme();}
+  else if(k==='d'){toggleDraw();}
   else if(k==='m'){toggleMeasure();}
   else if(k==='c'){toggleCompare();}
   else if(k==='b'){toggleSidebar();}
 });
 
-// ═══════════════════════════════════════════════════════════════════
-// MISIÓN ACTUAL — nombre resuelto una sola vez, todo lo demás lo espera
-// ═══════════════════════════════════════════════════════════════════
-// Si se llegó acá con ?mission= (arranque en vivo o "Ver geovisor" desde
-// la webapp — el único flujo normal) se usa ese nombre directo, no depende
-// de qué symlink esté activo en el servidor en este instante. Sin el
-// parámetro (geovisor abierto suelto/recargado desde un bookmark viejo) se
-// cae a la misión "activa" o, si no hay ninguna corriendo, la última con
-// tiles — para no dejar la pantalla completamente huérfana.
-let CURRENT_MISSION=urlMission||null;
-const missionReady=(async()=>{
-  if(CURRENT_MISSION)return CURRENT_MISSION;
-  try{
-    const d=await (await fetch('/api/missions',{cache:'no-store'})).json();
-    if(d.active){CURRENT_MISSION=d.active;return CURRENT_MISSION;}
-    const conTiles=(d.missions||[]).filter(m=>m.has_tiles);
-    if(conTiles.length){CURRENT_MISSION=conTiles[conTiles.length-1].name;return CURRENT_MISSION;}
-  }catch(e){}
-  return null;
-})();
+// (CURRENT_MISSION/missionReady se declaran arriba, junto a urlMission —
+// ver el comentario ahí sobre por qué no pueden vivir acá.)
 
 function displayName(raw){
   // "la_clara" -> "La Clara" — el nombre de misión es un slug (sanitize_mission_name
@@ -2410,9 +3587,9 @@ async function labelMission(){
   const nameEl=document.getElementById('incident-name');
   if(!nameEl)return;
   const mission=await missionReady;
-  if(!mission){nameEl.textContent='Sin misión activa';return;}
+  if(!mission){nameEl.textContent=t('mission.none');return;}
   const hudVisible=document.getElementById('progress-hud')?.classList.contains('visible');
-  nameEl.textContent=(hudVisible&&!phDone)?`${displayName(mission)} — procesando…`:displayName(mission);
+  nameEl.textContent=(hudVisible&&!phDone)?`${displayName(mission)} (${t('mission.processingWord')})`:displayName(mission);
   await renderSituationHeader();
 }
 labelMission();
@@ -2487,28 +3664,29 @@ async function renderSituationHeader(){
   if(freshEl){
     const captura=s?.captura?new Date(s.captura.replace(' ','T')):null;
     const minsAgo=captura&&!isNaN(captura)?Math.max(0,Math.round((Date.now()-captura)/60000)):null;
-    const cuando=minsAgo===null?'':minsAgo<60?`hace ${minsAgo} min`:`hace ${Math.round(minsAgo/60)} h`;
+    // "hace N min/h" (es) vs. "N min/h ago" (en): orden de palabras distinto,
+    // no un simple lookup por clave — igual que buildRecommendationText().
+    const cuando=minsAgo===null?''
+      :LANG==='es'
+        ? (minsAgo<60?`hace ${minsAgo} ${t('freshness.minAgo')}`:`hace ${Math.round(minsAgo/60)} ${t('freshness.hAgo')}`)
+        : (minsAgo<60?`${minsAgo} ${t('freshness.minAgo')}`:`${Math.round(minsAgo/60)} ${t('freshness.hAgo')}`);
     // Alerta de cobertura baja vs. el área volada (scripts/compute_coverage.py):
     // el mosaico puede cubrir solo una fracción de lo que el dron recorrió
     // (reconstrucción incompleta en terreno con relieve) y hay que decirlo en
     // el mismo lugar donde se mira el dato.
-    const covAviso=s?.alerta_cobertura_baja?' · ⚠ cobertura baja vs. área volada':'';
-    freshEl.textContent=s?`Actualizado ${cuando||'recién'} · Calidad del vuelo: ${calidad}${covAviso}`
-                          :'Sin datos de severidad todavía';
+    const covAviso=s?.alerta_cobertura_baja?' · '+t('freshness.lowCoverage'):'';
+    freshEl.textContent=s?`${t('freshness.updated')} ${cuando||t('freshness.justNow')} · ${t('report.flightQualityLabel')}${localizeValue(calidad)}${covAviso}`
+                          :t('freshness.noData');
   }
-  if(zoneEl)zoneEl.textContent=s?`${s.area_ha??'—'} ha detectadas`:'';
+  if(zoneEl){
+    const n=s?.hotspots_activos;
+    zoneEl.textContent=s
+      ?(LANG==='es'?`${n} foco${n===1?'':'s'} activo${n===1?'':'s'}`:`${n} active hotspot${n===1?'':'s'}`)
+      :'';
+  }
 }
 
 // ── Tarjetas de resumen ejecutivo ────────────────────────────────────
-function severityMiniBar(sev){
-  if(!sev)return '';
-  return `<div class="severity-mini" aria-hidden="true">
-    <i style="width:${sev.leve_pct}%;background:var(--good)"></i>
-    <i style="width:${sev.moderado_pct}%;background:var(--warning)"></i>
-    <i style="width:${sev.severo_pct}%;background:var(--critical)"></i>
-  </div>
-  <div class="sub">${sev.leve_pct}% leve · ${sev.moderado_pct}% moderado · ${sev.severo_pct}% severo</div>`;
-}
 async function renderSummaryCards(){
   const grid=document.getElementById('summary-grid');
   if(!grid)return;
@@ -2516,64 +3694,24 @@ async function renderSummaryCards(){
   const fq=FLIGHT_QUALITY||await loadFlightQuality();
   if(!s){
     grid.innerHTML=`<div class="stat-card" style="grid-column:1/-1">
-      <div class="l">Sin datos de impacto todavía</div>
-      <div class="sub">Esta misión no tiene ni multiespectral+térmico ni térmico solo, o la corrida no llegó a esa etapa.</div>
+      <div class="l">${t('summary.noImpactTitle')}</div>
+      <div class="sub">${t('summary.noImpactSub')}</div>
     </div>`;
     grid.setAttribute('aria-busy','false');
     return;
   }
-  // Cards que necesitan multiespectral (NDVI es la señal primaria del área
-  // afectada — ver detect_area_afectada.py): vacías con s.solo_termico=true.
-  // No se ocultan sin explicación, pero SIN botón propio — antes lo tenía,
-  // y con la caja fija al pie del sidebar (renderFooterAddMsCta()) quedaban
-  // las dos a la vez, ofreciendo la misma acción dos veces en la misma
-  // pantalla.
-  const impactoCards=s.solo_termico?`
-    <div class="stat-card" style="grid-column:1/-1">
-      <div class="l">Área afectada, severidad y vegetación</div>
-      <div class="sub">Esta misión no tiene vuelo multiespectral (M3M) — esas tres cifras salen de NDVI, que
-        el térmico solo no puede calcular.</div>
-    </div>` : s.sin_impacto_detectado?`
-    <div class="stat-card" style="grid-column:1/-1">
-      <div class="l">Área afectada, severidad y vegetación</div>
-      <div class="sub">Ningún píxel superó el umbral de anomalía en esta misión — sin área afectada detectable
-        en los datos multiespectrales/térmicos. Los focos térmicos (arriba) siguen siendo el dato real medido.</div>
-    </div>` : (()=>{
-      const dom={leve:'Leve',moderado:'Moderada',severo:'Severa'}[s.severidad.dominante]||'—';
-      return `
-    <div class="stat-card area">
-      <div class="l">Área afectada</div>
-      <div class="v tabnum">${s.area_ha} <small>ha</small></div>
-      ${severityMiniBar(s.severidad)}
-    </div>
-    <div class="stat-card severidad">
-      <div class="l">Severidad dominante</div>
-      <div class="v" style="font-size:var(--fs-lg)">${dom}</div>
-      <div class="sub">Del área afectada</div>
-    </div>
-    <div class="stat-card">
-      <div class="l">Vegetación comprometida</div>
-      <div class="v tabnum">${s.vegetacion_comprometida_pct??'—'}${s.vegetacion_comprometida_pct!=null?'<small>%</small>':''}</div>
-      <!-- Aclarado a pedido: SÍ es del área afectada (fire_mask), no de toda
-           la misión — ver compute_situation_summary.py, veg_pct se divide
-           por n_fire (píxeles dentro del perímetro), no por el total de la
-           ortofoto. El texto anterior ("del área analizada") no lo decía
-           con claridad. -->
-      <div class="sub">Del área afectada</div>
-    </div>`;})();
   grid.innerHTML=`
     <div class="stat-card hotspots${s.hotspots_activos>0?'':' none'}">
-      <div class="l">Focos térmicos activos</div>
+      <div class="l">${t('summary.activeHotspots')}</div>
       <div class="v tabnum">${s.hotspots_activos}</div>
-      <div class="sub">${s.hotspots_activos>0?'Riesgo de reactivación':'Ninguno detectado'}${
-        (s.solo_termico||s.sin_impacto_detectado)&&s.temp_max!=null?` · máx ${s.temp_max}°C · prom ${s.temp_promedio}°C`:''}</div>
+      <div class="sub">${s.hotspots_activos>0?t('summary.reignitionRisk'):t('summary.noneDetected')}${
+        s.temp_max!=null?` · ${t('summary.maxAbbr')} ${s.temp_max}°C · ${t('summary.avgAbbr')} ${s.temp_promedio}°C`:''}</div>
     </div>
-    ${impactoCards}
     ${recommendationStrip(s)}
     <div class="stat-card">
-      <div class="l">Última captura</div>
+      <div class="l">${t('summary.lastCapture')}</div>
       <div class="v" style="font-size:var(--fs-md)">${fmtFechaCorta(s.captura)}</div>
-      <div class="sub">${fq?.equipo||'Dron UAV'}</div>
+      <div class="sub">${fq?.equipo||t('report.defaultEquipment')}</div>
     </div>
     ${flightQualityCardHTML(fq)}`;
     grid.setAttribute('aria-busy','false');
@@ -2584,13 +3722,10 @@ async function renderSummaryCards(){
 function recommendationStrip(s){
   const txt=buildRecommendationText(s);
   if(!txt)return '';
-  // Ámbar solo cuando la recomendación es una urgencia real (hay severidad
-  // alta que verificar en terreno); el resto de los casos (solo-térmico,
-  // sin impacto) son informativos y se pintan en el acento neutro. El acceso
-  // a s.severidad acá es seguro: buildRecommendationText ya descartó los
-  // modos donde es null (solo_termico / sin_impacto_detectado).
-  const urgente=!!(s.severidad&&s.severidad.severo_pct>0);
-  return `<div class="reco-strip${urgente?'':' quiet'}" role="note"><span class="reco-l">Recomendación</span>${txt}</div>`;
+  // Ámbar solo cuando hay un foco activo real que verificar en terreno; sin
+  // focos, es informativo y se pinta en el acento neutro.
+  const urgente=!!(s&&s.hotspots_activos>0);
+  return `<div class="reco-strip${urgente?'':' quiet'}" role="note"><span class="reco-l">${t('reco.label')}</span>${txt}</div>`;
 }
 // Calidad del LEVANTAMIENTO (compute_flight_quality.py): solape de cámaras,
 // velocidad de vuelo y % de imágenes reconstruidas — lo que de verdad
@@ -2601,21 +3736,21 @@ function recommendationStrip(s){
 function flightQualityCardHTML(fq){
   if(!fq){
     return `<div class="stat-card">
-      <div class="l">Calidad del levantamiento</div>
-      <div class="v" style="font-size:var(--fs-sm);color:var(--ink-muted)">Sin datos todavía</div>
+      <div class="l">${t('summary.surveyQuality')}</div>
+      <div class="v" style="font-size:var(--fs-sm);color:var(--ink-muted)">${t('summary.noDataYet')}</div>
     </div>`;
   }
   const pcts=Object.values(fq.reconstruccion||{}).map(v=>v.pct).filter(v=>v!=null);
   const reconMin=pcts.length?Math.min(...pcts):null;
   const partes=[
-    fq.solape_p50!=null?`solape ~${fq.solape_p50}×`:null,
-    fq.velocidad_media_ms!=null?`vuelo a ${fq.velocidad_media_ms} m/s`:null,
-    reconMin!=null?`${reconMin}% de fotos reconstruidas`:null,
+    fq.solape_p50!=null?`${t('summary.overlap')}${fq.solape_p50}×`:null,
+    fq.velocidad_media_ms!=null?`${t('summary.flightAt')} ${fq.velocidad_media_ms} m/s`:null,
+    reconMin!=null?`${reconMin}${t('summary.reconstructedPct')}`:null,
   ].filter(Boolean);
   return `<div class="stat-card">
-    <div class="l">Calidad del levantamiento</div>
-    <div class="v" style="font-size:var(--fs-md);display:flex;align-items:center;gap:8px;text-transform:capitalize">
-      ${fq.calidad} <span class="confidence-ticks" data-level="${CALIDAD_TICK_LEVEL[fq.calidad]||'alta'}" aria-hidden="true"><i></i><i></i><i></i></span>
+    <div class="l">${t('summary.surveyQuality')}</div>
+    <div class="v" style="font-size:var(--fs-md);display:flex;align-items:center;gap:8px">
+      ${localizeValue(fq.calidad)} <span class="confidence-ticks" data-level="${CALIDAD_TICK_LEVEL[fq.calidad]||'alta'}" aria-hidden="true"><i></i><i></i><i></i></span>
     </div>
     <div class="sub">${partes.join(' · ')||'—'}</div>
   </div>`;
@@ -2631,13 +3766,11 @@ function flightQualityCardHTML(fq){
 function hotspotListHTML(){
   const hotspots=SITUATION?.hotspots||[];
   if(!hotspots.length)return'';
-  const sevLabel={leve:'Leve',moderado:'Moderada',severo:'Severa'};
   const rows=hotspots.map((h,i)=>`<button class="hotspot-row" data-lat="${h.lat}" data-lon="${h.lon}">
-      <span class="badge ${h.severidad}">${sevLabel[h.severidad]||'—'}</span>
-      <span class="coord">Foco ${i+1} · ${h.lat.toFixed(5)}, ${h.lon.toFixed(5)}</span>
+      <span class="coord">${t('hotspot.rowLabel')} ${i+1} · ${h.lat.toFixed(5)}, ${h.lon.toFixed(5)}</span>
       <span class="temp">${h.temp_c!=null?h.temp_c+' °C':'—'}</span>
     </button>`).join('');
-  return `<div class="hotspot-list"><div class="hotspot-list-title">Focos identificados (${hotspots.length})</div>${rows}</div>`;
+  return `<div class="hotspot-list"><div class="hotspot-list-title">${t('hotspot.identifiedLabel')} (${hotspots.length})</div>${rows}</div>`;
 }
 function wireHotspotList(){
   document.querySelectorAll('.hotspot-row').forEach(row=>{
@@ -2655,7 +3788,7 @@ function wireHotspotList(){
 // ofrecer). Un solo footer ahora (antes había dos, uno por modo).
 function renderFooterAddMsCta(){
   const html=(liveMsBandIds.length===0&&!hasMsInput)
-    ? addMsCtaHTML('🌿 Agregar multiespectral','Habilita área afectada, severidad e índices de vegetación automáticos.')
+    ? addMsCtaHTML(t('addms.ctaTitle'),t('addms.ctaDetail'))
     : '';
   const footer=document.getElementById('footer-addms-cta')?.closest('.panel-footer');
   const cta=document.getElementById('footer-addms-cta');
@@ -2679,7 +3812,7 @@ async function showPointCard(latlng,containerPoint){
   const card=document.getElementById('point-card');
   const mission=await missionReady;
   if(!mission)return;
-  card.innerHTML=`<div class="point-card-head"><h4>Consultando…</h4></div>`;
+  card.innerHTML=`<div class="point-card-head"><h4>${t('point.looking')}</h4></div>`;
   card.style.left=Math.min(containerPoint.x+16,map.getSize().x-316)+'px';
   card.style.top=Math.max(8,Math.min(containerPoint.y-40,map.getSize().y-260))+'px';
   card.classList.add('visible');
@@ -2688,36 +3821,33 @@ async function showPointCard(latlng,containerPoint){
     const r=await fetch(`/api/missions/${encodeURIComponent(mission)}/sample?lat=${latlng.lat}&lon=${latlng.lng}`);
     d=await r.json();
   }catch(e){
-    card.innerHTML=`<div class="point-card-head"><h4>Error</h4>
+    card.innerHTML=`<div class="point-card-head"><h4>${t('point.error')}</h4>
       <button class="point-card-close reset" onclick="closePointCard()"><svg class="ic" style="width:15px;height:15px" aria-hidden="true"><use href="#i-x"/></svg></button></div>
-      <p style="padding:0 16px 16px;font-size:var(--fs-xs);color:var(--ink-muted)">No se pudo consultar este punto.</p>`;
+      <p style="padding:0 16px 16px;font-size:var(--fs-xs);color:var(--ink-muted)">${t('point.errorMsg')}</p>`;
     return;
   }
-  if(!d.dentro_del_area){
-    card.innerHTML=`<div class="point-card-head"><h4>Punto seleccionado</h4>
+  if(d.temperatura_c==null&&d.ndvi==null){
+    card.innerHTML=`<div class="point-card-head"><h4>${t('point.selected')}</h4>
       <button class="point-card-close reset" onclick="closePointCard()"><svg class="ic" style="width:15px;height:15px" aria-hidden="true"><use href="#i-x"/></svg></button></div>
       <p style="padding:0 16px 16px;font-size:var(--fs-xs);color:var(--ink-muted);line-height:1.5">
-      Este punto está fuera del área afectada detectada — no hay severidad ni foco térmico que reportar acá.</p>`;
+      ${t('point.outsideCoverage')}</p>`;
     return;
   }
-  const sevLabel={leve:'Leve',moderado:'Moderada',severo:'Severa'}[d.severidad]||'—';
   card.innerHTML=`
-    <div class="point-card-head"><h4>Punto seleccionado</h4>
+    <div class="point-card-head"><h4>${t('point.selected')}</h4>
       <button class="point-card-close reset" onclick="closePointCard()"><svg class="ic" style="width:15px;height:15px" aria-hidden="true"><use href="#i-x"/></svg></button></div>
-    <span class="point-severity ${d.severidad}">🔥 Severidad ${sevLabel.toLowerCase()}</span>
     <div class="point-metrics">
-      <div class="point-metric"><div class="l">Temperatura</div><div class="v tabnum">${d.temperatura_c!=null?d.temperatura_c+' °C':'—'}</div></div>
-      <div class="point-metric"><div class="l">Vegetación (NDVI)</div><div class="v tabnum">${d.ndvi!=null?d.ndvi:'—'}</div></div>
-      <div class="point-metric"><div class="l">Fecha</div><div class="v" style="font-size:var(--fs-sm)">${fmtFechaCorta(d.captura)}</div></div>
-      <div class="point-metric"><div class="l">Confianza</div><div class="v" style="font-size:var(--fs-sm);text-transform:capitalize">${d.confianza||'—'}</div></div>
+      <div class="point-metric"><div class="l">${t('point.temperature')}</div><div class="v tabnum">${d.temperatura_c!=null?d.temperatura_c+' °C':'—'}</div></div>
+      <div class="point-metric"><div class="l">${t('point.vegetation')}</div><div class="v tabnum">${d.ndvi!=null?d.ndvi:'—'}</div></div>
+      <div class="point-metric"><div class="l">${t('point.date')}</div><div class="v" style="font-size:var(--fs-sm)">${fmtFechaCorta(d.captura)}</div></div>
+      <div class="point-metric"><div class="l">${t('point.confidence')}</div><div class="v" style="font-size:var(--fs-sm)">${localizeValue(d.confianza)||'—'}</div></div>
     </div>
-    ${d.recomendacion?`<div class="rec ${d.severidad}"><b>Recomendación:</b> ${d.recomendacion}</div>`:''}
   `;
 }
 map.on('click',e=>{
-  // Solo si no hay otra herramienta usando el clic (medición, dibujo de
-  // área) — evita robarle el clic a esas herramientas.
-  if(measureActive||areaDrawingNew)return;
+  // Solo si no hay otra herramienta usando el clic (medición) — evita
+  // robarle el clic a esa herramienta.
+  if(measureActive)return;
   showPointCard(e.latlng,e.containerPoint);
 });
 
@@ -2733,14 +3863,17 @@ async function checkRelatedMissions(){
     const related=s.related_missions||[];
     if(!related.length){timebar.classList.remove('enabled');return;}
     timebar.classList.add('enabled');
-    const thisDate=SITUATION?.captura?fmtFechaCorta(SITUATION.captura):'esta captura';
+    const thisDate=SITUATION?.captura?fmtFechaCorta(SITUATION.captura):t('timebar.thisCapture');
     const otherDates=related.map(m=>fmtFechaCorta(m.captura)).join(', ');
-    document.getElementById('timebar-dates').innerHTML=`<b>${thisDate}</b> — comparar con: ${otherDates}`;
-    document.getElementById('timebar-note').innerHTML=
-      `Hay ${related.length} misión${related.length>1?'es':''} más capturada${related.length>1?'s':''} en esta misma
-      zona (<b>${related.map(m=>displayName(m.name)).join(', ')}</b>). La comparación visual pixel a pixel entre
-      misiones distintas todavía no está disponible — por ahora, abrí cada misión por separado desde el listado
-      para comparar sus resúmenes de situación.`;
+    document.getElementById('timebar-dates').innerHTML=`<b>${thisDate}</b> · ${t('timebar.compareWith')} ${otherDates}`;
+    const n=related.length,names=related.map(m=>displayName(m.name)).join(', ');
+    // Pluralización propia (no t()): "misión/misiones ... capturada/
+    // capturadas" (es) vs. "mission/missions ... captured" (en) no calzan
+    // en una sola clave, igual que buildRecommendationText() más arriba.
+    const intro=LANG==='es'
+      ? `Hay ${n} misión${n>1?'es':''} más capturada${n>1?'s':''} en esta misma zona (<b>${names}</b>).`
+      : `There ${n>1?'are':'is'} ${n} more mission${n>1?'s':''} captured in this same area (<b>${names}</b>).`;
+    document.getElementById('timebar-note').innerHTML=`${intro} ${t('timebar.compareNote')}`;
   }catch(e){timebar.classList.remove('enabled');}
 }
 document.getElementById('timebar-head').onclick=()=>document.getElementById('timebar').classList.toggle('open');
@@ -2748,74 +3881,66 @@ document.getElementById('timebar-head').onclick=()=>document.getElementById('tim
 // ═══════════════════════════════════════════════════════════════════
 // GENERAR RESUMEN DE SITUACIÓN
 // ═══════════════════════════════════════════════════════════════════
-function closeReport(){document.getElementById('report-overlay').classList.remove('open');}
+function closeReport(){document.getElementById('report-overlay')?.classList?.remove('open');}
 async function openReport(){
-  // El modal se abre YA, incondicionalmente — antes esto pasaba al FINAL,
-  // después de escribir resumen/estadísticas: si algo ahí adentro fallaba
-  // (dato faltante, fetch caído), el usuario veía el botón "sin hacer
-  // nada" porque la línea que lo abría nunca se alcanzaba. Ahora un error
-  // de datos se ve DENTRO del modal ya abierto, nunca lo bloquea.
   const overlay=document.getElementById('report-overlay');
+  if(!overlay) return;
   overlay.classList.add('open');
-  document.getElementById('report-sub').textContent='Cargando…';
-  document.getElementById('report-stats').innerHTML='';
-  document.getElementById('report-text').textContent='';
+  const subEl=document.getElementById('report-sub');
+  if(subEl) subEl.textContent=t('report.loading');
+  const statsEl=document.getElementById('report-stats');
+  if(statsEl) statsEl.innerHTML='';
+  const textEl=document.getElementById('report-text');
+  if(textEl) textEl.textContent='';
 
   try{
     const s=SITUATION||await loadSituation();
     const mission=await missionReady;
-    document.getElementById('report-sub').textContent=
-      `${displayName(mission||'')} — ${s?fmtFecha(s.captura):'sin datos de impacto'}`;
-    document.getElementById('report-stats').innerHTML=!s
-      ? `<div class="card" style="grid-column:1/-1"><div class="l">Sin datos de impacto — esta misión no tiene ni multiespectral+térmico ni térmico solo</div></div>`
-      : (s.solo_termico||s.sin_impacto_detectado)
-      // Mismo criterio que buildReportCanvas(): esta vista previa es
-      // exactamente lo que se descarga (ver comentario más abajo), así que
-      // tampoco debe anunciar lo que falta — muestra temperatura real del
-      // ortomosaico térmico en su lugar. sin_impacto_detectado usa la MISMA
-      // vista: no hay severidad/área que mostrar en ninguno de los dos casos.
-      ? `<div class="card"><div class="v tabnum">${s.hotspots_activos}</div><div class="l">Focos activos</div></div>
-         <div class="card"><div class="v tabnum">${s.temp_max??'—'}°C</div><div class="l">Temp. máxima</div></div>
-         <div class="card"><div class="v tabnum">${s.temp_promedio??'—'}°C</div><div class="l">Temp. promedio</div></div>`
-      : `<div class="card"><div class="v tabnum">${s.area_ha} ha</div><div class="l">Área afectada</div></div>
-      <div class="card"><div class="v tabnum">${s.hotspots_activos}</div><div class="l">Focos activos</div></div>
-      <div class="card"><div class="v" style="text-transform:capitalize">${s.severidad.dominante}</div><div class="l">Severidad</div></div>`;
-    // Mismo texto que graba la imagen exportada (buildReportCanvas ->
-    // buildRecommendationText) — antes esto lo duplicaba a mano acá y
-    // crasheaba en s.severidad.dominante para una misión solo-térmico.
-    document.getElementById('report-text').textContent=buildRecommendationText(s);
+    if(subEl) subEl.textContent=
+      `${displayName(mission||'')} · ${s?fmtFecha(s.captura):t('report.urgentNone').toLowerCase()}`;
+    if(statsEl) statsEl.innerHTML=!s
+      ? `<div class="card" style="grid-column:1/-1"><div class="l">${t('report.noImpactCard')}</div></div>`
+      : `<div class="card"><div class="v tabnum">${s.hotspots_activos}</div><div class="l">${t('report.activeHotspots')}</div></div>
+         <div class="card"><div class="v tabnum">${s.temp_max??'—'}°C</div><div class="l">${t('report.maxTemp')}</div></div>
+         <div class="card"><div class="v tabnum">${s.temp_promedio??'—'}°C</div><div class="l">${t('report.avgTemp')}</div></div>`;
+    if(textEl) textEl.textContent=buildRecommendationText(s);
   }catch(e){
-    document.getElementById('report-sub').textContent='No se pudieron cargar los datos de la misión.';
+    if(subEl) subEl.textContent=t('report.loadError');
   }
 
-  // Vista previa: la imagen completa para compartir (encabezado + métricas
-  // + mapa + recomendación en una sola pieza — ver buildReportCanvas()),
-  // no solo el recorte del mapa. Es EXACTAMENTE lo que "Descargar imagen"
-  // guarda, sin generarla dos veces.
   const preview=document.getElementById('report-preview');
-  preview.innerHTML='<span style="font-size:var(--fs-xs);color:var(--ink-muted)">Generando…</span>';
+  if(!preview) return;
+  preview.innerHTML=`<span style="font-size:var(--fs-xs);color:var(--ink-muted)">${t('report.generating')}</span>`;
   try{
     const {canvas}=await buildReportCanvas();
     const url=canvas.toDataURL('image/png');
-    preview.innerHTML=`<img src="${url}" alt="Resumen de situación de la misión">`;
+    preview.innerHTML=`<img src="${url}" alt="${t('report.imgAlt')}">`;
     preview.dataset.url=url;
   }catch(e){
-    preview.innerHTML='<span style="font-size:var(--fs-xs);color:var(--ink-muted)">No se pudo generar la imagen — activa al menos una capa en el mapa.</span>';
+    preview.innerHTML=`<span style="font-size:var(--fs-xs);color:var(--ink-muted)">${t('report.imgError')}</span>`;
     delete preview.dataset.url;
   }
 }
-document.getElementById('btn-report').onclick=openReport;
-document.getElementById('report-close').onclick=closeReport;
-document.getElementById('report-overlay').addEventListener('click',e=>{
-  if(e.target.id==='report-overlay')closeReport();
-});
-document.getElementById('report-download').onclick=async()=>{
-  const preview=document.getElementById('report-preview');
-  let url=preview.dataset.url;
-  if(!url){ try{ url=(await buildReportCanvas()).canvas.toDataURL('image/png'); }catch(e){ return; } }
-  const a=document.createElement('a');
-  a.href=url;a.download=`resumen_${(await missionReady)||'mision'}.png`;a.click();
-};
+const btnReport=document.getElementById('btn-report');
+if(btnReport) btnReport.onclick=openReport;
+const reportClose=document.getElementById('report-close');
+if(reportClose) reportClose.onclick=closeReport;
+const reportOverlay=document.getElementById('report-overlay');
+if(reportOverlay){
+  reportOverlay.addEventListener('click',e=>{
+    if(e.target.id==='report-overlay')closeReport();
+  });
+}
+const reportDownload=document.getElementById('report-download');
+if(reportDownload){
+  reportDownload.onclick=async()=>{
+    const preview=document.getElementById('report-preview');
+    let url=preview?.dataset?.url;
+    if(!url){ try{ url=(await buildReportCanvas()).canvas.toDataURL('image/png'); }catch(e){ return; } }
+    const a=document.createElement('a');
+    a.href=url;a.download=`resumen_${(await missionReady)||'mision'}.png`;a.click();
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // MENÚ DE AYUDA (con accesibilidad) + tema + modo operativo
@@ -2859,9 +3984,11 @@ document.getElementById('switch-motion').onclick=function(){
 };
 applyA11yPrefs();
 
+document.getElementById('btn-draw').onclick=toggleDraw;
 document.getElementById('btn-compare').onclick=toggleCompare;
 document.getElementById('btn-measure').onclick=toggleMeasure;
-document.getElementById('btn-export').onclick=exportView;
+const btnExport=document.getElementById('btn-export');
+if(btnExport) btnExport.onclick=exportView;
 
 document.getElementById('panel-close').onclick=toggleSidebar;
 document.getElementById('panel-toggle').onclick=toggleSidebar;

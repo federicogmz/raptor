@@ -1,11 +1,21 @@
-"""Geovisor: el resumen de situación no debe romperse cuando la misión no
-tiene multiespectral (situation.json con severidad=null, area_ha=null —
-ver compute_situation_summary.py, modo solo_termico).
+"""Geovisor: el resumen de situación.
+
+Históricamente `s.severidad.dominante` sin guarda reventaba con TypeError
+apenas la misión no tenía multiespectral (s.severidad quedaba null, modo
+"solo_termico" de compute_situation_summary.py) — buildRecommendationText()
+y otras funciones tenían que chequear `s.solo_termico`/`s.sin_impacto_
+detectado` antes de tocar `s.severidad`. Esa rama multiespectral (área
+afectada + severidad) fue eliminada por completo: compute_situation_
+summary.py ahora tiene UN SOLO modo, siempre con forma térmica (focos +
+temperatura), para toda misión con térmico. No queda ninguna clave
+`severidad`/`solo_termico`/`sin_impacto_detectado`/`area_ha` que guardar —
+las funciones del geovisor que las consumían se simplificaron para no
+ramificar en absoluto.
 
 LÍMITE: estructural sobre el fuente, no de comportamiento — la imagen no trae
 runtime de JavaScript (mismo caso que test_form_export.py). Lo que SÍ se
-prueba de punta a punta con GDAL real es de dónde sale s.solo_termico (ver
-tests/test_situation_summary.py).
+prueba de punta a punta con GDAL real es la forma real de situation.json
+(ver tests/test_situation_summary.py).
 """
 import os
 import re
@@ -32,42 +42,47 @@ def _cuerpo_de(js, nombre):
     return js[m.end():i - 1]
 
 
-class TestNoRompeSinMultiespectral:
-    """La regresión concreta: `s.severidad.dominante` sin guarda revienta
-    con TypeError apenas s.severidad es null (misión solo-térmico)."""
+class TestResumenSiempreTermico:
+    """No queda ninguna ramificación: buildRecommendationText/openReport/
+    buildReportCanvas construyen siempre el mismo contrato térmico
+    (focos activos + temperatura), sin ningún chequeo de solo_termico,
+    severidad ni sin_impacto_detectado — esas claves ya no existen."""
 
-    def test_buildRecommendationText_verifica_solo_termico_antes_de_severidad(self):
+    def test_buildRecommendationText_es_incondicional(self):
+        """Sin `s`, un mensaje fijo de "no hay datos"; con `s`, siempre
+        arma focos + (si hay temp_max) temperatura — nunca ramifica sobre
+        severidad/solo_termico, que ya no existen en situation.json."""
         cuerpo = _cuerpo_de(_js(), "buildRecommendationText")
-        i = cuerpo.index("s.solo_termico")
-        assert cuerpo.index("s.severidad.dominante") > i, \
-            "tiene que chequear solo_termico ANTES de tocar s.severidad"
+        assert "s.hotspots_activos" in cuerpo
+        assert "s.temp_max" in cuerpo and "s.temp_promedio" in cuerpo
+        for clave in ("severidad", "solo_termico", "sin_impacto_detectado", "area_ha"):
+            assert clave not in cuerpo, \
+                f"buildRecommendationText ya no debería referenciar '{clave}'"
 
-    def test_renderSummaryCards_no_accede_severidad_sin_guarda(self):
+    def test_renderSummaryCards_no_ramifica_sobre_solo_termico(self):
         cuerpo = _cuerpo_de(_js(), "renderSummaryCards")
-        assert "s.solo_termico?" in cuerpo or "s.solo_termico ?" in cuerpo
-        # Todo acceso a s.severidad.dominante tiene que quedar DENTRO de la
-        # rama que ya descartó solo_termico (el IIFE de la rama false).
-        assert "()=>{" in cuerpo, "se esperaba la rama no-solo_termico como IIFE"
+        for clave in ("severidad", "solo_termico", "sin_impacto_detectado"):
+            assert clave not in cuerpo
 
-    def test_openReport_reusa_buildRecommendationText_en_vez_de_duplicar(self):
-        """Antes duplicaba la lógica a mano acá adentro (con el mismo
-        s.severidad.dominante sin guarda) — se unificó para no tener dos
-        lugares que puedan desincronizarse o romperse por separado."""
+    def test_openReport_reusa_buildRecommendationText_sin_ramificar(self):
+        """Antes duplicaba lógica a mano acá adentro (con el mismo acceso a
+        s.severidad.dominante sin guarda) — ahora simplemente reusa
+        buildRecommendationText(s), que tampoco ramifica ya."""
         cuerpo = _cuerpo_de(_js(), "openReport")
         assert "buildRecommendationText(s)" in cuerpo
-        assert "solo_termico" in cuerpo, \
-            "report-stats también tiene que distinguir el modo solo-térmico"
-        i_guarda = cuerpo.index("solo_termico")
-        i_severidad = cuerpo.index("s.severidad.dominante")
-        assert i_guarda < i_severidad, \
-            "el chequeo de solo_termico tiene que preceder al acceso a s.severidad"
+        assert "solo_termico" not in cuerpo
+        assert "s.severidad" not in cuerpo
 
-    def test_buildReportCanvas_no_imprime_null_para_area_ha(self):
-        """Mismo criterio para solo_termico Y sin_impacto_detectado (misión
-        con los dos sensores pero sin área/foco que superara el umbral) —
-        ninguno de los dos tiene area_ha real que mostrar."""
+    def test_buildReportCanvas_no_ramifica_sobre_area_ha(self):
+        """Antes distinguía solo_termico/sin_impacto_detectado para no
+        imprimir un area_ha inexistente — ya no hay area_ha en absoluto, así
+        que tampoco queda ninguna de esas ramas ni ningún acceso a
+        s.severidad (queda una mención puramente decorativa de la palabra
+        en un comentario sobre paleta de color, sin relación con el dato)."""
         cuerpo = _cuerpo_de(_js(), "buildReportCanvas")
-        assert "s.solo_termico||s.sin_impacto_detectado" in cuerpo
+        for clave in ("solo_termico", "sin_impacto_detectado", "area_ha", "s.severidad"):
+            assert clave not in cuerpo
+        assert "s.hotspots_activos" in cuerpo
 
 
 class TestFechaDeCaptura:
@@ -128,7 +143,10 @@ class TestCalidadDelLevantamientoReemplazaConfianza:
         fq.equipo (compute_flight_quality.py, Make/Model EXIF real del
         proyecto RGB, p.ej. "DJI Zenmuse H20T")."""
         cuerpo = _cuerpo_de(_js(), "renderSummaryCards")
-        assert "fq?.equipo||'Dron UAV'" in cuerpo
+        # El fallback genérico ahora sale de t('report.defaultEquipment')
+        # (i18n EN/ES), no de un literal 'Dron UAV' fijo — mismo criterio
+        # que antes, ver el docstring de este test.
+        assert "fq?.equipo||t('report.defaultEquipment')" in cuerpo
 
 
 class TestExportNoAnunciaLoQueFalta:

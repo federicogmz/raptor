@@ -1,13 +1,13 @@
-"""Formulario: que la exportación se ofrezca cuando de verdad está disponible.
+"""Modal de exportación: que se ofrezca cuando de verdad está disponible.
 
 LÍMITE DE ESTOS TESTS: la imagen no trae runtime de JavaScript, así que no se
-ejecuta el formulario — se comprueba su ESTRUCTURA sobre el fuente. Es menos
-que un test de comportamiento, pero alcanza para la regresión concreta que
-motivó el archivo: `openSetup()` preguntaba al servidor si la exportación
-estaba disponible SOLO al abrir una misión existente. Al crear una misión
-nueva nunca preguntaba, `expEnabled` se quedaba en false y la entrega aparecía
-deshabilitada aunque el contenedor se hubiera arrancado con la carpeta del host
-montada.
+ejecuta el modal — se comprueba su ESTRUCTURA sobre el fuente. Es menos que un
+test de comportamiento, pero alcanza para que un rename de un lado (JS o
+backend) no deje la exportación muda del otro.
+
+La exportación ya NO se pregunta durante el setup (ver tests/test_webapp.py::
+TestExportacionADemanda para el comportamiento real del backend) — se pregunta
+por misión, al abrir el modal desde el botón "Exportar" del listado.
 """
 import os
 import re
@@ -38,85 +38,56 @@ def _cuerpo_de(js, nombre):
     return js[m.end():i - 1]
 
 
-class TestDisponibilidadDeExportacion:
-    def test_openSetup_consulta_el_estado_tambien_en_mision_nueva(self):
-        """La regresión: `await loadStatus(...)` tiene que estar FUERA del
-        `if(name){…}else{…}`, porque la disponibilidad de la exportación
-        depende de cómo se arrancó el contenedor, no de si la misión existe."""
-        cuerpo = _cuerpo_de(_js(), "openSetup")
-        assert "loadStatus" in cuerpo, "openSetup ya no consulta el estado"
+class TestModalDeExportacion:
+    def test_openExportModal_consulta_export_options(self):
+        cuerpo = _cuerpo_de(_js(), "openExportModal")
+        assert "export-options" in cuerpo, "no consulta /export-options"
+        assert "export_enabled" in cuerpo
+        assert "available_products" in cuerpo
+        assert "default_export_dir" in cuerpo
 
-        # Se recorta el bloque if/else completo; lo que quede es nivel función.
-        m = re.search(r"\n  if\(name\)\{", cuerpo)
-        assert m, "cambió la forma del if(name) — revisar este test"
-        i = m.end()
-        prof = 1
-        while prof:
-            if cuerpo[i] == "{":
-                prof += 1
-            elif cuerpo[i] == "}":
-                prof -= 1
-            i += 1
-        resto = cuerpo[i:]                       # después del if
-        # …y también hay que saltar el bloque else, si está
-        m_else = re.match(r"\s*else\s*\{", resto)
-        if m_else:
-            j = m_else.end()
-            prof = 1
-            while prof:
-                if resto[j] == "{":
-                    prof += 1
-                elif resto[j] == "}":
-                    prof -= 1
-                j += 1
-            resto = resto[j:]
-
-        assert "loadStatus" in resto, (
-            "loadStatus() solo se llama dentro del if(name)/else: una misión "
-            "NUEVA nunca preguntaría si la exportación está disponible")
-
-    def test_loadStatus_toma_la_disponibilidad_del_servidor(self):
-        cuerpo = _cuerpo_de(_js(), "loadStatus")
-        assert "export_enabled" in cuerpo, "no lee export_enabled de /status"
-        assert "expEnabled" in cuerpo, "no actualiza el estado del formulario"
-        assert "export_host_root" in cuerpo
-
-    def test_si_falla_la_consulta_la_exportacion_queda_deshabilitada(self):
-        """Sin respuesta del servidor no se puede afirmar que esté disponible:
-        el catch tiene que apagarla, no dejar un valor viejo."""
-        cuerpo = _cuerpo_de(_js(), "loadStatus")
+    def test_si_falla_la_consulta_el_formulario_queda_deshabilitado(self):
+        """Sin respuesta del servidor no se puede afirmar que la exportación
+        esté disponible: el catch tiene que mostrar el aviso de deshabilitado,
+        no dejar el formulario abierto con datos viejos."""
+        cuerpo = _cuerpo_de(_js(), "openExportModal")
         catch = cuerpo[cuerpo.index("catch"):]
-        assert re.search(r"expEnabled\s*=\s*false", catch), \
-            "el catch de loadStatus no apaga expEnabled"
+        assert re.search(r"xm-disabled.*remove\('hidden'\)", catch), (
+            "el catch de openExportModal no muestra xm-disabled")
+        assert re.search(r"xm-form.*add\('hidden'\)", catch), (
+            "el catch de openExportModal no oculta xm-form")
 
-    def test_exporting_respeta_la_disponibilidad(self):
-        """`exporting()` gobierna si se muestra el bloque y si se mandan los
-        campos al arrancar: tiene que cortar por expEnabled antes que nada."""
-        cuerpo = _cuerpo_de(_js(), "exporting")
-        assert re.search(r"if\(!expEnabled\)\s*return false", cuerpo), cuerpo
+    def test_renderExportModalProducts_solo_ofrece_lo_disponible(self):
+        """Los checkboxes salen de xmAvailable (lo que devolvió el server para
+        ESTA misión), no de un catálogo fijo — así no se ofrece exportar algo
+        que la misión nunca generó."""
+        cuerpo = _cuerpo_de(_js(), "renderExportModalProducts")
+        assert "xmAvailable" in cuerpo
 
-    def test_el_estado_arranca_deshabilitado(self):
-        """Por defecto NO se ofrece: se habilita solo cuando el servidor lo
-        confirma, no al revés."""
-        js = _js()
-        assert re.search(r"let expEnabled\s*=\s*false", js)
+    def test_submitExportModal_manda_los_campos_que_el_backend_espera(self):
+        cuerpo = _cuerpo_de(_js(), "submitExportModal")
+        for campo in ("export_dir", "export_products", "export_raster_format",
+                      "export_vector_format", "export_epsg"):
+            assert campo in cuerpo, f"submitExportModal no manda {campo}"
+        assert "xmMission" in cuerpo  # el POST va a la misión abierta, no a una fija
 
 
-class TestBackendCoincideConElFormulario:
-    """Las claves que el formulario lee tienen que ser las que el backend
-    manda; un rename de un lado deja la exportación muda del otro."""
+class TestBackendCoincideConElModal:
+    """Las claves que el modal lee/manda tienen que ser las que el backend
+    ofrece/espera; un rename de un lado deja la exportación muda del otro."""
 
-    def test_las_claves_de_status_existen_en_el_backend(self):
+    def test_export_options_manda_las_claves_que_el_modal_lee(self):
         backend = open(os.path.join(REPO, "webapp", "main.py"), encoding="utf-8").read()
-        for clave in ("export_enabled", "export_host_root", "default_export_dir"):
+        for clave in ("available_products", "export_enabled", "export_host_root",
+                      "default_export_dir"):
             assert f'"{clave}"' in backend, f"{clave} no lo manda el backend"
 
     @pytest.mark.parametrize("campo", [
         "export_dir", "export_products", "export_raster_format",
         "export_vector_format", "export_epsg",
     ])
-    def test_los_campos_del_form_existen_en_start(self, campo):
+    def test_los_campos_del_modal_existen_en_export(self, campo):
         js = _js()
         backend = open(os.path.join(REPO, "webapp", "main.py"), encoding="utf-8").read()
-        assert f"'{campo}'" in js or f'"{campo}"' in js, f"el form no manda {campo}"
-        assert f"{campo}:" in backend, f"/start no recibe {campo}"
+        assert f"'{campo}'" in js or f'"{campo}"' in js, f"el modal no manda {campo}"
+        assert f"{campo}:" in backend, f"/export no recibe {campo}"

@@ -54,7 +54,7 @@ def main():
     src_files = sorted(glob.glob(os.path.join(src_dir, "*.tif")))
     if not src_files:
         print(f"❌ ERROR: no se encontraron TIFF térmicos en {src_dir}")
-        print(f"   Corré primero: make sdk-convert [denoise-thermal]")
+        print("   Corré primero: make sdk-convert [denoise-thermal]")
         sys.exit(1)
 
     print("=" * 60)
@@ -62,30 +62,49 @@ def main():
     print("=" * 60)
     print(f"  Fuente: {src_dir} ({len(src_files)} imágenes)")
 
-    if os.path.isdir(IMAGES_DIR):
-        old = glob.glob(os.path.join(IMAGES_DIR, "*.tif"))
-        if old:
-            print(f"🧹 Limpiando {len(old)} imágenes anteriores …")
-            for f in old:
-                os.remove(f)
     os.makedirs(IMAGES_DIR, exist_ok=True)
+
+    # Limpieza selectiva: solo lo que ya NO corresponde a la fuente actual
+    # (otra misión/corrida reutilizando el mismo processing/). Lo que sí
+    # corresponde a un frame de la fuente actual se evalúa uno por uno más
+    # abajo (existe + abre con GDAL → se reusa; si no, se re-encodea) — un
+    # retry sobre una misión ya preparada no debería re-encodear TODO desde
+    # cero, solo lo que de verdad falta.
+    src_basenames = {os.path.basename(f) for f in src_files}
+    obsoletas = [f for f in glob.glob(os.path.join(IMAGES_DIR, "*.tif"))
+                 if os.path.basename(f) not in src_basenames]
+    if obsoletas:
+        print(f"🧹 Limpiando {len(obsoletas)} imágenes obsoletas (otra misión/corrida) …")
+        for f in obsoletas:
+            os.remove(f)
 
     # ── 1. Re-encodear Float32 °C → uint16 Kelvin×100 ──────────────────────
     drv = gdal.GetDriverByName("GTiff")
     dst_files = []
-    for i, src in enumerate(src_files):
+    nuevas = 0
+    for src in src_files:
+        dst = os.path.join(IMAGES_DIR, os.path.basename(src))
+        if os.path.exists(dst):
+            ds = gdal.Open(dst)
+            if ds is not None:
+                ds = None
+                dst_files.append(dst)
+                continue
+            os.remove(dst)  # corrupto: se regenera
+
         ds = gdal.Open(src)
         a = ds.GetRasterBand(1).ReadAsArray()
         ds = None
         k100 = np.round(np.clip((a + 273.15) * 100, 0, 65535)).astype(np.uint16)
-        dst = os.path.join(IMAGES_DIR, os.path.basename(src))
         out = drv.Create(dst, k100.shape[1], k100.shape[0], 1, gdal.GDT_UInt16)
         out.GetRasterBand(1).WriteArray(k100)
         out = None
         dst_files.append(dst)
-        if (i + 1) % 100 == 0:
-            print(f"  {i+1}/{len(src_files)} re-encodeadas …")
-    print(f"  ✅ {len(dst_files)} TIFF re-encodeados (°C → Kelvin×100 uint16)")
+        nuevas += 1
+        if nuevas % 100 == 0:
+            print(f"  {nuevas} re-encodeadas …")
+    print(f"  ✅ {nuevas} TIFF re-encodeados nuevos, {len(dst_files) - nuevas} ya existentes "
+          f"reutilizados (°C → Kelvin×100 uint16)")
 
     # ── 2. EXIF/XMP: copiar GPS/gimbal de la fuente + forzar tags de banda ──
     # -api Compact=Shorthand + -xmp-drone-dji:all: preserva los tags de
@@ -164,7 +183,7 @@ def main():
     print(f"\n✅ {len(lines)-1}/{len(dst_files)} imágenes con GPS")
     print(f"   Directorio ODM: {OUTPUT_DIR}/")
     print(f"   geo.txt: {GEO_TXT}")
-    print(f"\nSiguiente paso: ODM térmico nativo (invocado por docker/entrypoint.sh)")
+    print("\nSiguiente paso: ODM térmico nativo (invocado por docker/entrypoint.sh)")
 
 
 if __name__ == "__main__":

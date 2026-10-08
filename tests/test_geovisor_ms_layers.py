@@ -1,7 +1,11 @@
-"""Geovisor: severidad/hotspot/índices clasificados no deben ofrecerse en el
-panel cuando la misión no tiene los datos de origen — y cuando el motivo es
+"""Geovisor: hotspot/índices clasificados no deben ofrecerse en el panel
+cuando la misión no tiene los datos de origen — y cuando el motivo es
 "falta el vuelo multiespectral", tiene que haber una vía directa para
 agregarlo.
+
+La capa "severidad" (registerSeveridad(), SEVERIDAD_LUT) fue eliminada por
+completo junto con el resto de la funcionalidad de área afectada — hotspot
+térmico es ahora la ÚNICA capa de impacto que existe.
 
 LÍMITE DE ESTOS TESTS: la imagen raptor:latest no trae runtime de JavaScript
 (mismo caso que tests/test_form_export.py), así que lo que corre acá dentro de
@@ -16,7 +20,6 @@ aparte, no tomada acá.
 import os
 import re
 
-import pytest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP_JS = os.path.join(REPO, "geovisor", "app.js")
@@ -81,18 +84,14 @@ class TestOrdenDeDeclaracion:
 
 
 class TestRegistroCondicionado:
-    """severidad/hotspot_termico/índices clasificados: el objeto Layer de
-    Leaflet existe siempre (su pane ya está creado desde antes), pero la
-    entrada en LAYER_REGISTRY —lo que los hace aparecer en el panel— se crea
-    SOLO si CAPAS_DISPONIBLES lo confirma."""
+    """hotspot_termico/índices clasificados: el objeto Layer de Leaflet
+    existe siempre (su pane ya está creado desde antes), pero la entrada en
+    LAYER_REGISTRY —lo que los hace aparecer en el panel— se crea SOLO si
+    CAPAS_DISPONIBLES lo confirma."""
 
-    @pytest.mark.parametrize("fn,capa", [
-        ("registerSeveridad", "'severidad'"),
-        ("registerHotspot", "'hotspot_termico'"),
-    ])
-    def test_verifica_capas_disponibles_antes_de_registrar(self, fn, capa):
-        cuerpo = _cuerpo_de(_js(), fn)
-        assert "CAPAS_DISPONIBLES.has(" in cuerpo and capa in cuerpo
+    def test_hotspot_verifica_capas_disponibles_antes_de_registrar(self):
+        cuerpo = _cuerpo_de(_js(), "registerHotspot")
+        assert "CAPAS_DISPONIBLES.has(" in cuerpo and "'hotspot_termico'" in cuerpo
         assert "return false" in cuerpo
 
     def test_index_class_verifica_capas_disponibles(self):
@@ -100,17 +99,14 @@ class TestRegistroCondicionado:
         assert "CAPAS_DISPONIBLES.has(name)" in cuerpo
         assert "return false" in cuerpo
 
-    def test_no_quedo_ninguna_asignacion_incondicional_de_severidad(self):
-        """La regresión concreta: antes de este fix,
-        `LAYER_REGISTRY.severidad={...}` corría SIEMPRE, sin ningún `if`
-        antepuesto. Ahora solo debe existir DENTRO de registerSeveridad()."""
+    def test_no_quedo_ningun_rastro_de_severidad(self):
+        """La capa severidad (registerSeveridad(), LAYER_REGISTRY.severidad,
+        SEVERIDAD_LUT) fue eliminada por completo — no debe quedar ninguna
+        referencia viva en el fuente."""
         js = _js()
-        asignaciones = [m.start() for m in re.finditer(
-            r"LAYER_REGISTRY\.severidad\s*=\s*\{", js)]
-        assert len(asignaciones) == 1, \
-            "tiene que haber exactamente una asignación (dentro de registerSeveridad)"
-        cuerpo = _cuerpo_de(js, "registerSeveridad")
-        assert "LAYER_REGISTRY.severidad={" in cuerpo or "LAYER_REGISTRY.severidad = {" in cuerpo
+        assert "function registerSeveridad" not in js
+        assert not re.search(r"LAYER_REGISTRY\.severidad\s*=", js)
+        assert "SEVERIDAD_LUT" not in js
 
     def test_bounds_json_capas_disponibles_alimenta_el_registro(self):
         js = _js()
@@ -119,11 +115,10 @@ class TestRegistroCondicionado:
 
     def test_el_sondeo_en_vivo_reintenta_el_registro(self):
         """pollBoundsForChanges corre cada 6s durante una misión en curso —
-        severidad/hotspot pueden aparecer bastante después de que bounds.json
+        hotspot/índices pueden aparecer bastante después de que bounds.json
         cambie por primera vez, y el registro tiene que reintentarse ahí, no
         solo una vez al cargar la página."""
         cuerpo = _cuerpo_de(_js(), "pollBoundsForChanges")
-        assert "registerSeveridad()" in cuerpo
         assert "registerHotspot()" in cuerpo
         assert "registerIndexClass" in cuerpo
 
@@ -187,40 +182,20 @@ class TestCajaAgregarMsNoSeDuplica:
         assert "addMsCtaHTML(" in cuerpo
 
 
-class TestReusarOdmNoSaltaUnSensorNuevo:
-    """docker/entrypoint.sh: SKIP_ODM es un interruptor GLOBAL (una sola
-    reconstrucción, no una por sensor) — agregar multiespectral a una misión
-    que ya tenía RGB+térmico y pedir 'reusar' saltearía la reconstrucción MS
-    que nunca existió, sin ningún error claro más adelante."""
+class TestHotspotDefaultOnSiempre:
+    """Reportado (originalmente): en una misión sin multiespectral,
+    hotspot_termico era la ÚNICA capa de impacto disponible pero quedaba con
+    defaultOn:false — entraba invisible, el usuario tenía que saber que
+    existía un panel de Capas/pestaña Impacto y tildarla a mano para ver
+    algo. defaultOn dependía de si la capa 'severidad' existía; con esa capa
+    eliminada por completo (junto con toda la funcionalidad de área
+    afectada), hotspot_termico es ahora la ÚNICA capa de impacto posible en
+    el geovisor — entra encendida siempre, incondicionalmente."""
 
-    def test_start_rechaza_reusar_si_falta_reconstruir_el_sensor_nuevo(self):
-        """La función en sí (_validate_reuse_odm) se prueba de punta a punta
-        en tests/test_webapp.py::TestAgregarSensorYReusarOdm — acá solo se
-        confirma que start_mission() la llama de verdad."""
-        main_py = os.path.join(REPO, "webapp", "main.py")
-        src = open(main_py, encoding="utf-8").read()
-        assert "def _validate_reuse_odm(" in src
-        i = src.index("def _validate_reuse_odm(")
-        bloque = src[i:i + 1600]
-        assert 'odm_prev["multispectral"]' in bloque
-        assert 'odm_prev["rgb"]' in bloque
-        assert 'odm_prev["thermal"]' in bloque
-        assert "errors += _validate_reuse_odm(mission_dir, mode, has_multispectral, reuse_odm, dband)" in src
-
-
-class TestHotspotDefaultOnSinSeveridad:
-    """Reportado: en una misión sin multiespectral, hotspot_termico es la
-    ÚNICA capa de impacto disponible pero quedaba con defaultOn:false —
-    entraba invisible, el usuario tenía que saber que existía un panel de
-    Capas/pestaña Impacto y tildarla a mano para ver algo. defaultOn ahora
-    depende de si severidad existe: si NO existe (típicamente sin
-    multiespectral), hotspot es la señal principal y entra encendida; si SÍ
-    existe, severidad manda y hotspot se queda apagada por defecto (mismo
-    comportamiento de siempre, para no encimar dos capas de impacto)."""
-
-    def test_defaultOn_depende_de_si_hay_severidad(self):
+    def test_defaultOn_es_siempre_true(self):
         cuerpo = _cuerpo_de(_js(), "registerHotspot")
-        assert "defaultOn:!CAPAS_DISPONIBLES.has('severidad')" in cuerpo
+        assert "defaultOn:true" in cuerpo
+        assert "severidad" not in cuerpo
 
     def test_el_registro_en_vivo_tambien_agrega_la_capa_si_defaultOn(self):
         """El registro inicial pasa por un loop que agrega al mapa toda capa
@@ -242,9 +217,9 @@ class TestComparadorNoRevientaSinCapasOpcionales:
     de forma independiente y no coincidían espacialmente.
 
     Causa real: COMPARABLE_IDS es la lista ESTÁTICA de todo tipo de capa
-    ráster posible (RASTER_LAYER_FACTORY tiene entradas fijas para severidad,
-    hotspot y los 4 índices, sin importar qué tenga la misión). Antes
-    buildCompareSelect() iteraba esa lista sin filtrar y leía
+    ráster posible (RASTER_LAYER_FACTORY tiene entradas fijas para hotspot y
+    los 4 índices y sus clasificados, sin importar qué tenga la misión).
+    Antes buildCompareSelect() iteraba esa lista sin filtrar y leía
     `LAYER_REGISTRY[id].label` — para una misión sin esos datos,
     LAYER_REGISTRY[id] es undefined y `.label` revienta con un TypeError sin
     capturar. Esa excepción cortaba toggleCompare() a la mitad: nunca se
@@ -256,8 +231,9 @@ class TestComparadorNoRevientaSinCapasOpcionales:
         cuerpo = _cuerpo_de(_js(), "buildCompareSelect")
         assert "COMPARABLE_IDS.filter(id=>LAYER_REGISTRY[id])" in cuerpo, (
             "sin este filtro, un id de COMPARABLE_IDS sin entrada en "
-            "LAYER_REGISTRY (p.ej. 'severidad' sin multiespectral) revienta "
-            "en LAYER_REGISTRY[id].label y corta toggleCompare() a la mitad")
+            "LAYER_REGISTRY (p.ej. un índice en una misión sin "
+            "multiespectral) revienta en LAYER_REGISTRY[id].label y corta "
+            "toggleCompare() a la mitad")
 
     def test_initSliderDrag_no_se_llama_en_cada_activacion(self):
         """Antes initSliderDrag() corría en cada apertura de 'Comparar', no

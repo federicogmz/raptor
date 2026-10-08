@@ -13,7 +13,12 @@
 #     el geovisor sirviendo para siempre (SERVE=1), que en un pipeline de CI
 #     es un cuelgue.
 #
-# Uso:
+# Primera vez, desde el checkout:
+#   ./raptor install
+# De ahí en más, desde donde sea (el instalador deja `raptor` en el PATH):
+#   raptor start / stop / restart / status / logs
+#
+# Uso manual (bypassa la config guardada por `raptor init`):
 #   ./raptor build
 #   ./raptor run --input ./fotos --export ./entregas/la_clara --export-epsg 9377
 #   ./raptor webapp --runs ./runs --export ./entregas
@@ -60,6 +65,45 @@ gpu_args() {
   fi
 }
 
+asegurar_docker() {
+  if docker info >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "🐳 Docker no está corriendo. Iniciando en segundo plano…" >&2
+
+  # 1. Intentar iniciar vía servicio systemd de usuario (si existe)
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user start docker.service >/dev/null 2>&1 || true
+  fi
+
+  # 2. Si todavía no responde, intentar con dockerd-rootless.sh directamente
+  if ! docker info >/dev/null 2>&1; then
+    local rootless_bin=""
+    if command -v dockerd-rootless.sh >/dev/null 2>&1; then
+      rootless_bin="dockerd-rootless.sh"
+    elif [[ -x "$HOME/.local/docker/bin/dockerd-rootless.sh" ]]; then
+      rootless_bin="$HOME/.local/docker/bin/dockerd-rootless.sh"
+    fi
+
+    if [[ -n "$rootless_bin" ]]; then
+      nohup "$rootless_bin" >/dev/null 2>&1 &
+    fi
+  fi
+
+  # 3. Esperar hasta 15 segundos a que el daemon esté listo
+  local timeout=15
+  local count=0
+  while ! docker info >/dev/null 2>&1; do
+    sleep 1
+    count=$((count + 1))
+    if [[ $count -ge $timeout ]]; then
+      morir "No se pudo conectar con Docker tras ${timeout}s. Verificá que dockerd esté funcionando."
+    fi
+  done
+  echo "✅ Docker iniciado." >&2
+}
+
 uso_run() {
   cat <<'EOF'
 Uso: ./raptor run [opciones]
@@ -70,25 +114,24 @@ Entrada (al menos una):
 
 Procesamiento:
   --mode MODO              rgb+thermal (default) | rgb | none
-  --preset NOMBRE          Qué tan fino y cuánto tarda. Default: estandar.
-                             vistazo   ver algo utilizable en minutos
-                             rapido    respuesta operativa el mismo día
-                             estandar  la entrega normal de una misión
-                             alta      análisis fino y medición sobre el DSM
-                             maxima    archivo y peritaje
+  --preset NOMBRE          Qué tan fino y cuánto tarda. Default: cartografico.
+                             tactico       respuesta inmediata en campo
+                             cartografico  la entrega normal de una misión
+                             forense       peritaje y archivo
+                           (siguen aceptándose los nombres viejos: vistazo,
+                           rapido, estandar, alta, maxima.)
                            Cada preset fija el detalle del modelo de
                            superficie, el techo de resolución del ortomosaico/
                            DSM (nunca más fino que el GSD real del vuelo), los
-                           features por foto y el algoritmo de SfM. Antes de
-                           arrancar se muestran los cinco con su tiempo
+                           features por foto y el bundle adjustment. Antes de
+                           arrancar se muestran los tres con su tiempo
                            estimado para TUS fotos y TU hardware.
   --quality N              (heredado) 0-100; se mapea al preset equivalente.
   --terreno TIPO           plano (default) | escarpado
-                           «escarpado» fuerza reconstrucción incremental
-                           incluso en vistazo/rápido (que por defecto usan
-                           planar, más rápida pero solo válida en terreno
-                           chato) — en relieve fuerte, planar puede descartar
-                           la mayoría de las fotos SIN avisar.
+                           Se mantiene por compatibilidad: todos los presets
+                           actuales ya reconstruyen en modo incremental (planar
+                           puede descartar la mayoría de las fotos SIN avisar
+                           en relieve fuerte), así que hoy no cambia nada.
   --subsample N            MODO URGENCIA: procesar 1 de cada N fotos (N>=2,
                            p. ej. 3). Corta el tiempo del SfM casi a la
                            tercera parte — la palanca más grande en terreno
@@ -124,6 +167,7 @@ EOF
 }
 
 cmd_build() {
+  asegurar_docker
   echo "🔨 Construyendo ${IMAGE}…"
   docker build -t "$IMAGE" "$AQUI" "$@"
 }
@@ -172,7 +216,7 @@ cmd_run() {
     [[ -n "$preset" ]] && morir "usá --preset o --quality, no los dos"
     preset="$quality"
   fi
-  [[ -z "$preset" ]] && preset="estandar"
+  [[ -z "$preset" ]] && preset="cartografico"
   case "$terreno" in plano|escarpado) ;; *) morir "--terreno inválido: $terreno (plano o escarpado)" ;; esac
   if [[ "$subsample" != 0 ]]; then
     [[ "$subsample" =~ ^[0-9]+$ && "$subsample" -ge 2 ]] \
@@ -228,6 +272,7 @@ cmd_run() {
   # (./raptor run ... --preset X sin --input real no aplica; ver docker
   # entrypoint.sh, modo `quality-estimate`). Best-effort: si por lo que sea
   # esto falla, no bloquea el procesamiento real que es lo que importa.
+  asegurar_docker
   local est_args=(--rm -e "PRESET=$preset" -e "MODE=$mode" -e "TERRENO=$terreno" -e "SUB_SAMPLE=$subsample")
   [[ -n "$input" ]] && est_args+=(-v "$input:$C_INPUT:ro")
   [[ -n "$input_ms" ]] && est_args+=(-v "$input_ms:$C_INPUT_MS:ro")
@@ -250,6 +295,7 @@ cmd_run() {
 
 cmd_webapp() {
   local runs="$PWD/runs" export_dir="" import_dir="" port=8080 name="raptor-web" fg=0
+  local -a envs=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --runs)    runs="$2"; shift 2 ;;
@@ -257,29 +303,37 @@ cmd_webapp() {
       --import)  import_dir="$2"; shift 2 ;;
       --port)    port="$2"; shift 2 ;;
       --name)    name="$2"; shift 2 ;;
+      --env)     envs+=("$2"); shift 2 ;;
       --no-gpu)  NO_GPU=1; shift ;;
       --fg)      fg=1; shift ;;
       -h|--help)
         cat <<'EOF'
-Uso: ./raptor webapp [--runs DIR] [--export DIR] [--import DIR] [--port N] [--name NOMBRE] [--no-gpu] [--fg]
+Uso: raptor webapp [--runs DIR] [--export DIR] [--import DIR] [--port N] [--name NOMBRE] [--env VAR=VALOR] [--no-gpu] [--fg]
+
+Despliegue manual con flags explícitos — para el uso normal, «raptor init»
+(una vez) + «raptor start» ya cubre esto sin tener que repetir --export/
+--port en cada llamada, ver «raptor --help».
 
 Por defecto queda corriendo en segundo plano y se reinicia sola si se cae
 el contenedor o se reinicia la máquina (--restart unless-stopped) — pensado
 para instalarla una vez y dejarla andando sin volver a ejecutar este comando.
 
-  --name NOMBRE   Nombre del contenedor (default: raptor-web). Si ya existe
-                   uno con ese nombre, se reemplaza (SOLO ese contenedor).
-  --fg            No hacer deploy persistente: correr en primer plano,
-                   pegado a la terminal, sin --restart (para debug).
+  --name NOMBRE     Nombre del contenedor (default: raptor-web). Si ya existe
+                     uno con ese nombre, se reemplaza (SOLO ese contenedor).
+  --env VAR=VALOR   Variable de entorno extra para el contenedor (repetible).
+                     Ej.: --env RAPTOR_ODM_PARALELO=3 --env MAX_CONCURRENCY=8
+  --fg              No hacer deploy persistente: correr en primer plano,
+                     pegado a la terminal, sin --restart (para debug).
 
-./raptor logs     Ver el log en vivo de la webapp persistente
-./raptor stop      Parar la webapp persistente
-./raptor status    Ver si está corriendo
+raptor logs     Ver el log en vivo de la webapp persistente
+raptor stop      Parar la webapp persistente
+raptor status    Ver si está corriendo
 EOF
         exit 0 ;;
       *) morir "opción desconocida: $1" ;;
     esac
   done
+  asegurar_docker
   runs="$(abs "$runs")"; mkdir -p "$runs"
   local args=(-p "${port}:${port}" -v "$runs:$C_RUNS" -e "PORT=$port")
   if [[ -n "$export_dir" ]]; then
@@ -300,6 +354,10 @@ EOF
     # hace falta pasar por HTTP para duplicar algo que ya está en disco).
     args+=(-v "$import_dir:$C_IMPORT:ro" -e "IMPORT_HOST_DIR=$import_dir")
   fi
+  for e in "${envs[@]}"; do args+=(-e "$e"); done
+  if [[ -d "/mnt/f" ]]; then
+    args+=(-v "/mnt/f:/mnt/f")
+  fi
 
   if [[ "$fg" -eq 1 ]]; then
     echo "🌐 http://localhost:${port} (primer plano, sin --restart)"
@@ -319,54 +377,157 @@ EOF
   # shellcheck disable=SC2046
   docker run "${args[@]}" $(gpu_args) "$IMAGE" webapp >/dev/null
   echo "🌐 http://localhost:${port}  (persistente — sobrevive reinicios de la máquina si Docker arranca solo)"
-  echo "   ./raptor logs   → ver el progreso en vivo"
-  echo "   ./raptor stop   → apagarla"
-  echo "   ./raptor status → ver si está corriendo"
+  echo "   raptor logs   → ver el progreso en vivo"
+  echo "   raptor stop   → apagarla"
+  echo "   raptor status → ver si está corriendo"
 }
 
 cmd_stop() {
+  asegurar_docker
   local name="${1:-raptor-web}"
   docker stop "$name" >/dev/null 2>&1 && echo "🛑 ${name} detenido." || echo "ℹ  ${name} no estaba corriendo."
 }
 
 cmd_logs() {
+  asegurar_docker
   local name="${1:-raptor-web}"
   docker logs -f "$name"
 }
 
 cmd_status() {
+  asegurar_docker
   local name="${1:-raptor-web}"
   local row
   row="$(docker ps -a -f "name=^/${name}\$" --format '{{.Status}}')"
   if [[ -z "$row" ]]; then
-    echo "ℹ  ${name}: no existe (todavía no se desplegó — ./raptor webapp)"
+    echo "ℹ  ${name}: no existe (todavía no se desplegó — raptor start)"
   else
     echo "${name}: ${row}"
   fi
 }
 
+# ── Configuración persistente (carpeta de entrega + puerto), una sola vez
+# en la vida de la instalación, para que start/restart no necesiten flags —
+# la alternativa a repetir --export/--port en cada despliegue manual. ──
+RAPTOR_CONFIG="$HOME/.raptor/config"
+
+cmd_init() {
+  echo "Configuremos RAPTOR (podés volver a correr esto cuando quieras para cambiarlo)."
+  local default_export="$HOME/raptor-deliveries"
+  local export_dir port
+  read -rp "Carpeta de entregas (dónde quedan los productos exportados) [$default_export]: " export_dir
+  export_dir="${export_dir:-$default_export}"
+  export_dir="$(abs "$export_dir")"
+  mkdir -p "$export_dir" 2>/dev/null || morir "no se pudo crear la carpeta de entregas: $export_dir"
+
+  read -rp "Puerto [8080]: " port
+  port="${port:-8080}"
+  [[ "$port" =~ ^[0-9]+$ ]] || morir "puerto inválido: $port"
+
+  local runs_dir="$HOME/.raptor/runs"
+  mkdir -p "$runs_dir"
+
+  mkdir -p "$(dirname "$RAPTOR_CONFIG")"
+  cat > "$RAPTOR_CONFIG" <<EOF
+RAPTOR_EXPORT_DIR=$export_dir
+RAPTOR_PORT=$port
+RAPTOR_RUNS_DIR=$runs_dir
+EOF
+  echo "✅ Guardado en $RAPTOR_CONFIG"
+  echo "   Entregas: $export_dir"
+  echo "   Puerto:   $port"
+}
+
+cmd_start() {
+  [[ -f "$RAPTOR_CONFIG" ]] || morir "todavía no hay configuración — corré «raptor init» primero (o «raptor install» si es la primera vez)."
+  # shellcheck disable=SC1090
+  source "$RAPTOR_CONFIG"
+  cmd_webapp --export "$RAPTOR_EXPORT_DIR" --runs "$RAPTOR_RUNS_DIR" --port "$RAPTOR_PORT" "$@"
+}
+
+cmd_restart() {
+  echo "🔁 Reiniciando…"
+  cmd_start "$@"
+}
+
+# Instala el comando global `raptor` (sin ./) delegando SIEMPRE a este mismo
+# checkout — no copia el código a otro lado, así que un `git pull` acá lo
+# actualiza también para el comando global, sin reinstalar nada.
+_instalar_shim() {
+  local dir
+  for dir in /usr/local/bin "$HOME/.local/bin"; do
+    if { [[ -d "$dir" ]] || mkdir -p "$dir" 2>/dev/null; } && [[ -w "$dir" ]]; then
+      cat > "$dir/raptor" <<EOF
+#!/usr/bin/env bash
+exec "$AQUI/raptor" "\$@"
+EOF
+      chmod +x "$dir/raptor"
+      echo "✅ Comando «raptor» instalado en $dir/raptor"
+      case ":${PATH}:" in
+        *":${dir}:"*) ;;
+        *) echo "⚠  $dir no está en tu PATH todavía. Agregá esto a tu ~/.bashrc o ~/.zshrc:"
+           echo "     export PATH=\"$dir:\$PATH\"" ;;
+      esac
+      return 0
+    fi
+  done
+  echo "⚠  No se pudo instalar el comando global (sin permiso de escritura en /usr/local/bin ni ~/.local/bin) — seguí usando ./raptor desde $AQUI."
+  return 1
+}
+
+cmd_install() {
+  command -v docker >/dev/null 2>&1 || morir "Docker no está instalado. Instalalo y volvé a correr «./raptor install»."
+  asegurar_docker
+
+  echo "🔨 Construyendo la imagen…"
+  cmd_build
+
+  _instalar_shim || true
+
+  cmd_init
+  cmd_start
+}
+
 case "${1:-}" in
+  install) shift; cmd_install "$@" ;;
+  init)   shift; cmd_init "$@" ;;
+  start)  shift; cmd_start "$@" ;;
+  restart) shift; cmd_restart "$@" ;;
   build)  shift; cmd_build "$@" ;;
   run)    shift; cmd_run "$@" ;;
   webapp) shift; cmd_webapp "$@" ;;
   stop)   shift; cmd_stop "$@" ;;
   logs)   shift; cmd_logs "$@" ;;
   status) shift; cmd_status "$@" ;;
-  shell)  shift; docker run --rm -it -v "$PWD:/app" "$IMAGE" shell ;;
+  shell)  shift; asegurar_docker; docker run --rm -it -v "$PWD:/app" "$IMAGE" shell ;;
   -h|--help|"")
     cat <<'EOF'
-RAPTOR — pipeline fotogramétrico de respuesta a incendios (DJI M3T/H20T/M3M)
+RAPTOR — UAV photogrammetric processing pipeline (DJI M3T/H20T/M3M)
 
-  ./raptor build              Construir la imagen
-  ./raptor run     [opciones] Procesar una misión (no interactivo, apto CI)
-  ./raptor webapp  [opciones] Desplegar la webapp de forma persistente
-  ./raptor logs                Ver el log en vivo de la webapp persistente
-  ./raptor stop                Apagar la webapp persistente
-  ./raptor status              Ver si la webapp persistente está corriendo
-  ./raptor shell               Shell dentro del contenedor
+First time:
+  ./raptor install             Build, install the global `raptor` command,
+                                ask where deliverables go and which port,
+                                and start the webapp. Run once from the
+                                checkout; everything after that is just
+                                `raptor ...` from anywhere.
 
-`./raptor run --help` / `./raptor webapp --help` para el resto de las opciones.
+Everyday use (after install):
+  raptor start                 Start the webapp with the saved config
+  raptor restart                Restart it (same as start)
+  raptor stop                   Stop it
+  raptor status                 Check if it's running
+  raptor logs                   Watch its live log
+  raptor init                   Change the deliveries folder or port
+
+Advanced / power user:
+  raptor build                 Build the image by hand
+  raptor run     [options]     Process one mission, non-interactive (CI)
+  raptor webapp  [options]     Deploy the webapp with explicit flags,
+                                bypassing the saved config
+  raptor shell                  Shell inside the container
+
+`raptor run --help` / `raptor webapp --help` for the rest of the options.
 EOF
     ;;
-  *) morir "comando desconocido: $1  (./raptor --help)" ;;
+  *) morir "comando desconocido: $1  (raptor --help)" ;;
 esac

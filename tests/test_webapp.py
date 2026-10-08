@@ -178,25 +178,68 @@ class TestEntregaAlHost:
         assert env == {}
 
 
-class TestValidacionPrevia:
-    def test_start_rechaza_config_de_entrega_invalida_sin_lanzar_nada(self, app):
+class TestExportacionADemanda:
+    """Export ya no se pide antes de arrancar la corrida (ver
+    TestValidacionPrevia, que perdió esos dos tests) — se pide después,
+    contra una misión que YA tiene productos reales en disco."""
+
+    def _con_rgb_generado(self, runs, mision="m1"):
+        outputs = runs / mision / "outputs"
+        outputs.mkdir(parents=True, exist_ok=True)
+        (outputs / "rgb_orthomosaic.tif").write_bytes(b"")
+        return outputs
+
+    def test_export_options_lista_solo_lo_que_existe(self, app):
         c, M, runs, montaje = app
-        _subir(runs, "m2", "rgb_thermal", ["DJI_0001_V.JPG"])
-        r = c.post("/api/missions/m2/start", data={
-            "mode": "rgb", "has_multispectral": "false", "reuse_odm": "false",
-            "export_dir": "/etc", "export_products": "rgb", "export_epsg": "9377"})
+        self._con_rgb_generado(runs, "m1")
+        r = c.get("/api/missions/m1/export-options").json()
+        assert "rgb" in r["available_products"]
+        assert "multispectral" not in r["available_products"]
+        assert r["export_enabled"] is True
+        assert r["default_export_dir"] == "/home/usuario/entregas/m1"
+
+    def test_rechaza_producto_no_generado(self, app):
+        c, M, runs, montaje = app
+        self._con_rgb_generado(runs, "m1")
+        r = c.post("/api/missions/m1/export", data={
+            "export_dir": "/home/usuario/entregas/m1",
+            "export_products": "rgb,multispectral"})
+        assert r.status_code == 400 and "multispectral" in r.json()["detail"]
+
+    def test_rechaza_carpeta_fuera_del_montaje(self, app):
+        c, M, runs, montaje = app
+        self._con_rgb_generado(runs, "m1")
+        r = c.post("/api/missions/m1/export", data={
+            "export_dir": "/etc", "export_products": "rgb"})
         assert r.status_code == 400
-        assert M._state is None, "no puede haber quedado un pipeline lanzado"
 
-    def test_start_rechaza_producto_desconocido_nombrandolo(self, app):
+    def test_rechaza_mientras_la_mision_esta_corriendo(self, app):
         c, M, runs, montaje = app
-        _subir(runs, "m2", "rgb_thermal", ["DJI_0001_V.JPG"])
-        r = c.post("/api/missions/m2/start", data={
-            "mode": "rgb", "has_multispectral": "false", "reuse_odm": "false",
-            "export_dir": "/home/usuario/entregas/m2",
-            "export_products": "rgb,inventado", "export_epsg": "9377"})
-        assert r.status_code == 400 and "inventado" in r.json()["detail"]
+        self._con_rgb_generado(runs, "m1")
 
+        class _Falsa:
+            mission_name, done = "m1", False
+        M._state = _Falsa()
+        try:
+            r = c.post("/api/missions/m1/export", data={
+                "export_dir": "/home/usuario/entregas/m1", "export_products": "rgb"})
+            assert r.status_code == 409
+        finally:
+            M._state = None
+
+    def test_rechaza_sin_productos_marcados(self, app):
+        c, M, runs, montaje = app
+        self._con_rgb_generado(runs, "m1")
+        # " " (no vacío del todo) en vez de "": un value="" en form-encoded
+        # puede llegar como campo AUSENTE del lado del server según el
+        # cliente, lo que da 422 (Form(...) required) en vez de ejercitar la
+        # validación real de "sin productos" que se busca probar acá.
+        r = c.post("/api/missions/m1/export", data={
+            "export_dir": "/home/usuario/entregas/m1", "export_products": " "})
+        assert r.status_code == 400
+
+
+class TestValidacionPrevia:
     def test_un_get_no_crea_directorios(self, app):
         """Un sondeo a un nombre inexistente no debe dejar una misión fantasma
         vacía en el selector."""
@@ -224,13 +267,14 @@ class TestLogEnDisco:
         assert c.get("/api/missions/inexistente/log").status_code == 404
 
 
-class TestAgregarSensorYReusarOdm:
-    """SKIP_ODM en docker/entrypoint.sh es un interruptor GLOBAL: salta las
-    TRES reconstrucciones ODM a la vez, no sensor por sensor. Agregar un vuelo
-    multiespectral a una misión que ya tenía RGB+térmico y pedir 'reusar'
-    saltearía también la reconstrucción MS que nunca existió — el pipeline
-    seguiría con datos de impacto vacíos, y el primer error visible saldría
-    recién en detect_area_afectada.py, sin mencionar la causa real."""
+class TestOdmProjects:
+    """_odm_projects() es puramente informativo (status de la misión) desde
+    que se sacó el toggle "reusar ODM" de la webapp — ver el docstring de
+    _odm_projects en webapp/main.py sobre por qué ese interruptor se sacó
+    (era global, no por sensor, y se ofrecía en base a una señal que no
+    garantizaba una reconstrucción completa: reportado en vivo, una misión
+    con multiespectral que llegó a SfM/malla pero se cortó en texturizado
+    igual se hubiera ofrecido como 'reusable')."""
 
     def _con_processing(self, runs, mision, *sensores):
         d = runs / mision / "processing"
@@ -240,59 +284,6 @@ class TestAgregarSensorYReusarOdm:
                 p = d / sub / "opensfm"
                 p.mkdir(parents=True)
                 (p / "reconstruction.json").write_text("[]")
-
-    def test_rechaza_reusar_si_el_sensor_nuevo_nunca_se_reconstruyo(self, app):
-        c, M, runs, montaje = app
-        self._con_processing(runs, "m7", "rgb", "thermal")   # MS nunca corrió
-        d = runs / "m7" / "raw" / "rgb_thermal"; d.mkdir(parents=True)
-        (d / "a_V.JPG").write_text("x")
-        r = c.post("/api/missions/m7/start", data={
-            "mode": "rgb+thermal", "has_multispectral": "true", "reuse_odm": "true"})
-        assert r.status_code == 400
-        assert "multiespectral" in r.json()["detail"]
-        assert M._state is None
-
-    # El resto se prueba directo sobre _validate_reuse_odm(), sin pasar por
-    # /start: llegar al camino de ÉXITO del endpoint dispara activate_mission()
-    # de verdad, que reemplaza /app/{processing,outputs,...} por symlinks — en
-    # el contenedor de test eso es el repo real montado (`docker run -v
-    # $PWD:/app ...`), no un tmp_path aislado. Ningún otro test de este archivo
-    # llega tan lejos por el mismo motivo; la función de validación en sí no
-    # tiene ese problema (no toca disco más que leer reconstruction.json).
-    def test_acepta_reusar_si_todos_los_sensores_pedidos_ya_existen(self, app):
-        c, M, runs, montaje = app
-        self._con_processing(runs, "m8", "rgb", "thermal")
-        assert M._validate_reuse_odm(runs / "m8", "rgb+thermal", False, True) == []
-
-    def test_reusar_sin_pedirlo_no_valida_nada(self, app):
-        c, M, runs, montaje = app
-        # Ninguna reconstrucción previa Y reuse_odm=False: no debe quejarse,
-        # porque no se pidió reusar nada.
-        assert M._validate_reuse_odm(runs / "m9", "rgb", True, False) == []
-
-    def test_multiespectral_agregado_sin_reconstruir_se_detecta(self, app):
-        c, M, runs, montaje = app
-        self._con_processing(runs, "m10", "rgb", "thermal")
-        errs = M._validate_reuse_odm(runs / "m10", "rgb+thermal", True, True)
-        assert errs and "multiespectral" in errs[0]
-
-    def test_mode_none_no_exige_rgb_ni_termico(self, app):
-        c, M, runs, montaje = app
-        self._con_processing(runs, "m11", "multispectral")
-        assert M._validate_reuse_odm(runs / "m11", "none", True, True) == []
-
-    def test_banda_d_pedida_sin_reconstruir_se_detecta(self, app):
-        """Mismo principio que multiespectral agregado sin reconstruir:
-        DBAND=1 es otro sensor más para SKIP_ODM (interruptor global)."""
-        c, M, runs, montaje = app
-        self._con_processing(runs, "m12", "rgb", "thermal", "multispectral")
-        errs = M._validate_reuse_odm(runs / "m12", "rgb+thermal", True, True, dband=True)
-        assert errs and "banda D" in errs[0]
-
-    def test_acepta_reusar_banda_d_si_ya_existe(self, app):
-        c, M, runs, montaje = app
-        self._con_processing(runs, "m13", "rgb", "thermal", "multispectral", "dband")
-        assert M._validate_reuse_odm(runs / "m13", "rgb+thermal", True, True, dband=True) == []
 
     def test_odm_projects_incluye_dband(self, app):
         c, M, runs, montaje = app
@@ -711,3 +702,36 @@ class TestExplorarCarpetas:
         M._state = None
         r = TestClient(M.app).get("/api/import/browse")
         assert r.status_code == 400
+
+
+class TestClasificacionGeneral:
+    def test_reconoce_fotos_dji_estandar_y_varios_formatos(self, app):
+        c, M, runs, montaje = app
+        archivos = [
+            "DJI_0001.JPG",
+            "DJI_0002.jpeg",
+            "IMG_0003.PNG",
+            "orto.TIF",
+            "DJI_0004_T.JPG",
+            "DJI_0005_MS_NIR.TIF",
+            "DJI_0006_D.JPG",
+            "DJI_0001.SRT",
+            "DJI_0001.MRK",
+        ]
+        counts = M.classify_files(archivos)
+        assert counts["rgb"] == 4, f"Esperaba 4 RGB, obtuvo {counts}"
+        assert counts["thermal"] == 1
+        assert counts["ms"] == 1
+        assert counts["dband"] == 1
+        assert counts["otros"] == 2
+        assert counts["total"] == 9
+
+    def test_validacion_pasa_con_fotos_rgb_estandar(self, app):
+        c, M, runs, montaje = app
+        uploads = {
+            "rgb_thermal": M.classify_files(["DJI_0001.JPG", "DJI_0002.JPG"]),
+            "multispectral": M.classify_files([]),
+        }
+        errs = M._validate("rgb", False, uploads)
+        assert errs == [], f"No debería haber errores con fotos RGB estándar: {errs}"
+

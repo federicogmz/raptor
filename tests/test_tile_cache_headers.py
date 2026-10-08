@@ -1,11 +1,17 @@
-"""NoCacheStaticMiddleware (webapp/main.py): los PNG de tiles son
-inmutables (una corrida nunca los pisa in-place, siempre los regenera
-desde cero) — SALVO cuando la respuesta es un 404. Bug real, reportado en
-vivo: un tile pedido ANTES de que existiera (típico mientras una misión
-sigue procesando) también recibía el header "immutable, max-age=1 año", así
-que el navegador se quedaba con ese 404 cacheado para siempre — el térmico
-nunca aparecía en el geovisor aunque el archivo real ya estuviera escrito y
-bounds.json ya lo listara en capas_disponibles.
+"""NoCacheStaticMiddleware (webapp/main.py): todo bajo /geovisor y /static
+—tiles PNG incluidos— usa "no-cache", no "immutable, max-age=1 año".
+
+Los tiles tenían el cache "fuerte" bajo la premisa de que una corrida nunca
+los pisa in-place, siempre los regenera desde cero. Falso: "Corregir y
+reintentar" sobre la MISMA misión reescribe los tiles en el MISMO path, y con
+esa marca el navegador nunca revalidaba — se quedaba con el tile de la
+corrida anterior (mosaico más recortado) para siempre, aunque el archivo real
+en disco ya fuera el nuevo. Bug real, reportado en vivo durante un reintento.
+
+Related bug ya cubierto acá: un tile pedido ANTES de que existiera (típico
+mientras una misión sigue procesando) tampoco debe cachearse "para siempre"
+como 404 — con "no-cache" uniforme esto queda cubierto solo, sin caso
+especial.
 """
 import importlib
 
@@ -34,15 +40,19 @@ class TestCacheDeTilesPNG:
         r = cliente.get("/geovisor/tiles/thermal/17/38104/63193.png")
         assert r.status_code == 404
         assert "immutable" not in r.headers.get("cache-control", "")
+        assert r.headers.get("cache-control") == "no-cache"
 
-    def test_tile_real_si_es_inmutable(self, cliente):
+    def test_tile_real_no_es_inmutable(self, cliente):
+        """Un reintento sobre la misma misión reescribe el tile en el mismo
+        path — "immutable" le mentiría al navegador."""
         from webapp import main as M
         tile_dir = M.GEOVISOR_DIR / "tiles" / "thermal" / "0" / "0"
         tile_dir.mkdir(parents=True, exist_ok=True)
         (tile_dir / "0.png").write_bytes(b"\x89PNG\r\n\x1a\n")
         r = cliente.get("/geovisor/tiles/thermal/0/0/0.png")
         assert r.status_code == 200
-        assert "immutable" in r.headers.get("cache-control", "")
+        assert "immutable" not in r.headers.get("cache-control", "")
+        assert r.headers.get("cache-control") == "no-cache"
 
     def test_bounds_json_sigue_sin_cachear(self, cliente):
         r = cliente.get("/geovisor/tiles/bounds.json")

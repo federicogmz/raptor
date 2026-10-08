@@ -29,33 +29,36 @@ import math
 import os
 import shutil
 import sys
+import threading
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi import Body, FastAPI, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
-from osgeo import gdal, osr
+from osgeo import gdal, ogr, osr
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
 gdal.UseExceptions()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from core.runner import PipelineRun, activate_mission, parse_progress_events
+from core.runner import (PipelineRun, activate_mission, deactivate_mission,
+                         parse_progress_events)
 from core.scan import RUNS_ROOT, sanitize_mission_name, scan_existing_runs
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from hardware import estimate_message  # noqa: E402 — mensaje de calidad del formulario
 from hardware import preset as hw_preset  # noqa: E402 — valida el nombre del preset
+from export_products import CATALOG as EXPORT_CATALOG  # noqa: E402 — misma fuente que export_products.py
 
 APP_DIR = Path(os.environ.get("RAPTOR_APP_DIR", "/app"))
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 GEOVISOR_DIR = APP_DIR / "geovisor"
 
 UPLOAD_KINDS = ("rgb_thermal", "multispectral")
-VALID_MODES = ("rgb", "rgb+thermal", "thermal", "none")
+VALID_MODES = ("rgb", "rgb+thermal", "thermal", "none", "thermal-convert")
 
 # ── Exportación de la entrega ───────────────────────────────────────────
 # Catálogo y formatos los define scripts/export_products.py; acá solo se
@@ -162,18 +165,7 @@ def host_a_contenedor(ruta_host):
     return os.path.join(EXPORT_MOUNT, ruta[len(prefijo):])
 
 
-def contenedor_a_host(ruta_cont):
-    """Inversa de host_a_contenedor, para mostrarle al usuario dónde quedó."""
-    if not EXPORT_HOST_DIR:
-        return ruta_cont
-    if ruta_cont == EXPORT_MOUNT:
-        return EXPORT_HOST_DIR
-    prefijo = EXPORT_MOUNT + os.sep
-    if ruta_cont.startswith(prefijo):
-        return os.path.join(EXPORT_HOST_DIR, ruta_cont[len(prefijo):])
-    return ruta_cont
-
-app = FastAPI(title="Pipeline UAV de respuesta rápida")
+app = FastAPI(title="RAPTOR UAV photogrammetric pipeline")
 RUNS_ROOT.mkdir(parents=True, exist_ok=True)
 
 
@@ -183,33 +175,26 @@ RUNS_ROOT.mkdir(parents=True, exist_ok=True)
 # usuario). "no-cache" NO es "sin caché" — el navegador SIGUE cacheando,
 # pero tiene que revalidar con ETag/Last-Modified en cada carga; si el
 # archivo no cambió, el servidor responde 304 y no reenvía el contenido, así
-# que no cuesta ancho de banda de más. Los tiles PNG de geovisor/tiles NO
-# cambian una vez generados (cada corrida los regenera desde cero, nunca los
-# pisa in-place), así que a esos sí les sirve un cache "fuerte" — se
-# distinguen por el path.
+# que no cuesta ancho de banda de más.
+#
+# Los tiles PNG de geovisor/tiles ANTES llevaban un cache "fuerte" (1 año,
+# immutable) bajo la premisa de que una corrida nunca los pisa in-place,
+# siempre los regenera desde cero — falso: "Corregir y reintentar" sobre la
+# MISMA misión reescribe los tiles en el MISMO path (mismo nombre de misión →
+# misma carpeta geovisor/tiles), y con esa marca el navegador ni se molestaba
+# en revalidar — se quedaba con el tile viejo (mosaico más recortado, de la
+# corrida anterior) para siempre. Bug real, reportado en vivo durante un
+# reintento. Ahora todo bajo /geovisor y /static usa el mismo "no-cache" que
+# ya tenían app.js/index.html/style.css: sigue siendo barato (StaticFiles
+# responde 304 con Last-Modified/ETag si el tile no cambió), pero un
+# reintento que sí reescribe los tiles se ve reflejado sin que el usuario
+# tenga que forzar un hard-refresh.
 class NoCacheStaticMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         response = await call_next(request)
         path = request.url.path
         if path.startswith(("/geovisor", "/static")):
-            # Solo los PNG de los tiles son de verdad inmutables. tiles/bounds.json
-            # vive en la MISMA carpeta pero cambia por misión y hasta durante una
-            # misma corrida (pollBoundsForChanges lo sondea justamente porque
-            # cambia) — con el año de caché de acá, el navegador quedaba pegado al
-            # bounds.json de la primera misión que abrió (centro/zoom viejos) sin
-            # volver a pedirlo nunca más, aunque la URL fuera la misma para
-            # cualquier misión que se activara después.
-            # status_code==200 además de .png: un tile pedido ANTES de que
-            # existiera (típico durante una corrida en curso) responde 404,
-            # y sin este chequeo ese 404 se cacheaba "para siempre" igual —
-            # el navegador nunca lo volvía a pedir ni cuando el archivo real
-            # ya estaba escrito. Bug real, reportado en vivo: el térmico
-            # nunca aparecía aunque bounds.json y el archivo en disco ya
-            # estuvieran bien.
-            if "/tiles/" in path and path.endswith(".png") and response.status_code == 200:
-                response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-            else:
-                response.headers["Cache-Control"] = "no-cache"
+            response.headers["Cache-Control"] = "no-cache"
         return response
 
 
@@ -242,17 +227,17 @@ def classify_files(names):
     counts["ms_bands"] = {b: 0 for b in MS_BANDS}
     for n in names:
         u = n.upper()
-        if u.endswith("_V.JPG") or u.endswith("_W.JPG"):
-            counts["rgb"] += 1
-        elif u.endswith("_T.JPG"):
+        if u.endswith("_T.JPG") or u.endswith("_T.JPEG") or u.endswith("_T.TIF") or u.endswith("_T.TIFF"):
             counts["thermal"] += 1
-        elif "_MS_" in u and u.endswith(".TIF"):
+        elif "_MS_" in u and (u.endswith(".TIF") or u.endswith(".TIFF")):
             counts["ms"] += 1
-            banda = u.rsplit("_MS_", 1)[1][:-4]
+            banda = u.rsplit("_MS_", 1)[1].split(".")[0]
             if banda in counts["ms_bands"]:
                 counts["ms_bands"][banda] += 1
-        elif u.endswith("_D.JPG"):
+        elif u.endswith("_D.JPG") or u.endswith("_D.JPEG"):
             counts["dband"] += 1
+        elif u.endswith((".JPG", ".JPEG", ".TIF", ".TIFF", ".PNG")):
+            counts["rgb"] += 1
         else:
             counts["otros"] += 1
     counts["total"] = sum(counts[k] for k in ("rgb", "thermal", "ms", "dband", "otros"))
@@ -554,9 +539,20 @@ def _related_missions(safe_name: str, mission_dir: Path):
 
 
 def _odm_projects(mission_dir: Path):
-    """Proyectos ODM ya reconstruidos de esta misión (lo caro: SfM+MVS).
-    Su presencia es lo que habilita ofrecer 'reusar' en vez del checkbox
-    SKIP_ODM que el usuario tenía que entender y marcar a mano."""
+    """Proyectos ODM ya reconstruidos de esta misión (lo caro: SfM+MVS) — solo
+    informativo para el status de la misión. Ya NO hay un toggle "reusar ODM"
+    (SKIP_ODM) del lado de la webapp: ese interruptor era GLOBAL (saltaba las
+    TRES reconstrucciones a la vez, no sensor por sensor) y, peor, se ofrecía
+    en base a que `reconstruction.json` existiera — que solo confirma que el
+    SfM terminó, no que la reconstrucción llegó al ortomosaico final. Un
+    sensor con SfM/MVS/malla ya hechos pero que se cortó en texturizado (visto
+    en vivo: multiespectral falló en mvs_texturing) igual se ofrecía como
+    'reusable', y reusarlo saltaba ODM entero e iba directo al recorte, que
+    fallaba al toque por no encontrar el ortomosaico. Ahora start_mission()
+    siempre invoca ODM (SKIP_ODM=0): el propio run.py resuelve esto solo,
+    etapa por etapa — lo que ya está completo lo saltea rápido, lo que no,
+    lo retoma o lo hace de cero — sin que el usuario tenga que juzgar de
+    antemano qué tan completo quedó cada sensor."""
     proc = mission_dir / "processing"
     found = {}
     for key, sub in (("rgb", "rgb_odm"), ("thermal", "thermal_native_odm"),
@@ -564,35 +560,6 @@ def _odm_projects(mission_dir: Path):
         d = proc / sub
         found[key] = (d / "opensfm" / "reconstruction.json").exists()
     return found
-
-
-def _validate_reuse_odm(mission_dir, mode, has_multispectral, reuse_odm, dband=False):
-    """"Reusar lo ya reconstruido" (SKIP_ODM=1) es un interruptor GLOBAL en
-    docker/entrypoint.sh: salta las TRES reconstrucciones ODM a la vez, no
-    sensor por sensor. Si se pide reusar pero algún sensor de ESTA corrida
-    nunca se reconstruyó en esta misión —el caso típico: agregar un vuelo
-    multiespectral a una misión que ya tenía RGB+térmico— esa reconstrucción
-    nueva quedaría salteada igual, y la misión sigue con procesamiento
-    incompleto sin ningún error claro (detect_area_afectada.py recién
-    fallaría más adelante, con un mensaje que no menciona el sensor real)."""
-    if not reuse_odm:
-        return []
-    odm_prev = _odm_projects(mission_dir)
-    faltantes = []
-    if mode in ("rgb", "rgb+thermal") and not odm_prev["rgb"]:
-        faltantes.append("RGB")
-    if mode in ("rgb+thermal", "thermal") and not odm_prev["thermal"]:
-        faltantes.append("térmico")
-    if has_multispectral and not odm_prev["multispectral"]:
-        faltantes.append("multiespectral")
-    if dband and not odm_prev["dband"]:
-        faltantes.append("banda D")
-    if not faltantes:
-        return []
-    return [f"Pediste reusar reconstrucciones ODM, pero {' y '.join(faltantes)} "
-            f"nunca se reconstruyó en esta misión — no hay nada que reusar ahí. "
-            "Elige «Empezar de cero» (reconstruye lo nuevo; lo que ya existe, "
-            "ODM lo retoma solo y no lo rehace de cero)."]
 
 
 # ── Landing + páginas estáticas de la webapp (no confundir con geovisor/) ──
@@ -651,8 +618,16 @@ def list_missions():
             mtime = r.path.stat().st_mtime
         except OSError:
             mtime = None
+        th_out = r.path / "outputs" / "thermal_converted"
+        th_prep = r.path / "preprocessing" / "thermal_dji_sdk"
+        has_thermal_converted = bool(
+            (r.path / "outputs" / "termicas_convertidas_tiff.zip").exists()
+            or (th_out.exists() and list(th_out.glob("*.tif")))
+            or (th_prep.exists() and list(th_prep.glob("*.tif")))
+        )
         out.append({"name": r.name, "has_outputs": r.has_outputs,
                     "has_processing": r.has_processing, "has_tiles": r.has_tiles,
+                    "has_thermal_converted": has_thermal_converted,
                     "ok": ok, "mtime": mtime})
     running = _running_mission()
     last = None
@@ -678,6 +653,13 @@ def mission_status(mission: str):
     # elapsed del SERVIDOR: la UI lo usa para que el cronómetro sobreviva a
     # un F5 en vez de arrancar de nuevo en 00:00.
     elapsed = round(_state.elapsed()) if (_state and _state.mission_name == safe) else None
+    th_conv_dir = mission_dir / "outputs" / "thermal_converted"
+    sdk_conv_dir = mission_dir / "preprocessing" / "thermal_dji_sdk"
+    has_thermal_converted = bool(
+        (mission_dir / "outputs" / "termicas_convertidas_tiff.zip").exists()
+        or (th_conv_dir.exists() and list(th_conv_dir.glob("*.tif")))
+        or (sdk_conv_dir.exists() and list(sdk_conv_dir.glob("*.tif")))
+    )
     return {"name": safe, "uploads": uploads, "odm": _odm_projects(mission_dir),
             "export_enabled": export_disponible(),
             "export_host_root": EXPORT_HOST_DIR,
@@ -686,12 +668,36 @@ def mission_status(mission: str):
             "import_enabled": import_disponible(),
             "import_host_root": IMPORT_HOST_DIR,
             "imported": {k: _imported_folders(mission_dir / "raw" / k) for k in UPLOAD_KINDS},
-            "has_tiles": tiles_ready, "running": running, "last_run": last_run,
+            "has_tiles": tiles_ready, "has_thermal_converted": has_thermal_converted,
+            "running": running, "last_run": last_run,
             "elapsed": elapsed, "mode": _state.mode if (_state and _state.mission_name == safe) else None,
             "has_multispectral": _state.has_ms if (_state and _state.mission_name == safe) else None,
             # Otras misiones en la misma zona: es lo único que habilita el
             # comparador Antes/Después en el geovisor (ver _related_missions).
             "related_missions": _related_missions(safe, mission_dir) if tiles_ready else []}
+
+
+@app.get("/api/missions/{mission}/thermal-tiffs-zip")
+def download_thermal_tiffs_zip(mission: str):
+    safe, mission_dir = _mission_dir(mission)
+    zip_path = mission_dir / "outputs" / "termicas_convertidas_tiff.zip"
+    if not zip_path.is_file():
+        tiffs = list((mission_dir / "outputs" / "thermal_converted").glob("*.tif"))
+        if not tiffs:
+            tiffs = list((mission_dir / "preprocessing" / "thermal_dji_sdk").glob("*.tif"))
+        if tiffs:
+            import zipfile
+            zip_path.parent.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for tif in tiffs:
+                    zf.write(tif, arcname=tif.name)
+        else:
+            raise HTTPException(404, "No hay imágenes térmicas convertidas para esta misión")
+    return FileResponse(
+        str(zip_path),
+        media_type="application/zip",
+        filename=f"{safe}_termicas_convertidas_tiff.zip"
+    )
 
 
 # ── Subida de archivos: un POST por archivo (carpeta completa vía
@@ -872,13 +878,21 @@ def _validate(mode, has_ms, uploads):
     if mode not in VALID_MODES:
         errors.append(f"Modo inválido: {mode}")
         return errors
+    if mode == "thermal-convert":
+        if rt["thermal"] == 0:
+            errors.append(
+                "Elegiste «Solo conversión térmica» pero no hay fotos térmicas "
+                f"(*_T.JPG) entre los {rt['total']} archivos subidos. Agrega "
+                "las fotos térmicas del vuelo M3T/H20T."
+            )
+        return errors
     if mode != "none":
         if rt["rgb"] == 0:
             errors.append(
                 "Elegiste procesar el vuelo RGB/térmico pero no hay fotos RGB "
-                "(*_V.JPG / *_W.JPG) entre los archivos subidos"
+                "entre los archivos subidos"
                 + (f" ({rt['total']} archivos)" if rt["total"] else "")
-                + ". Sube la carpeta del vuelo M3T/H20T, o desactiva ese sensor "
+                + ". Sube las fotos del vuelo, o desactiva ese sensor "
                   "si solo vas a procesar el multiespectral.")
         if mode in ("rgb+thermal", "thermal") and rt["thermal"] == 0:
             errors.append(
@@ -913,21 +927,29 @@ def _validate(mode, has_ms, uploads):
     return errors
 
 
-def _validate_export(mission_dir, export_dir, products, raster_fmt, vector_fmt, epsg):
+def _validate_export(mission_dir, export_dir, products, raster_fmt, vector_fmt, epsg,
+                     crear=True):
     """Valida la configuración de entrega y devuelve (errores, dict EXPORT_*).
 
     `export_dir` es una ruta del HOST. Se traduce a la ruta equivalente dentro
     del contenedor y se comprueba acá —no adentro del pipeline— que se pueda
     crear y escribir: descubrirlo al final, con la misión ya procesada, sería
-    exactamente lo que la validación previa existe para evitar."""
+    exactamente lo que la validación previa existe para evitar.
+
+    `crear=False` valida SIN crear nada (ver /check-export, que corre mientras
+    el usuario escribe): se comprueba la escritura sobre el ancestro que ya
+    existe, no sobre la carpeta destino. Con crear=True se creaba una carpeta
+    por cada pausa de tecleo — la carpeta de entregas terminaba con la basura
+    completa del prefijo ("20260816", "20260816_e", "20260816_emergencia"…),
+    confirmado en vivo."""
     errors = []
     if not export_dir:
         return errors, {}
 
     if not export_disponible():
-        return ([f"Para exportar hay que arrancar con una carpeta del host montada: "
-                 f"«./raptor webapp --export /ruta/de/entregas». Sin eso los productos "
-                 f"solo quedan dentro del contenedor y se pierden al cerrarlo."], {})
+        return (["Para exportar hay que arrancar con una carpeta del host montada: "
+                 "«./raptor webapp --export /ruta/de/entregas». Sin eso los productos "
+                 "solo quedan dentro del contenedor y se pierden al cerrarlo."], {})
 
     host_dir = export_dir
     if not os.path.isabs(host_dir):
@@ -958,9 +980,18 @@ def _validate_export(mission_dir, export_dir, products, raster_fmt, vector_fmt, 
             errors.append(f"EPSG «{epsg}» no existe o no lo reconoce PROJ. "
                           "Usa un código numérico válido, p. ej. 9377.")
 
+    # Se prueba a escribir sobre el ancestro existente más cercano: con
+    # crear=True es la carpeta destino misma (se crea acá); con crear=False es
+    # el directorio padre que YA existe, sin crear nada. En los dos casos el
+    # permiso de escritura que importa es el mismo.
+    destino = export_dir
+    if not crear:
+        while destino != os.path.dirname(destino) and not os.path.isdir(destino):
+            destino = os.path.dirname(destino)
     try:
-        os.makedirs(export_dir, exist_ok=True)
-        probe = os.path.join(export_dir, ".raptor_write_test")
+        if crear:
+            os.makedirs(destino, exist_ok=True)
+        probe = os.path.join(destino, ".raptor_write_test")
         with open(probe, "w") as f:
             f.write("")
         os.remove(probe)
@@ -992,7 +1023,7 @@ def check_export(mission: str, export_dir: str = Form(""), export_epsg: str = Fo
     final de una corrida de una hora."""
     _safe, mission_dir = _mission_dir(mission)
     errors, env = _validate_export(mission_dir, export_dir.strip(), ["rgb"],
-                                   "cog", "geojson", export_epsg)
+                                   "cog", "geojson", export_epsg, crear=False)
     resolved = env.get("EXPORT_HOST_DIR", "")
     nombre = None
     epsg = (export_epsg or "").strip().lower()
@@ -1006,10 +1037,99 @@ def check_export(mission: str, export_dir: str = Form(""), export_epsg: str = Fo
     return {"ok": not errors, "errors": errors, "resolved": resolved, "crs_name": nombre}
 
 
+def _available_export_products(mission_dir):
+    """Qué claves de EXPORT_CATALOG tienen de verdad al menos un archivo
+    fuente en ESTA misión — para no ofrecer, por ejemplo, "multiespectral"
+    en el modal de una misión que nunca voló el M3M. Mismo criterio que ya
+    usa export_products.py al saltear en silencio lo que no existe, solo que
+    acá se resuelve ANTES de mostrar el checkbox, no después de tildarlo."""
+    outputs = mission_dir / "outputs"
+    disponibles = []
+    for clave, (_etiqueta, _tipo, fuentes) in EXPORT_CATALOG.items():
+        for fuente in fuentes:
+            # Las rutas del catálogo son relativas a OUTPUTS ("outputs/...");
+            # acá se resuelven contra la carpeta REAL de esta misión, no
+            # contra el symlink activo (que puede ser el de otra misión).
+            rel = os.path.relpath(fuente, "outputs")
+            if (outputs / rel).is_file():
+                disponibles.append(clave)
+                break
+    return disponibles
+
+
+@app.get("/api/missions/{mission}/export-options")
+def export_options(mission: str):
+    """Lo que necesita el modal de exportación post-hoc para armarse: qué
+    productos existen DE VERDAD en esta misión (para no ofrecer checkboxes
+    de algo que nunca se generó) y los mismos datos de carpeta/puerto que ya
+    calculaba mission_status() para el formulario viejo."""
+    _safe, mission_dir = _mission_dir(mission)
+    return {
+        "available_products": _available_export_products(mission_dir),
+        "export_enabled": export_disponible(),
+        "export_host_root": EXPORT_HOST_DIR,
+        "default_export_dir": (os.path.join(EXPORT_HOST_DIR, _safe)
+                               if export_disponible() else ""),
+    }
+
+
+@app.post("/api/missions/{mission}/export")
+async def export_mission(mission: str, export_dir: str = Form(...),
+                         export_products: str = Form(...),
+                         export_raster_format: str = Form("cog"),
+                         export_vector_format: str = Form("geojson"),
+                         export_epsg: str = Form("9377")):
+    """Exporta los productos de una misión YA TERMINADA a demanda — no
+    depende de haberlo pedido antes de arrancar la corrida (ver
+    start_mission()) ni de que esta misión sea la que está symlinkeada como
+    /app/outputs ahora mismo: corre export_products.py apuntado por
+    RAPTOR_EXPORT_SOURCE_DIR directo a la carpeta real de ESTA misión, así
+    que exportar una misión vieja no interfiere con otra que se esté
+    mirando (o procesando) al mismo tiempo en el geovisor."""
+    safe, mission_dir = _mission_dir(mission)
+    if _running_mission() == safe:
+        raise HTTPException(409, "Esta misión está procesándose ahora mismo — "
+                                 "esperá a que termine para exportar.")
+    if not export_dir.strip():
+        raise HTTPException(400, "Elegí una carpeta de destino.")
+    products = _parse_products(export_products)
+    if not products:
+        raise HTTPException(400, "Elegiste exportar pero no marcaste ningún producto.")
+    disponibles = set(_available_export_products(mission_dir))
+    pedidos_no_disponibles = [p for p in products if p not in disponibles]
+    if pedidos_no_disponibles:
+        raise HTTPException(400, f"Esta misión no tiene generado: "
+                                 f"{', '.join(pedidos_no_disponibles)}.")
+    errors, env = _validate_export(
+        mission_dir, export_dir.strip(), products,
+        export_raster_format.strip().lower(), export_vector_format.strip().lower(),
+        export_epsg, crear=True)
+    if errors:
+        raise HTTPException(400, " ".join(errors))
+
+    run_env = os.environ.copy()
+    run_env.update(env)
+    run_env["RAPTOR_EXPORT_SOURCE_DIR"] = str(mission_dir / "outputs")
+    proc = await asyncio.create_subprocess_exec(
+        sys.executable, "scripts/export_products.py",
+        cwd="/app", env=run_env,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+    )
+    out, _ = await proc.communicate()
+    log = out.decode(errors="replace")
+    if proc.returncode != 0:
+        # Cola del log, no todo: export_products.py puede imprimir bastante
+        # por producto y el modal solo necesita el motivo del fallo.
+        raise HTTPException(500, log.strip().splitlines()[-1] if log.strip() else
+                            "la exportación falló sin mensaje — ver logs del contenedor")
+    return {"ok": True, "host_dir": env.get("EXPORT_HOST_DIR", "")}
+
+
 @app.get("/api/missions/{mission}/quality-estimate")
 def quality_estimate(mission: str, preset: str = "", quality: int | None = None,
                      mode: str = "rgb+thermal", terreno: str = "escarpado",
-                     has_multispectral: bool = False, n_photos: int | None = None):
+                     has_multispectral: bool = False, n_photos: int | None = None,
+                     lang: str = "es"):
     """A qué resolución van a salir los productos y cuánto se espera que
     tarde — mismo cálculo que ve `./raptor run` antes de arrancar
     (scripts/hardware.py, fuente única) y que corre después de verdad en
@@ -1029,7 +1149,7 @@ def quality_estimate(mission: str, preset: str = "", quality: int | None = None,
     curso, porque el archivo recién llega a raw/ cuando termina de subirse,
     no cuando se elige. Si no llega (llamada vieja a la API, o sin JS), se
     cae al conteo de lo que ya está en disco como antes."""
-    elegido = preset.strip() or (str(quality) if quality is not None else "estandar")
+    elegido = preset.strip() or (str(quality) if quality is not None else "cartografico")
     por_sensor = None
     if n_photos is None:
         _safe, mission_dir = _mission_dir(mission)
@@ -1055,8 +1175,19 @@ def quality_estimate(mission: str, preset: str = "", quality: int | None = None,
         # con n_photos explícito del navegador no hay desglose confiable
         # todavía (subida en curso) y se cae al número único.
         por_sensor = {"rgb": rgb, "thermal": th, "multispectral": ms}
+    idioma = "en" if lang.strip().lower() == "en" else "es"
+    if mode == "thermal-convert":
+        en = idioma == "en"
+        return {
+            "tiempo_texto": "Estimated time: ~1 minute (SDK conversion to GeoTIFF with EXIF tags)" if en else "Tiempo estimado: ~1 minuto (conversión con SDK a GeoTIFF con tags EXIF/GPS)",
+            "resolucion_texto": "Native thermal resolution (640×512) in Float32 °C" if en else "Resolución nativa del sensor térmico (640×512) en Float32 °C",
+            "modelo_texto": "Thermal conversion only (no 3D reconstruction)" if en else "Solo conversión térmica (sin reconstrucción 3D)",
+            "hardware": {"cores": 8, "mem_available_mb": 16384, "gpu": False, "gpu_name": None},
+            "opciones": []
+        }
     try:
-        return estimate_message(elegido, n_photos, terreno=terreno, por_sensor=por_sensor)
+        return estimate_message(elegido, n_photos, terreno=terreno, por_sensor=por_sensor,
+                                idioma=idioma)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
@@ -1071,19 +1202,18 @@ def validate_mission(mission: str, mode: str = Form(...), has_multispectral: boo
 
 
 # ── Iniciar procesamiento ───────────────────────────────────────────────
+# Export ya NO se configura acá: se pide después de que un producto exista de
+# verdad, desde el listado de misiones (ver /api/missions/{mission}/export
+# más abajo) — antes había que decidir carpeta/formato/CRS de entrega ANTES
+# de arrancar una corrida que podía tardar horas, sin saber todavía qué iba a
+# salir. PipelineRun sigue aceptando `export`, pero acá siempre va vacío.
 @app.post("/api/missions/{mission}/start")
 async def start_mission(mission: str, mode: str = Form(...),
                         has_multispectral: bool = Form(False),
                         dband: bool = Form(False),
-                        reuse_odm: bool = Form(False),
-                        preset: str = Form("estandar"),
+                        preset: str = Form("cartografico"),
                         terreno: str = Form("escarpado"),
-                        subsample: int = Form(0),
-                        export_dir: str = Form(""),
-                        export_products: str = Form(""),
-                        export_raster_format: str = Form("cog"),
-                        export_vector_format: str = Form("geojson"),
-                        export_epsg: str = Form("9377")):
+                        subsample: int = Form(0)):
     global _state
     if _state is not None and not _state.done:
         raise HTTPException(409, f"Ya hay una misión procesándose: {_state.mission_name}")
@@ -1092,25 +1222,17 @@ async def start_mission(mission: str, mode: str = Form(...),
     uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k))
                for k in UPLOAD_KINDS}
     errors = _validate(mode, has_multispectral, uploads)
-    errors += _validate_reuse_odm(mission_dir, mode, has_multispectral, reuse_odm, dband)
-    export_errors, export_env = _validate_export(
-        mission_dir, export_dir.strip(), _parse_products(export_products),
-        export_raster_format.strip().lower(), export_vector_format.strip().lower(),
-        export_epsg)
-    errors += export_errors
-    try:
-        # Valida preset Y terreno contra la tabla real (scripts/hardware.py)
-        # en vez de repetir la lista acá, que sería una segunda copia para
-        # desincronizar.
-        hw_preset(preset, terreno=terreno)
-    except ValueError as exc:
-        errors.append(str(exc))
-    # Modo urgencia: procesar 1 de cada N fotos (ver scripts/subsample_photos.py).
-    # Solo aplica con reconstrucción — reusar ya saltea ODM.
-    if subsample and not (2 <= subsample <= 10):
-        errors.append(f"Submuestreo inválido: {subsample} (tiene que ser 0, o un entero 2-10).")
-    if subsample and reuse_odm:
-        errors.append("El modo urgencia (submuestreo) no aplica con «Reusar reconstrucciones» — no se reconstruye nada.")
+    if mode != "thermal-convert":
+        try:
+            # Valida preset Y terreno contra la tabla real (scripts/hardware.py)
+            # en vez de repetir la lista acá, que sería una segunda copia para
+            # desincronizar.
+            hw_preset(preset, terreno=terreno)
+        except ValueError as exc:
+            errors.append(str(exc))
+        # Modo urgencia: procesar 1 de cada N fotos (ver scripts/subsample_photos.py).
+        if subsample and not (2 <= subsample <= 10):
+            errors.append(f"Submuestreo inválido: {subsample} (tiene que ser 0, o un entero 2-10).")
     if errors:
         raise HTTPException(400, " ".join(errors))
 
@@ -1124,8 +1246,8 @@ async def start_mission(mission: str, mode: str = Form(...),
     progress_file = mission_dir / "progress.ndjson"
     run_obj = PipelineRun(
         mode=mode, source_dir=source_dir, ms_source_dir=ms_source_dir,
-        skip_odm=reuse_odm, port=8080, progress_file=progress_file,
-        export=export_env, preset=preset, dband=dband, terreno=terreno,
+        port=8080, progress_file=progress_file,
+        export={}, preset=preset, dband=dband, terreno=terreno,
         subsample=subsample, mission_name=safe,
     )
     await run_obj.start()
@@ -1197,14 +1319,35 @@ def delete_mission(mission: str):
     para deshacerse de pruebas o corridas fallidas sin salir al shell del
     contenedor. Bloqueada mientras la misión está procesándose: borrar el
     directorio debajo de un pipeline corriendo (activate_mission() ya la
-    symlinkeó a processing/outputs/...) lo dejaría escribiendo a la nada."""
+    symlinkeó a processing/outputs/...) lo dejaría escribiendo a la nada.
+
+    RENOMBRAR y DESPUÉS borrar, no borrar directo: una misión procesada son
+    decenas de GB en cientos de miles de archivos (48 GB en una real), y
+    rmtree sobre eso tarda minutos. El navegador cortaba la request por
+    timeout, la UI mostraba "no se pudo eliminar" — y el rmtree seguía
+    corriendo del lado del servidor hasta terminar. Resultado: "dice que
+    falló pero igual la elimina", reportado en vivo. El rename es atómico e
+    instantáneo (mismo filesystem), así que la respuesta es inmediata y dice
+    la verdad; el borrado real va después, en segundo plano.
+    """
     safe = sanitize_mission_name(mission)
     if _state is not None and _state.mission_name == safe and not _state.done:
         raise HTTPException(409, "no se puede eliminar una misión que está procesándose")
     mission_dir = RUNS_ROOT / safe
     if not mission_dir.is_dir():
         raise HTTPException(404, "esa misión no existe")
-    shutil.rmtree(mission_dir)
+
+    # Los symlinks de /app/{processing,outputs,...} apuntan a la misión ACTIVA:
+    # si es esta, quedarían colgados apuntando a un directorio que ya no
+    # existe, y el próximo script que escriba ahí falla con un error que no
+    # dice nada. Se limpian antes de borrar.
+    if _state is not None and _state.mission_name == safe:
+        deactivate_mission()
+
+    papelera = mission_dir.with_name(f".borrando_{safe}_{int(time.time())}")
+    mission_dir.rename(papelera)
+    threading.Thread(target=shutil.rmtree, args=(papelera,),
+                     kwargs={"ignore_errors": True}, daemon=True).start()
     return {"ok": True}
 
 
@@ -1239,14 +1382,6 @@ def run_log(mission: str, tail: int = 200):
             "source": f"outputs/logs/{ultimo.name}"}
 
 
-SEVERITY_LABELS = {1: "leve", 2: "leve", 3: "moderado", 4: "severo"}
-SEVERITY_RECS = {
-    "leve": "Sin anomalía relevante en este punto — no requiere acción inmediata.",
-    "moderado": "Daño moderado — sumar a la ronda de verificación cuando se pueda.",
-    "severo": "Daño alto — priorizar verificación en terreno antes de dar la zona por controlada.",
-}
-
-
 @app.get("/api/missions/{mission}/sample")
 def sample_point(mission: str, lat: float, lon: float):
     """Ficha 'qué significa este punto' del geovisor: valores REALES leídos
@@ -1257,11 +1392,8 @@ def sample_point(mission: str, lat: float, lon: float):
     rellena acá con un valor inventado."""
     _safe, mission_dir = _mission_dir(mission)
     outputs = mission_dir / "outputs"
-    sev_val = _sample_raster(outputs / "severidad_class.tif", lat, lon)
     temp_val = _sample_raster(outputs / "thermal_orthomosaic.tif", lat, lon)
     ndvi_val = _sample_raster(outputs / "indices" / "ndvi.tif", lat, lon)
-    sev_class = int(sev_val) if sev_val is not None else None
-    sev_label = SEVERITY_LABELS.get(sev_class)
 
     confianza = captura = None
     situation_path = outputs / "situation.json"
@@ -1273,13 +1405,90 @@ def sample_point(mission: str, lat: float, lon: float):
             pass
 
     return {
-        "dentro_del_area": sev_class is not None,
-        "severidad": sev_label,
         "temperatura_c": round(temp_val, 1) if temp_val is not None else None,
         "ndvi": round(ndvi_val, 2) if ndvi_val is not None else None,
         "confianza": confianza,
         "captura": captura,
-        "recomendacion": SEVERITY_RECS.get(sev_label),
+    }
+
+
+# ── Guardar Área Afectada Oficial (delimitada en el geovisor) ──
+@app.post("/api/missions/{mission}/save-area")
+async def save_mission_area(mission: str, data: dict = Body(...)):
+    safe, mission_dir = _mission_dir(mission)
+    outputs_dir = mission_dir / "outputs"
+    outputs_dir.mkdir(parents=True, exist_ok=True)
+
+    gj = data.get("geojson") or data
+    if not isinstance(gj, dict) or "features" not in gj:
+        if isinstance(gj, dict) and gj.get("type") == "Feature":
+            gj = {"type": "FeatureCollection", "features": [gj]}
+        elif isinstance(gj, dict) and gj.get("type") == "Polygon":
+            gj = {"type": "FeatureCollection", "features": [{"type": "Feature", "geometry": gj, "properties": {}}]}
+        else:
+            raise HTTPException(400, "Formato GeoJSON inválido")
+
+    # Calcular área métrica exacta en MAGNA-SIRGAS 9377
+    wgs84 = osr.SpatialReference()
+    wgs84.ImportFromEPSG(4326)
+    wgs84.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    magna = osr.SpatialReference()
+    magna.ImportFromEPSG(9377)
+    magna.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+    trans = osr.CoordinateTransformation(wgs84, magna)
+
+    total_m2 = 0.0
+    for feat in gj.get("features", []):
+        geom_json = feat.get("geometry")
+        if geom_json:
+            g = ogr.CreateGeometryFromJson(json.dumps(geom_json))
+            if g:
+                try:
+                    g.Transform(trans)
+                    feat_area = g.GetArea()
+                except Exception:
+                    feat_area = 0.0
+                feat.setdefault("properties", {})
+                feat["properties"]["area_m2"] = round(feat_area, 1)
+                feat["properties"]["area_ha"] = round(feat_area / 10000.0, 4)
+                feat["properties"]["tipo"] = "Área Afectada (Delimitación Oficial)"
+                feat["properties"]["origen"] = "Delimitación interactiva en Geovisor RAPTOR"
+                total_m2 += feat_area
+
+    total_ha = round(total_m2 / 10000.0, 4)
+    gj.setdefault("properties", {})
+    gj["properties"]["total_area_m2"] = round(total_m2, 1)
+    gj["properties"]["total_area_ha"] = total_ha
+    gj["properties"]["features_count"] = len(gj.get("features", []))
+    gj["properties"]["origen"] = "Delimitación interactiva en Geovisor RAPTOR"
+    gj["properties"]["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    # Guardar en outputs/ y en raíz de la misión
+    exp_file = outputs_dir / "area_afectada_experto.geojson"
+    exp_file.write_text(json.dumps(gj, indent=2, ensure_ascii=False), encoding="utf-8")
+    
+    root_exp = mission_dir / "area_afectada_experto.geojson"
+    try:
+        root_exp.write_text(json.dumps(gj, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+    # Si está en el benchmark, actualizarlo también
+    bench_dir = Path("/mnt/f/raptor_benchmark_runs")
+    for bd in bench_dir.iterdir() if bench_dir.exists() else []:
+        if bd.is_dir() and (bd.name.lower().startswith(safe.lower()) or safe.lower().startswith(bd.name.lower())):
+            try:
+                (bd / "outputs/area_afectada_experto.geojson").write_text(json.dumps(gj, indent=2, ensure_ascii=False), encoding="utf-8")
+                (bd / "area_afectada_experto.geojson").write_text(json.dumps(gj, indent=2, ensure_ascii=False), encoding="utf-8")
+            except Exception:
+                pass
+
+    return {
+        "ok": True,
+        "total_area_ha": total_ha,
+        "total_area_m2": round(total_m2, 1),
+        "features_count": len(gj.get("features", [])),
+        "message": f"Área afectada guardada correctamente: {total_ha} ha ({round(total_m2, 1)} m²)"
     }
 
 
@@ -1320,32 +1529,6 @@ def view_mission(mission: str):
     return RedirectResponse(url=f"/geovisor/index.html?mission={safe}")
 
 
-@app.post("/geovisor/api/save-area-afectada")
-async def save_area_afectada(request: Request):
-    """Persiste el polígono de área afectada editado a mano en el geovisor."""
-    body = await request.json()
-    if body.get("type") != "FeatureCollection":
-        raise HTTPException(400, "se esperaba un GeoJSON FeatureCollection")
-    path = GEOVISOR_DIR / "outputs" / "area_afectada.geojson"
-    # geovisor/outputs es un SYMLINK a /app/outputs, que puede no existir
-    # todavía si el servidor arrancó antes de procesar nada. Se crea el destino
-    # real: Path.mkdir(exist_ok=True) sobre un symlink colgante falla con
-    # FileExistsError, porque comprueba is_dir() —que sigue el enlace y da
-    # False— y después choca contra el enlace en sí.
-    try:
-        os.makedirs(os.path.realpath(path.parent), exist_ok=True)
-        path.write_text(json.dumps(body), encoding="utf-8")
-    except OSError as exc:
-        raise HTTPException(500, f"no se pudo guardar el polígono: {exc}")
-    # El proceso corre como root; sin esto el archivo queda root:root y bloquea
-    # ediciones o lecturas posteriores desde el host.
-    try:
-        os.chmod(path, 0o666)
-    except OSError:
-        pass
-    return {"ok": True}
-
-
 app.mount("/geovisor", StaticFiles(directory=str(GEOVISOR_DIR), html=True, follow_symlink=True), name="geovisor")
 # follow_symlink=True: webapp/static/fonts es un symlink a geovisor/fonts
 # (una sola copia de Rubik para las dos UIs) — sin esto Starlette no lo sigue
@@ -1358,10 +1541,10 @@ if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
     print(f"""
 ╔══════════════════════════════════════════════════╗
-║  🛰️  Pipeline UAV de respuesta rápida            ║
-║                                                  ║
-║  Abrir en el navegador:                          ║
-║  → http://localhost:{port}                          ║
+║  🛰️  UAV photogrammetric pipeline                ║
+║                                                   ║
+║  Open in your browser:                           ║
+║  -> http://localhost:{port}                      ║
 ╚══════════════════════════════════════════════════╝
 """)
     uvicorn.run(app, host="0.0.0.0", port=port)

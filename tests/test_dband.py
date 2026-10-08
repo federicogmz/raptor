@@ -5,7 +5,6 @@ preparación para ODM (scripts/prepare_dband_odm.py), y el conteo de
 etapas en docker/entrypoint.sh (STAGE_FLAGS + presupuesto de concurrencia
 compartido con multiespectral/térmico).
 """
-import json
 import os
 import re
 import shutil

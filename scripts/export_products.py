@@ -33,15 +33,22 @@ from osgeo import gdal, osr
 
 gdal.UseExceptions()
 
-OUTPUTS = "outputs"
+# Configurable para exportar a demanda una misión que NO es la que está
+# symlinkeada ahora mismo a /app/outputs (ver webapp/main.py::export_mission):
+# apunta directo a la carpeta outputs/ real de esa misión, así exportar una
+# misión vieja no le mueve el piso a otra que se esté procesando o mirando en
+# el geovisor al mismo tiempo. El pipeline normal (docker/entrypoint.sh)
+# nunca fija esta variable, así que sigue usando "outputs" relativo a cwd,
+# que es donde activate_mission() la tiene symlinkeada.
+OUTPUTS = os.environ.get("RAPTOR_EXPORT_SOURCE_DIR", "outputs")
 
 # clave -> (etiqueta, tipo, [rutas fuente])
 #
-# `discreto` marca los rásters de CLASES (severidad, hotspot, índices
-# clasificados, máscara de confianza): se remuestrean con vecino más cercano,
-# nunca promediando. Es el mismo criterio que ya aplica generate_tiles.py al
+# `discreto` marca los rásters de CLASES (hotspot, índices clasificados,
+# máscara de confianza): se remuestrean con vecino más cercano, nunca
+# promediando. Es el mismo criterio que ya aplica generate_tiles.py al
 # teselarlos — promediar clases vecinas inventa una clase intermedia que no
-# existe (un 2.5 entre "leve" y "moderado" no significa nada).
+# existe (un 2.5 entre "elevado" y "caliente" no significa nada).
 CATALOG = {
     "rgb":           ("Ortomosaico RGB", "raster", [f"{OUTPUTS}/rgb_orthomosaic.tif"]),
     "thermal":       ("Ortomosaico térmico (°C)", "raster", [f"{OUTPUTS}/thermal_orthomosaic.tif"]),
@@ -49,11 +56,10 @@ CATALOG = {
     "multispectral": ("Ortomosaico multiespectral", "raster", [f"{OUTPUTS}/multispectral_orthomosaic.tif"]),
     "indices":       ("Índices de vegetación", "raster",
                       [f"{OUTPUTS}/indices/{n}.tif" for n in ("ndvi", "gndvi", "ndre", "msavi2")]),
-    "classes":       ("Severidad, hotspot e índices clasificados", "raster_discreto",
-                      [f"{OUTPUTS}/severidad_class.tif", f"{OUTPUTS}/termico_hotspot_class.tif"]
+    "classes":       ("Hotspot e índices clasificados", "raster_discreto",
+                      [f"{OUTPUTS}/termico_hotspot_class.tif"]
                       + [f"{OUTPUTS}/indices/{n}_class.tif" for n in ("ndvi", "gndvi", "ndre", "msavi2")]),
     "confidence":    ("Máscara de confianza", "raster_discreto", [f"{OUTPUTS}/confidence_mask.tif"]),
-    "area":          ("Polígono de área afectada", "vector", [f"{OUTPUTS}/area_afectada.geojson"]),
     "flight_path":   ("Ruta de vuelo", "vector", [f"{OUTPUTS}/flight_path.geojson"]),
     "situation":     ("Resumen de situación (JSON)", "copia", [f"{OUTPUTS}/situation.json"]),
     "pointclouds":   ("Nubes de puntos", "nube",

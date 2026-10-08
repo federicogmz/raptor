@@ -101,7 +101,7 @@ def convert_one(src_jpg: str, dst_tif: str) -> bool:
             return False
 
         if not os.path.exists(raw_path) or os.path.getsize(raw_path) == 0:
-            print(f"  ❌ dji_irp no produjo salida")
+            print("  ❌ dji_irp no produjo salida")
             return False
 
         # 2. Leer raw y envolver en GeoTIFF. La resolución se infiere de la
@@ -145,6 +145,9 @@ def convert_one(src_jpg: str, dst_tif: str) -> bool:
                  "-gps:all", "-GimbalYawDegree", "-GimbalPitchDegree", "-GimbalRollDegree",
                  "-FlightYawDegree", "-FlightPitchDegree", "-FlightRollDegree",
                  "-RelativeAltitude",
+                 "-Make", "-Model", "-FocalLength", "-FocalLengthIn35mmFormat",
+                 "-ExifImageWidth", "-ExifImageHeight",
+                 "-DateTimeOriginal", "-SubSecTimeOriginal",
                  dst_tif],
                 capture_output=True, text=True, timeout=15
             )

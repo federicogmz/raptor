@@ -44,12 +44,12 @@ def salida(tmp_path, monkeypatch):
 
     wgs = osr.SpatialReference(); wgs.ImportFromEPSG(4326)
     wgs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-    v = ogr.GetDriverByName("GeoJSON").CreateDataSource("outputs/area_afectada.geojson")
-    lyr = v.CreateLayer("a", wgs, ogr.wkbPolygon)
+    v = ogr.GetDriverByName("GeoJSON").CreateDataSource("outputs/flight_path.geojson")
+    lyr = v.CreateLayer("a", wgs, ogr.wkbLineString)
     for _ in range(3):
         f = ogr.Feature(lyr.GetLayerDefn())
         f.SetGeometry(ogr.CreateGeometryFromWkt(
-            "POLYGON((-75.5 6.4,-75.4 6.4,-75.4 6.5,-75.5 6.5,-75.5 6.4))"))
+            "LINESTRING(-75.5 6.4,-75.4 6.4,-75.4 6.5)"))
         lyr.CreateFeature(f)
     v = None
 
@@ -90,7 +90,7 @@ class TestResumen:
 
     def test_cuenta_entidades_vectoriales(self, salida, monkeypatch):
         _correr(monkeypatch)
-        assert _leer()["vectores"]["area_afectada"]["entidades"] == 3
+        assert _leer()["vectores"]["flight_path"]["entidades"] == 3
 
     def test_se_genera_tambien_si_la_corrida_falla(self, salida, monkeypatch):
         """Lo que hace útil el resumen en CI: 137 es un OOM kill, y saber qué

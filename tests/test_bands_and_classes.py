@@ -2,14 +2,19 @@
 
 `_find_band` es la corrección del bug P0 #2: resolver las bandas por NOMBRE y
 no por posición. El test que más importa es que "RedEdge" no se confunda con
-"Red" — esa confusión invalida el NDVI, que a su vez gobierna toda la
-detección de área afectada y la severidad, sin lanzar ningún error.
+"Red" — esa confusión invalida el NDVI, del que dependen todos los índices de
+vegetación.
+
+classify()/write_class_tif() vivían en compute_severity_classes.py (ya
+eliminado junto con la funcionalidad de área afectada/severidad); ahora son
+utilidades compartidas en scripts/raster_classify.py, usadas por
+compute_thermal_hotspot.py y classify_vegetation_indices.py.
 """
 import numpy as np
 import pytest
 from osgeo import gdal
 
-from compute_severity_classes import classify
+from raster_classify import classify, write_class_tif
 from compute_vegetation_indices import _find_band, _msavi2
 
 gdal.UseExceptions()
@@ -113,3 +118,54 @@ class TestClassify:
     def test_devuelve_uint8(self):
         out = classify(np.array([1.0]), [0.5], np.ones(1, bool))
         assert out.dtype == np.uint8, "se escribe como GDT_Byte con nodata 0"
+
+
+class TestSieveMMU:
+    """write_class_tif() funde con gdal.SieveFilter los blobs más chicos que
+    la MMU (MMU_M2, ~1 m²) con el polígono vecino más grande — reportado en
+    vivo: focos térmicos de 1-2 px (ruido de reconstrucción, no un foco real)
+    disparaban alertas. El umbral en píxeles sale de la resolución REAL de
+    CADA ráster, no de un número fijo — por eso el fixture usa un GT con
+    tamaño de píxel explícito en vez de uno arbitrario."""
+
+    GT_10CM = (466000.0, 0.1, 0.0, 708900.0, 0.0, -0.1)  # 0.01 m²/px
+
+    def _leer(self, path):
+        ds = gdal.Open(path)
+        arr = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        return arr
+
+    def test_blob_menor_a_la_mmu_se_funde_con_el_vecino(self, tmp_path):
+        # Canvas 20×20 a 10cm/px = 0.01 m²/px → MMU 1 m² = 100 px. Clase 3
+        # (caliente) llena todo, con un speck de 2×2=4px (clase 4, foco
+        # activo) en el centro — muy por debajo del umbral.
+        arr = np.full((20, 20), 3, dtype=np.uint8)
+        arr[9:11, 9:11] = 4
+        path = str(tmp_path / "hotspot.tif")
+        write_class_tif(path, arr, self.GT_10CM, "")
+        out = self._leer(path)
+        assert not (out == 4).any(), "el speck de 4px (< 100px de MMU) tiene que fundirse con la clase 3 que lo rodea"
+        assert (out == 3).sum() == arr.size, "fundido, no borrado: la cobertura total no cambia"
+
+    def test_blob_mayor_a_la_mmu_sobrevive(self, tmp_path):
+        # Mismo canvas, pero el bloque de clase 4 es 12×12=144px (> 100px) —
+        # un foco real a esta resolución, no debe tocarse.
+        arr = np.full((20, 20), 3, dtype=np.uint8)
+        arr[4:16, 4:16] = 4
+        path = str(tmp_path / "hotspot.tif")
+        write_class_tif(path, arr, self.GT_10CM, "")
+        out = self._leer(path)
+        assert (out == 4).sum() == 144, "un blob por encima de la MMU no se filtra"
+
+    def test_a_resolucion_mas_gruesa_hacen_falta_menos_pixeles(self, tmp_path):
+        # Mismo blob de 2×2 que en el primer test, pero a 1m/px (100x más
+        # área por píxel) — 4px ya alcanzan la MMU de 1 m² y sobreviven. La
+        # MMU es un área real, no una cuenta fija de píxeles.
+        gt_1m = (466000.0, 1.0, 0.0, 708900.0, 0.0, -1.0)
+        arr = np.full((20, 20), 3, dtype=np.uint8)
+        arr[9:11, 9:11] = 4
+        path = str(tmp_path / "hotspot.tif")
+        write_class_tif(path, arr, gt_1m, "")
+        out = self._leer(path)
+        assert (out == 4).sum() == 4, "a 1 m²/px, un blob de 4px ya cubre la MMU de 1 m² y no se filtra"

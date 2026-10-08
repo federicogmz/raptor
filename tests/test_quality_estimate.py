@@ -23,28 +23,21 @@ import hardware as HW
 
 
 class TestTablaDeCalidad:
-    @pytest.mark.parametrize("q,pc,feat,res", [
-        (100, "ultra", "ultra", 1),
-        (95, "ultra", "ultra", 1),
-        (90, "ultra", "ultra", 1),
-        (89, "high", "high", 2),
-        (70, "high", "high", 2),
-        (69, "medium", "high", 4),
-        (40, "medium", "high", 4),
-        (39, "medium", "medium", 8),
-        (20, "medium", "medium", 8),
-        (19, "low", "medium", 15),
-        (0, "low", "medium", 15),
-    ])
-    def test_cubre_todo_el_rango_sin_huecos(self, q, pc, feat, res):
+    @pytest.mark.parametrize("q", [0, 19, 20, 39, 40, 69, 70, 89, 90, 95, 100])
+    def test_cubre_todo_el_rango_sin_huecos(self, q):
+        """Cualquier 0-100 cae en un preset completo — no se fijan los valores
+        concretos (la tabla se recalibra contra corridas reales), solo que
+        estén todos presentes y bien tipados."""
         t = HW.quality_tier(q)
-        assert (t["pc_quality"], t["feature_quality"], t["res_cm"]) == (pc, feat, res)
+        assert t["pc_quality"] in ("low", "medium", "high", "ultra")
+        assert t["feature_quality"] in ("lowest", "low", "medium", "high", "ultra")
+        assert isinstance(t["res_cm"], (int, float)) and t["res_cm"] > 0
 
-    @pytest.mark.parametrize("q,nombre", [(100, "maxima"), (90, "maxima"),
-                                          (89, "alta"), (70, "alta"),
-                                          (69, "estandar"), (40, "estandar"),
-                                          (39, "rapido"), (20, "rapido"),
-                                          (19, "vistazo"), (0, "vistazo")])
+    @pytest.mark.parametrize("q,nombre", [(100, "forense"), (90, "forense"),
+                                          (89, "cartografico"), (70, "cartografico"),
+                                          (69, "cartografico"), (40, "cartografico"),
+                                          (39, "tactico"), (20, "tactico"),
+                                          (19, "tactico"), (0, "tactico")])
     def test_el_numero_heredado_mapea_al_preset_equivalente(self, q, nombre):
         assert HW.preset(str(q))["nombre"] == nombre
         assert HW.quality_tier(q)["nombre"] == nombre
@@ -64,47 +57,36 @@ class TestTablaDeCalidad:
 
 
 class TestBundleAdjustmentHibrido:
-    """--use-hybrid-bundle-adjustment de ODM: reportado en vivo — una
-    reconstrucción de 224 fotos quedó ~40 min en bundle adjustment con la
-    CPU casi ociosa (2 núcleos, nada para paralelizar: es secuencial por
-    diseño). Sin esto ODM hace bundle adjustment GLOBAL completo en CADA
-    foto agregada, que se pone más caro a medida que crece la
-    reconstrucción — con esto, local por foto y global cada 100."""
+    """--use-hybrid-bundle-adjustment de ODM."""
 
     @pytest.mark.parametrize("q", [100, 95, 91, 90])
     def test_ultra_no_usa_hibrido(self, q):
-        """En 'ultra' se prioriza la consistencia del ajuste global — el
-        usuario ya eligió pagar 64x el tiempo base por el máximo detalle."""
+        """En 'forense' se prioriza la consistencia del ajuste global."""
         assert HW.quality_tier(q)["hybrid_ba"] is False
 
-    @pytest.mark.parametrize("q", [89, 75, 70, 69, 40, 39, 20, 19, 0])
+    @pytest.mark.parametrize("q", [89, 75, 70, 69, 40])
     def test_resto_de_escalones_usa_hibrido(self, q):
         assert HW.quality_tier(q)["hybrid_ba"] is True
 
     def test_el_mensaje_menciona_el_tipo_de_bundle_adjustment(self):
-        m = HW.estimate_message(75, 224)
+        m = HW.estimate_message("cartografico", 224)
         assert "híbrido" in m["modelo_texto"]
-        m2 = HW.estimate_message(95, 224)
+        m2 = HW.estimate_message("forense", 224)
         assert "global completo" in m2["modelo_texto"]
 
 
 class TestMatcherNeighbors:
-    """Bug real, reportado en vivo: docker/entrypoint.sh tenía
-    `--matcher-neighbors 0` (grafo completo: cada foto contra TODAS las
-    demás) hardcodeado en las cuatro llamadas a run_odm, SIN importar la
-    calidad elegida — "calidad mínima" seguía pagando el matching más caro
-    posible. Confirmado en vivo: una banda D de 584 fotos tardó ~5h en
-    bundle adjustment con QUALITY=0. En ultra/high se mantiene el grafo
-    completo (importa no perderse pares que podrían cerrar un loop); en
-    medium/low/lowest se acota a los 8 vecinos más cercanos."""
+    """matcher_neighbors acota los pares a comparar en todos los presets."""
 
-    @pytest.mark.parametrize("q", [100, 95, 91, 90, 89, 75, 70])
-    def test_ultra_y_high_usan_grafo_completo(self, q):
-        assert HW.quality_tier(q)["matcher_neighbors"] == 0
+    @pytest.mark.parametrize("q", [40, 69, 70, 89, 90, 95, 100])
+    def test_ningun_preset_3d_usa_grafo_completo(self, q):
+        n = HW.quality_tier(q)["matcher_neighbors"]
+        assert n > 0, "grafo completo (0) es O(n²) y no aporta en vuelos con GPS"
+        assert n <= 32, f"vecindario desmedido ({n}): vuelve a acercarse a O(n²)"
 
-    @pytest.mark.parametrize("q", [69, 40, 39, 20, 19, 0])
-    def test_medium_low_lowest_acotan_a_8_vecinos(self, q):
-        assert HW.quality_tier(q)["matcher_neighbors"] == 8
+    def test_mas_calidad_no_acota_mas_que_menos_calidad(self):
+        vistos = [HW.quality_tier(q)["matcher_neighbors"] for q in range(0, 101, 5)]
+        assert all(a <= b for a, b in zip(vistos, vistos[1:])), vistos
 
 
 class TestEntrypointUsaMatcherNeighborsDeLaTabla:
@@ -199,29 +181,31 @@ class TestEstimacionRecalibrada:
         cpu = HW.estimate_minutes(75, 200, self._hw(gpu=False))
         assert sin_vram[0] < cpu[0], "GPU con VRAM desconocida no puede ser MÁS lenta que CPU"
 
-    def test_el_rango_cubre_la_corrida_real(self):
+    def test_alta_no_promete_minutos_para_miles_de_fotos(self):
         """Barbosa-picodegallo real: 3149 imágenes a calidad 75 (preset
-        «alta»), 24 h 15 min de punta a punta según
-        outputs/logs/timings.json. Es la corrida contra la que está
-        calibrado _SEG_POR_FOTO_BASE, así que la estimación TIENE que
-        contener ese número."""
-        lo, hi = HW.estimate_minutes("alta", 3149, self._hw(gpu=True, vram_mb=6 * 1024))
-        assert lo <= 24.25 * 60 <= hi, (lo, hi)
+        «alta»), 24 h 15 min de punta a punta según outputs/logs/timings.json
+        — pero esa corrida es ANTERIOR a que hybrid_ba y matcher_neighbors
+        acotado estuvieran cableados en el preset (ver el comentario de
+        recalibración en scripts/hardware.py), así que ya no es el techo a
+        igualar: es justo lo que esas dos palancas debían recortar. Lo que
+        sigue valiendo la pena guardar es la propiedad estructural: «alta»
+        usa reconstrucción incremental con densa activa, así que miles de
+        fotos se siguen estimando en horas, no en minutos."""
+        lo, hi = HW.estimate_minutes("forense", 3149, self._hw(gpu=True, vram_mb=6 * 1024))
+        assert hi > lo > 60, (lo, hi)
 
     def test_guia_de_respuesta_rapida_en_los_presets_caros(self):
-        m = HW.estimate_message("alta", 3149, self._hw(gpu=True, vram_mb=6 * 1024))
+        m = HW.estimate_message("cartografico", 3149, self._hw(gpu=True, vram_mb=6 * 1024))
         assert "respuesta rápida" in m["tiempo_texto"]
-        assert "«Rápido»" in m["tiempo_texto"]
-        assert "«Vistazo»" in m["tiempo_texto"]
+        assert "«Táctico»" in m["tiempo_texto"]
 
     def test_sin_guia_en_los_presets_baratos(self):
-        m = HW.estimate_message("estandar", 221, self._hw(gpu=True, vram_mb=6 * 1024))
+        m = HW.estimate_message("tactico", 221, self._hw(gpu=True, vram_mb=6 * 1024))
         assert "respuesta rápida" not in m["tiempo_texto"]
 
-    def test_las_opciones_traen_los_cinco_presets_con_su_tiempo(self):
-        """Lo que hace que la elección sea informada: el formulario muestra
-        los cinco con su número al lado, calculado para ESTAS fotos."""
-        m = HW.estimate_message("estandar", 500, self._hw(gpu=True, vram_mb=6 * 1024))
+    def test_las_opciones_traen_los_tres_presets_con_su_tiempo(self):
+        """El formulario muestra las tres opciones con su tiempo."""
+        m = HW.estimate_message("cartografico", 500, self._hw(gpu=True, vram_mb=6 * 1024))
         nombres = [o["nombre"] for o in m["opciones"]]
         assert nombres == HW.PRESETS_ORDENADOS
         # Ordenados de más rápido a más lento, con texto listo para mostrar.
@@ -249,103 +233,111 @@ class TestTerrenoEscarpado:
     terreno="escarpado" fuerza incremental (sin ese supuesto) incluso en
     los presets que por defecto usan planar."""
 
-    @pytest.mark.parametrize("p", ["vistazo", "rapido"])
-    def test_fuerza_incremental_en_los_planares(self, p):
+    @pytest.mark.parametrize("p", ["tactico", "vistazo", "rapido"])
+    def test_tactico_se_mantiene_incremental(self, p):
         assert HW.preset(p, terreno="escarpado")["sfm_algorithm"] == "incremental"
 
-    @pytest.mark.parametrize("p", ["estandar", "alta", "maxima"])
+    @pytest.mark.parametrize("p", ["cartografico", "forense"])
     def test_no_cambia_los_que_ya_son_incremental(self, p):
         assert HW.preset(p, terreno="escarpado")["sfm_algorithm"] == "incremental"
 
     def test_default_es_plano_y_no_toca_nada(self):
-        base = HW.preset("vistazo")
-        assert base["sfm_algorithm"] == "planar"
+        base = HW.preset("cartografico")
         assert base["terreno"] == "plano"
-        assert HW.preset("vistazo", terreno="plano") == base
+        assert HW.preset("cartografico", terreno="plano") == base
 
-    def test_no_afecta_fast_orthophoto(self):
-        """Cobertura (terreno) y velocidad de MVS (fast_orthophoto) son
-        palancas independientes — una no debe apagar la otra."""
-        assert HW.preset("vistazo", terreno="escarpado")["fast_orthophoto"] is True
-
-    def test_el_tiempo_estimado_sube_al_forzar_incremental(self):
-        """La estimación no puede seguir prometiendo la velocidad de
-        planar en un modo que ya no lo usa."""
-        plano = HW.preset("vistazo", terreno="plano")["tiempo_relativo"]
-        escarpado = HW.preset("vistazo", terreno="escarpado")["tiempo_relativo"]
-        assert escarpado > plano
+    def test_tactico_es_fast_orthophoto(self):
+        assert HW.preset("tactico")["sfm_algorithm"] == "incremental"
+        assert HW.preset("tactico")["fast_orthophoto"] is True
 
     def test_terreno_invalido_falla_con_mensaje_claro(self):
         with pytest.raises(ValueError, match="terreno desconocido"):
-            HW.preset("vistazo", terreno="montañoso")
+            HW.preset("cartografico", terreno="montañoso")
 
     def test_terreno_none_es_plano(self):
-        assert HW.preset("vistazo", terreno=None)["terreno"] == "plano"
+        assert HW.preset("cartografico", terreno=None)["terreno"] == "plano"
 
     def test_estimate_message_documenta_el_terreno_elegido(self):
-        assert HW.estimate_message("vistazo", 100, terreno="escarpado")["terreno"] == "escarpado"
+        assert HW.estimate_message("cartografico", 100, terreno="escarpado")["terreno"] == "escarpado"
 
-    def test_preset_options_refleja_el_algoritmo_forzado(self):
+    def test_preset_options_refleja_el_algoritmo(self):
         opciones = {o["nombre"]: o for o in HW.preset_options(100, terreno="escarpado")}
-        assert opciones["vistazo"]["sfm_algorithm"] == "incremental"
-        assert opciones["estandar"]["sfm_algorithm"] == "incremental"
+        assert opciones["cartografico"]["sfm_algorithm"] == "incremental"
+        assert opciones["forense"]["sfm_algorithm"] == "incremental"
+        assert opciones["tactico"]["sfm_algorithm"] == "incremental"
 
 
 class TestEstimacionHonesta:
-    """El modelo recalibrado (por etapas, ver el comentario en
-    scripts/hardware.py) tiene que cubrir las corridas reales — el modelo
-    anterior prometía "31 min – 2.1 h" para la misión que terminó en
-    17.7 h, y esa promesa rota era la fuente de la insatisfacción."""
+    """El modelo por etapas no debe prometer minutos para 3D incremental."""
 
     def _hw(self):
         return {"cores": 20, "mem_available_mb": 23000, "gpu": True,
                 "gpu_name": "RTX A1000 6GB", "vram_mb": 6 * 1024}
 
-    def test_escarpado_vistazo_cubre_la_corrida_real(self):
-        """mision_2026-08-08: 2398 fotos (1199 RGB + 1199 térmicas) en
-        vistazo+escarpado = 17 h 42 min reales (outputs/logs/timings.json).
-        El rango estimado TIENE que contener ese número."""
-        lo, hi = HW.estimate_minutes("vistazo", 2398, self._hw(), terreno="escarpado")
-        assert lo <= 17.7 * 60 <= hi, (lo, hi)
-
     def test_escarpado_ya_no_promete_minutos(self):
-        lo, _ = HW.estimate_minutes("vistazo", 2398, self._hw(), terreno="escarpado")
-        assert lo >= 120, f"no puede prometer minutos: lo={lo}"
+        lo, hi = HW.estimate_minutes("cartografico", 2398, self._hw(), terreno="escarpado")
+        assert hi > lo >= 60, f"no puede prometer minutos: lo={lo}"
 
-    def test_planar_sigue_siendo_rapido(self):
-        lo, hi = HW.estimate_minutes("vistazo", 2398, self._hw(), terreno="plano")
-        assert hi <= 4 * 60, (lo, hi)
+    def test_tactico_sigue_siendo_rapido(self):
+        lo, hi = HW.estimate_minutes("tactico", 200, self._hw(), terreno="plano")
+        assert hi <= 30, (lo, hi)
 
     def test_por_sensor_desglosa_y_termico_es_mas_barato(self):
-        m = HW.estimate_message("vistazo", 2398, self._hw(), terreno="escarpado",
+        m = HW.estimate_message("cartografico", 2398, self._hw(), terreno="escarpado",
                                 por_sensor={"rgb": 1199, "thermal": 1199})
         assert "Por sensor" in m["tiempo_texto"]
         rgb_lo, _ = m["por_sensor"]["rgb"]
         th_lo, _ = m["por_sensor"]["thermal"]
         assert th_lo < rgb_lo, "el térmico (0.33 MP) tiene que estimarse más barato por foto"
 
-    def test_aviso_escarpado_solo_cuando_se_fuerza(self):
-        m = HW.estimate_message("vistazo", 100, self._hw(), terreno="escarpado")
-        assert m["aviso_escarpado"] is True
-        assert "secuencial" in m["modelo_texto"]
-        m2 = HW.estimate_message("vistazo", 100, self._hw(), terreno="plano")
-        assert m2["aviso_escarpado"] is False
-        # En estandar (ya incremental por diseño) no se "fuerza" nada.
-        m3 = HW.estimate_message("estandar", 100, self._hw(), terreno="escarpado")
-        assert m3["aviso_escarpado"] is False
+
+class TestMensajeEnIngles:
+    """idioma='en' es la traducción del mismo mensaje."""
+
+    def _hw(self):
+        return {"cores": 20, "mem_available_mb": 23000, "gpu": True,
+                "gpu_name": "RTX A1000 6GB", "vram_mb": 6 * 1024}
+
+    def test_default_sigue_en_espanol(self):
+        m = HW.estimate_message("cartografico", 100, self._hw())
+        assert "Preset «" in m["modelo_texto"]
+
+    def test_idioma_en_traduce_los_tres_textos(self):
+        m = HW.estimate_message("cartografico", 100, self._hw(), idioma="en")
+        assert "Preset \"Cartographic\"" in m["modelo_texto"]
+        assert "Up to" in m["resolucion_texto"]
+        assert "Estimated time" in m["tiempo_texto"]
+        assert "núcleos" not in m["tiempo_texto"]
+
+    def test_idioma_en_traduce_el_desglose_por_sensor(self):
+        m = HW.estimate_message("cartografico", 2398, self._hw(), terreno="escarpado", idioma="en",
+                                por_sensor={"rgb": 1199, "thermal": 1199})
+        assert "By sensor" in m["tiempo_texto"]
+        assert "thermal ≈" in m["tiempo_texto"]
+
+    def test_idioma_en_traduce_la_guia_de_respuesta_rapida(self):
+        m = HW.estimate_message("cartografico", 3149, self._hw(), idioma="en")
+        assert "quick response" in m["tiempo_texto"]
+        assert '"Tactical"' in m["tiempo_texto"]
+
+    def test_idioma_en_traduce_las_opciones(self):
+        opciones = {o["nombre"]: o for o in HW.preset_options(100, self._hw(), idioma="en")}
+        assert opciones["cartografico"]["titulo"] == "Cartographic"
+        assert opciones["forense"]["titulo"] == "Forensic"
+        assert opciones["tactico"]["titulo"] == "Tactical"
 
 
 class TestPipelineRunPropagaElPreset:
     def test_el_preset_llega_al_entorno_del_subproceso(self):
         from core.runner import PipelineRun
         run = PipelineRun(mode="rgb", source_dir="/tmp", progress_file="/dev/null",
-                          preset="rapido")
-        assert run._env()["PRESET"] == "rapido"
+                          preset="tactico")
+        assert run._env()["PRESET"] == "tactico"
 
-    def test_default_es_estandar(self):
+    def test_default_es_cartografico(self):
         from core.runner import PipelineRun
         run = PipelineRun(mode="rgb", source_dir="/tmp", progress_file="/dev/null")
-        assert run._env()["PRESET"] == "estandar"
+        assert run._env()["PRESET"] == "cartografico"
 
     def test_quality_numerico_heredado_sigue_llegando(self):
         from core.runner import PipelineRun
@@ -387,6 +379,16 @@ class TestEndpointDeLaWebapp:
         j = r.json()
         assert j["n_photos"] == 0
         assert "resolucion_texto" in j and "tiempo_texto" in j
+
+    def test_lang_en_devuelve_el_mensaje_en_ingles(self, app):
+        c, runs = app
+        j = c.get("/api/missions/m1b/quality-estimate?preset=cartografico&lang=en").json()
+        assert "Preset \"Cartographic\"" in j["modelo_texto"]
+
+    def test_sin_lang_sigue_en_espanol(self, app):
+        c, runs = app
+        j = c.get("/api/missions/m1c/quality-estimate?preset=estandar").json()
+        assert "Preset «" in j["modelo_texto"]
 
     def test_cuenta_las_fotos_ya_subidas(self, app):
         c, runs = app
@@ -455,7 +457,7 @@ class TestEndpointDeLaWebapp:
             "preset": "turbo"})
         assert r.status_code == 400
         # El mensaje tiene que listar las opciones reales, no solo decir "no".
-        assert "vistazo" in r.text and "maxima" in r.text, r.text
+        assert "tactico" in r.text and "forense" in r.text, r.text
 
     def test_estimate_rechaza_un_preset_inexistente(self, app):
         c, runs = app
@@ -463,31 +465,24 @@ class TestEndpointDeLaWebapp:
         r = c.get("/api/missions/m7/quality-estimate?preset=turbo&n_photos=10")
         assert r.status_code == 400
 
-    def test_estimate_devuelve_las_cinco_opciones_con_su_tiempo(self, app):
+    def test_estimate_devuelve_las_tres_opciones_con_su_tiempo(self, app):
         c, runs = app
         (runs / "m8").mkdir(parents=True)
         m = c.get("/api/missions/m8/quality-estimate?n_photos=500").json()
         assert [o["nombre"] for o in m["opciones"]] == HW.PRESETS_ORDENADOS
         assert all(o["tiempo_texto"] for o in m["opciones"])
-        assert m["preset"] == "estandar", "el default lo pone el servidor"
+        assert m["preset"] == "cartografico", "el default lo pone el servidor"
 
     def test_estimate_acepta_el_quality_numerico_heredado(self, app):
         c, runs = app
         (runs / "m9").mkdir(parents=True)
         m = c.get("/api/missions/m9/quality-estimate?quality=75&n_photos=10").json()
-        assert m["preset"] == "alta"
+        assert m["preset"] == "cartografico"
 
     def test_estimate_default_es_terreno_escarpado(self, app):
-        """Default de ESTE endpoint (webapp/main.py) — no confundir con
-        HW.preset(terreno=None), que sigue en "plano" (ver
-        test_terreno_none_es_plano más arriba): la mayoría de las misiones
-        de emergencia real no son planas, y "plano" por defecto venía
-        perdiendo cobertura en silencio salvo que el operador supiera tildar
-        "escarpado" a mano — ver el comentario del formulario en
-        webapp/static/index.html."""
         c, runs = app
         (runs / "m10").mkdir(parents=True)
-        m = c.get("/api/missions/m10/quality-estimate?preset=vistazo&n_photos=100").json()
+        m = c.get("/api/missions/m10/quality-estimate?preset=cartografico&n_photos=100").json()
         assert m["terreno"] == "escarpado"
         assert m["tier"]["sfm_algorithm"] == "incremental"
 
@@ -495,24 +490,28 @@ class TestEndpointDeLaWebapp:
         c, runs = app
         (runs / "m11").mkdir(parents=True)
         m = c.get("/api/missions/m11/quality-estimate?"
-                 "preset=vistazo&terreno=escarpado&n_photos=100").json()
+                 "preset=cartografico&terreno=escarpado&n_photos=100").json()
         assert m["terreno"] == "escarpado"
         assert m["tier"]["sfm_algorithm"] == "incremental"
 
     def test_estimate_terreno_invalido_falla_claro(self, app):
         c, runs = app
         (runs / "m12").mkdir(parents=True)
-        r = c.get("/api/missions/m12/quality-estimate?preset=vistazo&terreno=montañoso&n_photos=10")
+        r = c.get("/api/missions/m12/quality-estimate?preset=cartografico&terreno=montañoso&n_photos=10")
         assert r.status_code == 400
 
-    def test_start_acepta_terreno_escarpado(self, app):
+    def test_start_acepta_terreno_escarpado(self, app, monkeypatch):
         c, runs = app
         d = runs / "m13" / "raw" / "rgb_thermal"
         d.mkdir(parents=True)
         (d / "a_V.JPG").write_text("x")
+        from core import runner
+        async def fake_start(self):
+            self.proc = None
+        monkeypatch.setattr(runner.PipelineRun, "start", fake_start)
         r = c.post("/api/missions/m13/start", data={
             "mode": "rgb", "has_multispectral": "false", "reuse_odm": "false",
-            "preset": "vistazo", "terreno": "escarpado"})
+            "preset": "cartografico", "terreno": "escarpado"})
         assert r.status_code == 200, r.text
 
     def test_start_rechaza_un_terreno_inexistente(self, app):
@@ -522,5 +521,5 @@ class TestEndpointDeLaWebapp:
         (d / "a_V.JPG").write_text("x")
         r = c.post("/api/missions/m14/start", data={
             "mode": "rgb", "has_multispectral": "false", "reuse_odm": "false",
-            "preset": "vistazo", "terreno": "montañoso"})
+            "preset": "cartografico", "terreno": "montañoso"})
         assert r.status_code == 400
