@@ -15,26 +15,18 @@ jobs:
     name: pytest
     runs-on: ubuntu-latest
 
-    # La suite NO corre en un runner limpio con `pip install -r requirements.txt`.
-    # Dos dependencias del layout del contenedor se replican explícitamente acá
-    # en vez de saltarse los tests que las necesitan:
+    # La suite NO corre en un runner limpio con `pip install -r requirements.txt`:
+    # 14 archivos de tests importan `osgeo` (GDAL) sin guardas, y GDAL no está en
+    # requirements.txt porque en producción lo hereda de la imagen base de ODM
+    # (ver scripts/check_deps.py). Acá se reconstruye ese entorno desde
+    # conda-forge, que es donde vive GDAL de forma instalable.
     #
-    # 1. GDAL. 14 archivos de tests importan `osgeo` sin guardas, y GDAL no está
-    #    en requirements.txt porque en producción lo hereda la imagen base de
-    #    ODM. Se reconstruye desde conda-forge. numpy queda fijado en 1.26.4 por
-    #    el mismo motivo que en requirements.txt: el _gdal_array.so de ODM está
-    #    compilado contra la ABI de NumPy 1.x.
+    # numpy queda fijado en 1.26.4 por el mismo motivo que en requirements.txt:
+    # el _gdal_array.so de ODM está compilado contra la ABI de NumPy 1.x.
     #
-    # 2. El layout de rutas. `webapp/main.py` monta StaticFiles sobre
-    #    `/app/geovisor` (APP_DIR = RAPTOR_APP_DIR o "/app"), y `run_odm()` en
-    #    docker/entrypoint.sh hace `(cd /code && python3 run.py ...)`. Sin esos
-    #    directorios, 69 tests de la webapp fallan en el setup del fixture y los
-    #    7 de test_run_odm_two_phase nunca llegan a invocar su stub de python3.
-    #    RAPTOR_APP_DIR es la palanca que el propio código ya expone; /code se
-    #    crea porque el bloque lo tiene escrito a fuego.
-    env:
-      RAPTOR_APP_DIR: ${{ github.workspace }}
-
+    # Esto cubre los tests que pasan en el host (~579/587, ver
+    # docs/REVIEW_PIPELINE.md). Los que exigen el layout del contenedor (`/app`)
+    # solo corren con `make test` adentro de la imagen construida.
     steps:
       - uses: actions/checkout@v7
 
@@ -50,14 +42,10 @@ jobs:
             scipy
             pyproj
             matplotlib
-            pdal
 
       - name: Dependencias propias de RAPTOR
         shell: bash -elo pipefail {0}
         run: python3 -m pip install -r requirements.txt
-
-      - name: Replicar el layout de rutas del contenedor
-        run: sudo mkdir -p /code
 
       - name: Verificar dependencias heredadas de la imagen base
         shell: bash -elo pipefail {0}
