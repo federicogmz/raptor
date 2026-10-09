@@ -1,5 +1,7 @@
 # RAPTOR: DJI M3T / H20T / M3M
 
+[![CI](https://github.com/federicogmz/raptor/actions/workflows/ci.yml/badge.svg)](https://github.com/federicogmz/raptor/actions/workflows/ci.yml)
+
 **R**econstruction of **A**erial **P**roducts, **T**hermal, **O**ptical (and
 multispectral), for **R**esponse. A general photogrammetric processing
 pipeline, not just for emergencies: three quality presets range from a quick
