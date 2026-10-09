@@ -10,7 +10,13 @@ import shutil
 import signal
 from pathlib import Path
 
-APP_DIR = Path("/app")
+# Mismo origen que webapp/main.py: /app dentro del contenedor, redirigible con
+# RAPTOR_APP_DIR. Los dos módulos TIENEN que coincidir — activate_mission() crea
+# los symlinks en este árbol y webapp/main.py monta StaticFiles sobre él, así
+# que si uno es configurable y el otro no, apuntan a directorios distintos y
+# activar una misión falla con un ENOENT del symlink. Sin la variable el valor
+# es /app, igual que antes.
+APP_DIR = Path(os.environ.get("RAPTOR_APP_DIR", "/app"))
 LINKED_DIRS = ["processing", "outputs", "preprocessing", "data"]
 TILES_LINK = APP_DIR / "geovisor" / "tiles"
 
