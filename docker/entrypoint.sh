@@ -573,7 +573,7 @@ publish_partial() {
 # sensor, siempre se downsamplea a eso), un footprint de memoria muy por
 # debajo del ~1GB/hilo que sí hace falta cuidar en MVS/DensifyPointCloud más
 # abajo. Antes esas etapas usaban la MISMA concurrencia acotada que el resto
-# de la corrida (2 hilos en una máquina de 20 núcleos) sin necesidad real —
+# de la corrida (2 hilos en una máquina de 16 hilos) sin necesidad real —
 # bump manual en vivo a 10 confirmó ~700%+ CPU sin subir la memoria de forma
 # apreciable. 2 MP de "peso" por hilo (no 12.3 como el RGB completo) es
 # conservador para lo que en la práctica pesa mucho menos, así que sigue

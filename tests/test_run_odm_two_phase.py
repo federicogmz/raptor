@@ -13,7 +13,7 @@ OSFMContext.setup() en opendm/osfm.py, llamada desde la etapa **opensfm**
 image_list.txt todavía no existe. Con `--end-with dataset` la fase 1 no llegaba
 nunca a crear image_list.txt, así que el config lo terminaba escribiendo la
 FASE 2 con la concurrencia PESADA: el split hacía exactamente lo contrario de
-lo que buscaba. Medido en vivo sobre 20 núcleos: `processes: 2` en RGB y
+lo que buscaba. Medido en vivo sobre 16 hilos: `processes: 2` en RGB y
 `processes: 6` en multiespectral.
 
 Estos tests EXTRAEN el bloque real (mismo patrón que el resto de
@@ -96,7 +96,7 @@ class TestDosFasesDeODM:
         concurrencia que termina en `processes:` es la de la invocación que
         LLEGA a esa etapa por primera vez. Esa tiene que ser la liviana; si
         alguna vez vuelve a ser la pesada, features y undistort se arrastran
-        con 2 hilos sobre 20 núcleos y nadie se entera hasta la próxima
+        con 2 hilos sobre 16 y nadie se entera hasta la próxima
         misión de 10 horas.
         """
         registro = tmp_path / "llamadas.txt"

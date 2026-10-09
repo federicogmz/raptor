@@ -480,7 +480,7 @@ def quality_tier(quality):
 
 # ── Estimación de tiempo ─────────────────────────────────────────────
 # Modelo POR ETAPAS, calibrado contra las corridas reales más grandes de
-# esta máquina (laptop 20 núcleos, RTX A1000 6 GB, 23 GB RAM):
+# esta máquina (Intel Core i9-9900K, 8 núcleos / 16 hilos, NVIDIA RTX 2080 8 GB):
 #
 #   barbosa-picodegallo (3149 imágenes, preset «alta»): 24 h 15 min
 #   mision_2026-08-08     (2398 imágenes, «vistazo»+escarpado): 17 h 42 min
