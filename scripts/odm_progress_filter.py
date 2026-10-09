@@ -38,7 +38,7 @@ outputs/logs/odm_<label>_substages.json. Sin eso, "ODM multiespectral: 8.5 h"
 es un número sin accionar: hubo que reconstruir a mano, con timestamps de un
 log de MB, que las 10.4 h de la banda D eran 108 min de features + 56 de
 matching + 267 de SfM incremental + 107 de undistort — y que features y
-undistort estaban corriendo con 2 hilos sobre 20 núcleos. Se mide con el
+undistort estaban corriendo con 2 hilos sobre 16 disponibles. Se mide con el
 reloj de pared del propio filtro (las líneas llegan en streaming), no
 parseando los timestamps del texto: no todas las líneas de ODM traen uno.
 
