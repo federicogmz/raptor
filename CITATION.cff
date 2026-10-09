@@ -1,0 +1,37 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite it using the metadata from this file.
+title: "RAPTOR: Reconstruction of Aerial Products, Thermal, Optical (and multispectral), for Response"
+type: software
+authors:
+  - family-names: "Gómez"
+    given-names: "Federico"
+    email: "fjgomezc@eafit.edu.co"
+    orcid: "https://orcid.org/0000-0002-8525-4354"
+    affiliation: "SIATA, Sistema de Alerta Temprana de Antioquia; Universidad EAFIT"
+version: "1.0.0"
+date-released: "2026-10-08"
+license: MIT
+repository-code: "https://github.com/federicogmz/raptor"
+url: "https://github.com/federicogmz/raptor"
+abstract: >-
+  Containerized photogrammetry pipeline for DJI UAVs (Mavic 3T, Matrice 300 RTK
+  with Zenmuse H20T, Mavic 3 Multispectral). It produces georeferenced RGB and
+  radiometric thermal orthomosaics, vegetation indices (NDVI, GNDVI, NDRE,
+  MSAVI2), digital surface models, 3D point clouds, and an interactive Leaflet
+  geovisor, running the whole pipeline in a single Docker container with the DJI
+  Thermal SDK included. Designed for rapid post-event assessment of landslides
+  and debris flows.
+keywords:
+  - "photogrammetry"
+  - "orthomosaic"
+  - "remote sensing"
+  - "UAS"
+  - "drone"
+  - "thermal"
+  - "multispectral"
+  - "DJI"
+  - "geohazards"
+  - "landslides"
+  - "debris flow"
+  - "early warning"
