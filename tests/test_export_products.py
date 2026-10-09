@@ -149,6 +149,43 @@ class TestClases:
         assert vals >= {1, 2, 3, 4}, f"se perdieron clases: {sorted(vals)}"
 
 
+class TestTermico:
+    def test_reproyectar_no_altera_las_temperaturas(self, mision, monkeypatch):
+        """El térmico es una medición por píxel y los focos se definen por
+        temperatura absoluta. Con remuestreo cúbico la exportación a
+        EPSG:9377 aplanaba los picos y su sobreoscilación inventaba
+        temperaturas que ningún píxel midió (-11.5 °C en Envigado)."""
+        _, destino = mision
+        rng = np.random.default_rng(7)
+        n = 400
+        temp = rng.integers(20, 31, (n, n)).astype(np.float32)
+        temp[200:205, 200:205] = 121.4
+        _raster("outputs/thermal_orthomosaic.tif", temp, gdal.GDT_Float32,
+                nodata=float("nan"))
+        _exportar(destino, monkeypatch, EXPORT_PRODUCTS="thermal",
+                  EXPORT_EPSG=str(MAGNA))
+        ds = gdal.Open(f"{destino}/thermal_orthomosaic.tif")
+        out = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        vals = out[np.isfinite(out)]
+        assert np.isclose(vals.max(), 121.4), f"el pico quedó en {vals.max():.1f} °C"
+        assert vals.min() >= 20.0, f"apareció una temperatura inventada: {vals.min():.1f} °C"
+        medidas = np.unique(temp)
+        assert np.isin(np.unique(vals), medidas).all(), \
+            "la exportación produjo temperaturas que no estaban en el original"
+
+    @pytest.mark.parametrize("archivo,discreto,esperado", [
+        ("outputs/thermal_orthomosaic.tif", False, "near"),
+        ("outputs/termico_hotspot_class.tif", True, "near"),
+        ("outputs/dsm.tif", False, "bilinear"),
+        ("outputs/indices/ndvi.tif", False, "bilinear"),
+        ("outputs/multispectral_orthomosaic.tif", False, "bilinear"),
+        ("outputs/rgb_orthomosaic.tif", False, "cubic"),
+    ])
+    def test_remuestreo_por_tipo_de_raster(self, archivo, discreto, esperado):
+        assert export_products._resample_alg(archivo, discreto) == esperado
+
+
 class TestFormatos:
     @pytest.mark.parametrize("fmt,ext", [("geojson", ".geojson"), ("gpkg", ".gpkg"),
                                          ("shp", ".shp"), ("kml", ".kml")])

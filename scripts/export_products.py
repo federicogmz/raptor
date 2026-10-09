@@ -87,12 +87,32 @@ def _srs_from_epsg(code):
     return srs
 
 
+def _resample_alg(src, discreto):
+    """Remuestreo al reproyectar, según qué representa el ráster.
+
+    - Clases: vecino más cercano (promediar inventa clases intermedias).
+    - Térmico (°C): vecino más cercano. Es una MEDICIÓN por píxel y los focos
+      se definen por temperatura absoluta (>= 88 °C): el cúbico que se usaba
+      antes aplanaba los picos (Bello: 121.4 °C nativo -> 104.5 °C exportado)
+      y su sobreoscilación inventaba valores imposibles (-11.5 °C en Envigado).
+    - DSM, multiespectral e índices: bilineal, que nunca sale del rango de
+      sus vecinos (el cúbico sí, y son magnitudes que se miden).
+    - RGB y banda D: cúbico, solo importa el aspecto visual.
+    """
+    if discreto:
+        return "near"
+    nombre = os.path.basename(src)
+    if nombre.startswith("thermal_orthomosaic"):
+        return "near"
+    if nombre.startswith(("rgb_orthomosaic", "dband_orthomosaic")):
+        return "cubic"
+    return "bilinear"
+
+
 def _export_raster(src, dst_dir, fmt_key, epsg, discreto):
     drv, ext, copts = RASTER_FORMATS[fmt_key]
     dst = os.path.join(dst_dir, os.path.splitext(os.path.basename(src))[0] + ext)
-    # Vecino más cercano para clases; cúbico para continuo (RGB/térmico/DSM/
-    # índices), que da mejor resultado que bilineal al cambiar de grilla.
-    resample = "near" if discreto else "cubic"
+    resample = _resample_alg(src, discreto)
     # PREDICTOR según el tipo real del dato, mismo criterio que export_cog.py:
     # 3 para punto flotante, 2 para entero.
     ds = gdal.Open(src)
