@@ -16,8 +16,9 @@ geovisor/tiles
 runs/
 agisoft/
 
-# Manuscrito y análisis de paper (mantenido fuera del repositorio de código)
+# Manuscrito, análisis y datos del paper: viven fuera del repositorio de código
 paper/
+paper_support_data/
 
 # Python
 __pycache__/
