@@ -8,6 +8,7 @@ entrega, si la hay) — barato de generar y lo consume `./raptor run --json`.
 
 Uso: python3 scripts/run_summary.py [codigo_de_salida]
 """
+
 import json
 import os
 import shutil
@@ -29,8 +30,7 @@ RASTERS = {
     "multispectral": f"{OUTPUTS}/multispectral_orthomosaic.tif",
     "confidence": f"{OUTPUTS}/confidence_mask.tif",
     "hotspot": f"{OUTPUTS}/termico_hotspot_class.tif",
-    **{f"indice_{n}": f"{OUTPUTS}/indices/{n}.tif"
-       for n in ("ndvi", "gndvi", "ndre", "msavi2")},
+    **{f"indice_{n}": f"{OUTPUTS}/indices/{n}.tif" for n in ("ndvi", "gndvi", "ndre", "msavi2")},
 }
 VECTORES = {
     "flight_path": f"{OUTPUTS}/flight_path.geojson",
@@ -48,8 +48,7 @@ def _info_raster(path):
             "alto_px": ds.RasterYSize,
             "bandas": ds.RasterCount,
             "gsd_m": round(abs(gt[1]), 4),
-            "crs": (f"EPSG:{srs.GetAuthorityCode(None)}"
-                    if srs is not None and srs.GetAuthorityCode(None) else None),
+            "crs": (f"EPSG:{srs.GetAuthorityCode(None)}" if srs is not None and srs.GetAuthorityCode(None) else None),
             "mb": round(os.path.getsize(path) / 1e6, 1),
         }
         # Cobertura real: qué fracción del recuadro tiene dato. Es el número
@@ -57,9 +56,9 @@ def _info_raster(path):
         # la última banda (el alpha, donde lo hay) submuestreada a 512 px, que
         # alcanza para un porcentaje y no obliga a leer el ráster entero.
         band = ds.GetRasterBand(ds.RasterCount)
-        arr = band.ReadAsArray(0, 0, ds.RasterXSize, ds.RasterYSize,
-                               buf_xsize=min(512, ds.RasterXSize),
-                               buf_ysize=min(512, ds.RasterYSize))
+        arr = band.ReadAsArray(
+            0, 0, ds.RasterXSize, ds.RasterYSize, buf_xsize=min(512, ds.RasterXSize), buf_ysize=min(512, ds.RasterYSize)
+        )
         if arr is not None:
             con_dato = np.isfinite(arr) & (arr > 0)
             info["cobertura_pct"] = round(100.0 * float(con_dato.sum()) / arr.size, 1)
@@ -154,8 +153,7 @@ def main():
         except OSError:
             pass
 
-    print(f"✅ {DESTINO} ({len(resumen['productos'])} productos, "
-          f"{len(resumen['vectores'])} vectores)")
+    print(f"✅ {DESTINO} ({len(resumen['productos'])} productos, {len(resumen['vectores'])} vectores)")
     return 0
 
 

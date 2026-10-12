@@ -42,10 +42,10 @@ from odm_staging import escribir_geo_txt, poblar_images  # noqa: E402
 _override = os.environ.get("MAX_CONCURRENCY")
 NPROCS = safe_concurrency(5, override=int(_override) if _override else None)
 
-MS_TIF_DIR  = "data/multiespectral_mosaico"
-OUTPUT_DIR  = "processing/multispectral_odm"
-IMAGES_DIR  = os.path.join(OUTPUT_DIR, "images")
-GEO_TXT     = os.path.join(OUTPUT_DIR, "geo.txt")
+MS_TIF_DIR = "data/multiespectral_mosaico"
+OUTPUT_DIR = "processing/multispectral_odm"
+IMAGES_DIR = os.path.join(OUTPUT_DIR, "images")
+GEO_TXT = os.path.join(OUTPUT_DIR, "geo.txt")
 BAND_SUFFIXES = ("_MS_G.TIF", "_MS_R.TIF", "_MS_RE.TIF", "_MS_NIR.TIF")
 
 
@@ -59,8 +59,7 @@ def main():
     print("=" * 60)
     print()
 
-    nombres = poblar_images(MS_TIF_DIR, IMAGES_DIR, BAND_SUFFIXES, NPROCS,
-                            etiqueta="bandas")
+    nombres = poblar_images(MS_TIF_DIR, IMAGES_DIR, BAND_SUFFIXES, NPROCS, etiqueta="bandas")
     if not nombres:
         print(f"❌ No se encontraron bandas *_MS_*.TIF en {MS_TIF_DIR}")
         sys.exit(1)

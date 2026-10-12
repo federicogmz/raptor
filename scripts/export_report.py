@@ -14,6 +14,7 @@ Escribe:
 
 Uso: python3 scripts/export_report.py
 """
+
 import base64
 import html
 import json
@@ -87,13 +88,13 @@ def main():
     if sit:
         cards = f"""
       <div class="card"><div class="l">Focos térmicos activos</div>
-        <div class="v">{_esc(sit.get('hotspots_activos'))}</div></div>
+        <div class="v">{_esc(sit.get("hotspots_activos"))}</div></div>
       <div class="card"><div class="l">Temp. máxima</div>
-        <div class="v">{_esc(sit.get('temp_max'))} °C</div></div>
+        <div class="v">{_esc(sit.get("temp_max"))} °C</div></div>
       <div class="card"><div class="l">Temp. promedio</div>
-        <div class="v">{_esc(sit.get('temp_promedio'))} °C</div></div>
+        <div class="v">{_esc(sit.get("temp_promedio"))} °C</div></div>
       <div class="card"><div class="l">Cobertura</div>
-        <div class="v">{_esc(sit.get('cobertura_pct'))} %</div></div>"""
+        <div class="v">{_esc(sit.get("cobertura_pct"))} %</div></div>"""
     else:
         cards = "<div class='card' style='grid-column:1/-1'>Sin datos de impacto detectados en esta misión.</div>"
 
@@ -108,8 +109,7 @@ def main():
     # ── Tabla de focos ──────────────────────────────────────────────────
     focos_rows = ""
     for h in sit.get("hotspots") or []:
-        focos_rows += (f"<tr><td>{_esc(h.get('lat'))}, {_esc(h.get('lon'))}</td>"
-                       f"<td>{_esc(h.get('temp_c'))} °C</td></tr>")
+        focos_rows += f"<tr><td>{_esc(h.get('lat'))}, {_esc(h.get('lon'))}</td><td>{_esc(h.get('temp_c'))} °C</td></tr>"
     if not focos_rows:
         focos_rows = "<tr><td colspan=2>Ninguno detectado</td></tr>"
 
@@ -117,18 +117,19 @@ def main():
     prods_rows = ""
     for clave, p in (resumen.get("productos") or {}).items():
         if isinstance(p, dict) and "error" not in p:
-            prods_rows += (f"<tr><td>{_esc(clave)}</td>"
-                           f"<td>{_esc(p.get('gsd_m'))} m/px</td>"
-                           f"<td>{_esc(p.get('crs'))}</td>"
-                           f"<td>{_esc(p.get('cobertura_pct'))} %</td></tr>")
+            prods_rows += (
+                f"<tr><td>{_esc(clave)}</td>"
+                f"<td>{_esc(p.get('gsd_m'))} m/px</td>"
+                f"<td>{_esc(p.get('crs'))}</td>"
+                f"<td>{_esc(p.get('cobertura_pct'))} %</td></tr>"
+            )
     if not prods_rows:
         prods_rows = "<tr><td colspan=4>Sin productos todavía</td></tr>"
 
     # ── Cobertura vs. vuelo ─────────────────────────────────────────────
     cov_rows = ""
     for nombre, p in (cov.get("productos") or {}).items():
-        cov_rows += (f"<tr><td>{_esc(nombre)}</td>"
-                     f"<td>{_esc(p.get('cobertura_area_volada_pct'))} %</td></tr>")
+        cov_rows += f"<tr><td>{_esc(nombre)}</td><td>{_esc(p.get('cobertura_area_volada_pct'))} %</td></tr>"
     if not cov_rows:
         cov_rows = "<tr><td colspan=2>—</td></tr>"
 
@@ -136,18 +137,15 @@ def main():
     imgs = ""
     for nombre, path in PREVIEWS.items():
         uri = _preview_data_uri(path)
-        imgs += (f'<figure><img src="{uri}" alt="{nombre}">'
-                 f"<figcaption>{nombre}</figcaption></figure>" if uri else "")
-    imgs_html = ("<h2>Vistas previas</h2>\n<div class=\"imgs\">" + imgs + "</div>"
-                 if imgs else "")
+        imgs += f'<figure><img src="{uri}" alt="{nombre}"><figcaption>{nombre}</figcaption></figure>' if uri else ""
+    imgs_html = '<h2>Vistas previas</h2>\n<div class="imgs">' + imgs + "</div>" if imgs else ""
 
-    aviso_html = ("".join(f'<div class="aviso">{a}</div>' for a in avisos)
-                  if avisos else "")
+    aviso_html = "".join(f'<div class="aviso">{a}</div>' for a in avisos) if avisos else ""
 
     doc = f"""<!DOCTYPE html>
 <html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Informe de emergencia — {_esc(sit.get('captura') or resumen.get('terminado'))}</title>
+<title>Informe de emergencia — {_esc(sit.get("captura") or resumen.get("terminado"))}</title>
 <style>
   body{{font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;margin:0;padding:24px;color:#1a1a1a;background:#fff}}
   h1{{font-size:1.3rem;margin:0 0 4px}} .meta{{color:#555;font-size:.85rem;margin-bottom:16px}}
@@ -165,15 +163,15 @@ def main():
   @media print{{body{{padding:8px}} .aviso{{-webkit-print-color-adjust:exact}}}}
 </style></head><body>
 <h1>🚨 Informe de emergencia</h1>
-<div class="meta">Captura: {_esc(_fmt_fecha(sit.get('captura')))} · Misión: {_esc(os.environ.get('RAPTOR_MISSION', 'mision'))} · Generado: {_fmt_fecha(resumen.get('terminado'))} · Equipo: {_esc(fq.get('equipo'))}</div>
+<div class="meta">Captura: {_esc(_fmt_fecha(sit.get("captura")))} · Misión: {_esc(os.environ.get("RAPTOR_MISSION", "mision"))} · Generado: {_fmt_fecha(resumen.get("terminado"))} · Equipo: {_esc(fq.get("equipo"))}</div>
 {aviso_html}
 <div class="grid">{cards}</div>
 <h2>Focos térmicos</h2>
 <table><tr><th>Coordenadas (lat, lon)</th><th>Temp. pico</th></tr>{focos_rows}</table>
-<h2>Cobertura vs. área volada ({_esc(cov.get('area_volada_km2'))} km² volados)</h2>
+<h2>Cobertura vs. área volada ({_esc(cov.get("area_volada_km2"))} km² volados)</h2>
 <table><tr><th>Producto</th><th>% del área volada con dato</th></tr>{cov_rows}</table>
 <h2>Calidad del levantamiento</h2>
-<p class="meta">{_esc(fq.get('calidad'))} · solape p50 {_esc(fq.get('solape_p50'))}% · velocidad media {_esc(fq.get('velocidad_media_ms'))} m/s</p>
+<p class="meta">{_esc(fq.get("calidad"))} · solape p50 {_esc(fq.get("solape_p50"))}% · velocidad media {_esc(fq.get("velocidad_media_ms"))} m/s</p>
 <h2>Productos</h2>
 <table><tr><th>Producto</th><th>GSD</th><th>CRS</th><th>Cobertura del ráster</th></tr>{prods_rows}</table>
 {imgs_html}
@@ -203,4 +201,5 @@ def main():
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(main())

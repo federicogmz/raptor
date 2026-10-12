@@ -7,6 +7,7 @@ severidad recortada al polígono de área afectada); se separaron al sacar
 esa lógica — compute_thermal_hotspot.py y classify_vegetation_indices.py
 son los dos consumidores reales.
 """
+
 import os
 
 from osgeo import gdal
@@ -26,6 +27,7 @@ MMU_M2 = 1.0
 
 def classify(values, breaks, valid):
     import numpy as np
+
     cls = np.zeros(values.shape, dtype=np.uint8)
     cls[valid & (values < breaks[0])] = 1
     for i in range(len(breaks) - 1):
@@ -53,8 +55,7 @@ def _sieve_mmu(band, gt, label):
     if threshold_px <= 1:
         return  # a esta resolución un solo píxel YA cubre la MMU real
     gdal.SieveFilter(band, None, band, threshold_px, 4)
-    print(f"  MMU {label}: {MMU_M2:.2f} m² → {threshold_px} px a esta resolución "
-          f"({px_area:.4f} m²/px)")
+    print(f"  MMU {label}: {MMU_M2:.2f} m² → {threshold_px} px a esta resolución ({px_area:.4f} m²/px)")
 
 
 def write_class_tif(path, arr, gt, proj):

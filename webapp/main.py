@@ -23,6 +23,7 @@ simultáneas se pisarían).
 Uso:
   python3 -m webapp.main [puerto]
 """
+
 import asyncio
 import json
 import math
@@ -37,15 +38,20 @@ from fastapi import Body, FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
-from osgeo import gdal, ogr, osr
+
+try:
+    from osgeo import gdal, ogr, osr
+
+    gdal.UseExceptions()
+except ImportError:
+    gdal = None
+    ogr = None
+    osr = None
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
-gdal.UseExceptions()
-
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from core.runner import (PipelineRun, activate_mission, deactivate_mission,
-                         parse_progress_events)
+from core.runner import PipelineRun, activate_mission, deactivate_mission, parse_progress_events
 from core.scan import RUNS_ROOT, sanitize_mission_name, scan_existing_runs
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
@@ -53,7 +59,8 @@ from hardware import estimate_message  # noqa: E402 — mensaje de calidad del f
 from hardware import preset as hw_preset  # noqa: E402 — valida el nombre del preset
 from export_products import CATALOG as EXPORT_CATALOG  # noqa: E402 — misma fuente que export_products.py
 
-APP_DIR = Path(os.environ.get("RAPTOR_APP_DIR", "/app"))
+_DEFAULT_APP_DIR = "/app" if Path("/app/geovisor").is_dir() else str(Path(__file__).resolve().parent.parent)
+APP_DIR = Path(os.environ.get("RAPTOR_APP_DIR", _DEFAULT_APP_DIR))
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 GEOVISOR_DIR = APP_DIR / "geovisor"
 
@@ -64,10 +71,23 @@ VALID_MODES = ("rgb", "rgb+thermal", "thermal", "none", "thermal-convert")
 # Catálogo y formatos los define scripts/export_products.py; acá solo se
 # valida lo que llega del formulario para poder devolver un error corregible
 # ANTES de arrancar (mismo principio que _validate() para los sensores).
-EXPORT_PRODUCTS = ("rgb", "thermal", "dsm", "multispectral", "indices", "classes",
-                   "confidence", "area", "flight_path", "situation", "pointclouds")
+EXPORT_PRODUCTS = (
+    "rgb",
+    "thermal",
+    "dsm",
+    "multispectral",
+    "indices",
+    "classes",
+    "confidence",
+    "area",
+    "flight_path",
+    "situation",
+    "pointclouds",
+)
 EXPORT_RASTER_FORMATS = ("cog", "gtiff")
 EXPORT_VECTOR_FORMATS = ("geojson", "gpkg", "shp", "kml")
+
+
 # La entrega va al DISCO DEL HOST, no a una ruta interna del contenedor: un
 # producto que muere con el contenedor no le sirve a nadie. El lanzador
 # (./raptor webapp --export DIR) monta esa carpeta del host en EXPORT_MOUNT y
@@ -129,7 +149,7 @@ def import_host_a_contenedor(ruta_host):
     prefijo = IMPORT_HOST_DIR + os.sep
     if not ruta.startswith(prefijo):
         return None
-    return os.path.join(IMPORT_MOUNT, ruta[len(prefijo):])
+    return os.path.join(IMPORT_MOUNT, ruta[len(prefijo) :])
 
 
 def import_contenedor_a_host(ruta_cont):
@@ -144,7 +164,7 @@ def import_contenedor_a_host(ruta_cont):
         return IMPORT_HOST_DIR
     prefijo = IMPORT_MOUNT + os.sep
     if ruta_cont.startswith(prefijo):
-        return os.path.join(IMPORT_HOST_DIR, ruta_cont[len(prefijo):])
+        return os.path.join(IMPORT_HOST_DIR, ruta_cont[len(prefijo) :])
     return ruta_cont
 
 
@@ -162,7 +182,7 @@ def host_a_contenedor(ruta_host):
     prefijo = EXPORT_HOST_DIR + os.sep
     if not ruta.startswith(prefijo):
         return None
-    return os.path.join(EXPORT_MOUNT, ruta[len(prefijo):])
+    return os.path.join(EXPORT_MOUNT, ruta[len(prefijo) :])
 
 
 app = FastAPI(title="RAPTOR UAV photogrammetric pipeline")
@@ -340,8 +360,7 @@ def _imported_folders(dest_dir: Path):
     try:
         for entry in dest_dir.iterdir():
             if entry.is_symlink():
-                out.append({"name": entry.name,
-                            "host_path": import_contenedor_a_host(os.path.realpath(entry))})
+                out.append({"name": entry.name, "host_path": import_contenedor_a_host(os.path.realpath(entry))})
     except OSError:
         pass
     return sorted(out, key=lambda e: e["name"].lower())
@@ -361,7 +380,7 @@ class RunState:
         self.has_ms = has_ms
         self.dband = dband
         self.log_lines = []
-        self.log_dropped = 0        # cuántas se descartaron por la ventana
+        self.log_dropped = 0  # cuántas se descartaron por la ventana
         self.done = False
         self.returncode = None
         self.error = None
@@ -449,9 +468,11 @@ def _refuse_if_other_mission_running(safe):
     running = _running_mission()
     if running is not None and running != safe:
         raise HTTPException(
-            409, f"«{running}» está procesándose ahora mismo. Abrir otra misión "
-                 f"redirigiría los directorios de trabajo del pipeline en curso "
-                 f"y mezclaría los productos de las dos. Espera a que termine.")
+            409,
+            f"«{running}» está procesándose ahora mismo. Abrir otra misión "
+            f"redirigiría los directorios de trabajo del pipeline en curso "
+            f"y mezclaría los productos de las dos. Espera a que termine.",
+        )
 
 
 def _sample_raster(path: Path, lat: float, lon: float, band_idx: int = 1):
@@ -555,8 +576,12 @@ def _odm_projects(mission_dir: Path):
     antemano qué tan completo quedó cada sensor."""
     proc = mission_dir / "processing"
     found = {}
-    for key, sub in (("rgb", "rgb_odm"), ("thermal", "thermal_native_odm"),
-                     ("multispectral", "multispectral_odm"), ("dband", "dband_odm")):
+    for key, sub in (
+        ("rgb", "rgb_odm"),
+        ("thermal", "thermal_native_odm"),
+        ("multispectral", "multispectral_odm"),
+        ("dband", "dband_odm"),
+    ):
         d = proc / sub
         found[key] = (d / "opensfm" / "reconstruction.json").exists()
     return found
@@ -625,10 +650,17 @@ def list_missions():
             or (th_out.exists() and list(th_out.glob("*.tif")))
             or (th_prep.exists() and list(th_prep.glob("*.tif")))
         )
-        out.append({"name": r.name, "has_outputs": r.has_outputs,
-                    "has_processing": r.has_processing, "has_tiles": r.has_tiles,
-                    "has_thermal_converted": has_thermal_converted,
-                    "ok": ok, "mtime": mtime})
+        out.append(
+            {
+                "name": r.name,
+                "has_outputs": r.has_outputs,
+                "has_processing": r.has_processing,
+                "has_tiles": r.has_tiles,
+                "has_thermal_converted": has_thermal_converted,
+                "ok": ok,
+                "mtime": mtime,
+            }
+        )
     running = _running_mission()
     last = None
     if _state and _state.done:
@@ -642,14 +674,17 @@ def mission_status(mission: str):
     tipo real de archivo), qué reconstrucciones ODM ya existen (para ofrecer
     reusarlas) y en qué quedó la última corrida."""
     safe, mission_dir = _mission_dir(mission)
-    uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k))
-               for k in UPLOAD_KINDS}
+    uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k)) for k in UPLOAD_KINDS}
     tiles_ready = (mission_dir / "tiles" / "bounds.json").exists()
     running = bool(_state and not _state.done and _state.mission_name == safe)
     last_run = None
     if _state and _state.mission_name == safe and _state.done:
-        last_run = {"ok": _state.returncode == 0, "returncode": _state.returncode,
-                    "mode": _state.mode, "elapsed": round(_state.elapsed())}
+        last_run = {
+            "ok": _state.returncode == 0,
+            "returncode": _state.returncode,
+            "mode": _state.mode,
+            "elapsed": round(_state.elapsed()),
+        }
     # elapsed del SERVIDOR: la UI lo usa para que el cronómetro sobreviva a
     # un F5 en vez de arrancar de nuevo en 00:00.
     elapsed = round(_state.elapsed()) if (_state and _state.mission_name == safe) else None
@@ -660,21 +695,27 @@ def mission_status(mission: str):
         or (th_conv_dir.exists() and list(th_conv_dir.glob("*.tif")))
         or (sdk_conv_dir.exists() and list(sdk_conv_dir.glob("*.tif")))
     )
-    return {"name": safe, "uploads": uploads, "odm": _odm_projects(mission_dir),
-            "export_enabled": export_disponible(),
-            "export_host_root": EXPORT_HOST_DIR,
-            "default_export_dir": (os.path.join(EXPORT_HOST_DIR, safe)
-                                   if export_disponible() else ""),
-            "import_enabled": import_disponible(),
-            "import_host_root": IMPORT_HOST_DIR,
-            "imported": {k: _imported_folders(mission_dir / "raw" / k) for k in UPLOAD_KINDS},
-            "has_tiles": tiles_ready, "has_thermal_converted": has_thermal_converted,
-            "running": running, "last_run": last_run,
-            "elapsed": elapsed, "mode": _state.mode if (_state and _state.mission_name == safe) else None,
-            "has_multispectral": _state.has_ms if (_state and _state.mission_name == safe) else None,
-            # Otras misiones en la misma zona: es lo único que habilita el
-            # comparador Antes/Después en el geovisor (ver _related_missions).
-            "related_missions": _related_missions(safe, mission_dir) if tiles_ready else []}
+    return {
+        "name": safe,
+        "uploads": uploads,
+        "odm": _odm_projects(mission_dir),
+        "export_enabled": export_disponible(),
+        "export_host_root": EXPORT_HOST_DIR,
+        "default_export_dir": (os.path.join(EXPORT_HOST_DIR, safe) if export_disponible() else ""),
+        "import_enabled": import_disponible(),
+        "import_host_root": IMPORT_HOST_DIR,
+        "imported": {k: _imported_folders(mission_dir / "raw" / k) for k in UPLOAD_KINDS},
+        "has_tiles": tiles_ready,
+        "has_thermal_converted": has_thermal_converted,
+        "running": running,
+        "last_run": last_run,
+        "elapsed": elapsed,
+        "mode": _state.mode if (_state and _state.mission_name == safe) else None,
+        "has_multispectral": _state.has_ms if (_state and _state.mission_name == safe) else None,
+        # Otras misiones en la misma zona: es lo único que habilita el
+        # comparador Antes/Después en el geovisor (ver _related_missions).
+        "related_missions": _related_missions(safe, mission_dir) if tiles_ready else [],
+    }
 
 
 @app.get("/api/missions/{mission}/thermal-tiffs-zip")
@@ -687,17 +728,14 @@ def download_thermal_tiffs_zip(mission: str):
             tiffs = list((mission_dir / "preprocessing" / "thermal_dji_sdk").glob("*.tif"))
         if tiffs:
             import zipfile
+
             zip_path.parent.mkdir(parents=True, exist_ok=True)
             with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
                 for tif in tiffs:
                     zf.write(tif, arcname=tif.name)
         else:
             raise HTTPException(404, "No hay imágenes térmicas convertidas para esta misión")
-    return FileResponse(
-        str(zip_path),
-        media_type="application/zip",
-        filename=f"{safe}_termicas_convertidas_tiff.zip"
-    )
+    return FileResponse(str(zip_path), media_type="application/zip", filename=f"{safe}_termicas_convertidas_tiff.zip")
 
 
 # ── Subida de archivos: un POST por archivo (carpeta completa vía
@@ -760,15 +798,25 @@ def import_browse(path: str = ""):
     entries = []
     try:
         subdirs = sorted(
-            (e for e in os.scandir(src) if e.is_dir() and not e.name.startswith(".")),
-            key=lambda e: e.name.lower())
+            (e for e in os.scandir(src) if e.is_dir() and not e.name.startswith(".")), key=lambda e: e.name.lower()
+        )
     except OSError as exc:
         raise HTTPException(400, f"no se pudo leer «{path}»: {exc}")
     for e in subdirs:
         hint = classify_files(_quick_hint_names(e.path))
-        entries.append({"name": e.name, "host_path": import_contenedor_a_host(e.path),
-                        "hint": {"rgb": hint["rgb"], "thermal": hint["thermal"],
-                                 "ms": hint["ms"], "dband": hint["dband"], "total": hint["total"]}})
+        entries.append(
+            {
+                "name": e.name,
+                "host_path": import_contenedor_a_host(e.path),
+                "hint": {
+                    "rgb": hint["rgb"],
+                    "thermal": hint["thermal"],
+                    "ms": hint["ms"],
+                    "dband": hint["dband"],
+                    "total": hint["total"],
+                },
+            }
+        )
     return {"host_path": import_contenedor_a_host(src), "parent": parent, "entries": entries}
 
 
@@ -814,8 +862,11 @@ def import_local(mission: str, kind: str = Form(...), host_path: str = Form(...)
         raise HTTPException(400, f"kind debe ser uno de {UPLOAD_KINDS}")
     src_root = import_host_a_contenedor(host_path)
     if src_root is None:
-        raise HTTPException(400, f"«{host_path}» está fuera de la carpeta montada "
-                                  f"({IMPORT_HOST_DIR or 'ninguna — arrancá con --import DIR'}).")
+        raise HTTPException(
+            400,
+            f"«{host_path}» está fuera de la carpeta montada "
+            f"({IMPORT_HOST_DIR or 'ninguna — arrancá con --import DIR'}).",
+        )
     if not os.path.isdir(src_root):
         raise HTTPException(400, f"«{host_path}» no existe o no es una carpeta.")
 
@@ -893,17 +944,20 @@ def _validate(mode, has_ms, uploads):
                 "entre los archivos subidos"
                 + (f" ({rt['total']} archivos)" if rt["total"] else "")
                 + ". Sube las fotos del vuelo, o desactiva ese sensor "
-                  "si solo vas a procesar el multiespectral.")
+                "si solo vas a procesar el multiespectral."
+            )
         if mode in ("rgb+thermal", "thermal") and rt["thermal"] == 0:
             errors.append(
                 "Elegiste un producto con térmico pero no hay fotos térmicas "
                 f"(*_T.JPG) entre los {rt['total']} archivos subidos. Agrega "
-                "las fotos térmicas del vuelo, o cambia el producto a «Solo RGB».")
+                "las fotos térmicas del vuelo, o cambia el producto a «Solo RGB»."
+            )
     if has_ms and ms["ms"] == 0:
         errors.append(
             "Activaste el multiespectral pero no hay bandas (*_MS_*.TIF) entre "
             f"los {ms['total']} archivos subidos en ese sensor. Sube la carpeta "
-            "del vuelo M3M, o desactiva ese sensor.")
+            "del vuelo M3M, o desactiva ese sensor."
+        )
     elif has_ms:
         por_banda = ms.get("ms_bands", {})
         faltantes = [b for b in MS_BANDS if not por_banda.get(b)]
@@ -911,7 +965,8 @@ def _validate(mode, has_ms, uploads):
             errors.append(
                 f"Al vuelo multiespectral le faltan bandas enteras: {', '.join(faltantes)}. "
                 f"ODM necesita las 4 (G, R, RE, NIR) para agrupar cada captura. "
-                "Revisa que hayas subido la carpeta completa del M3M.")
+                "Revisa que hayas subido la carpeta completa del M3M."
+            )
         elif ms.get("incompletas"):
             incompletas = ms["incompletas"]
             muestra = "; ".join(f"{p} (solo {', '.join(b)})" for p, b in incompletas[:3])
@@ -919,16 +974,16 @@ def _validate(mode, has_ms, uploads):
                 f"{len(incompletas)} captura(s) multiespectral(es) están incompletas: {muestra}"
                 + (f"; y {len(incompletas) - 3} más" if len(incompletas) > 3 else "")
                 + ". Cada captura del M3M son 4 archivos y ODM las empareja por nombre: "
-                  "si a una le falta una banda, la reconstrucción aborta después de "
-                  "una hora de procesamiento. Sube las bandas que faltan o quita "
-                  "esas capturas.")
+                "si a una le falta una banda, la reconstrucción aborta después de "
+                "una hora de procesamiento. Sube las bandas que faltan o quita "
+                "esas capturas."
+            )
     if mode == "none" and not has_ms:
         errors.append("No seleccionaste ningún sensor para procesar.")
     return errors
 
 
-def _validate_export(mission_dir, export_dir, products, raster_fmt, vector_fmt, epsg,
-                     crear=True):
+def _validate_export(mission_dir, export_dir, products, raster_fmt, vector_fmt, epsg, crear=True):
     """Valida la configuración de entrega y devuelve (errores, dict EXPORT_*).
 
     `export_dir` es una ruta del HOST. Se traduce a la ruta equivalente dentro
@@ -947,18 +1002,28 @@ def _validate_export(mission_dir, export_dir, products, raster_fmt, vector_fmt, 
         return errors, {}
 
     if not export_disponible():
-        return (["Para exportar hay que arrancar con una carpeta del host montada: "
-                 "«./raptor webapp --export /ruta/de/entregas». Sin eso los productos "
-                 "solo quedan dentro del contenedor y se pierden al cerrarlo."], {})
+        return (
+            [
+                "Para exportar hay que arrancar con una carpeta del host montada: "
+                "«./raptor webapp --export /ruta/de/entregas». Sin eso los productos "
+                "solo quedan dentro del contenedor y se pierden al cerrarlo."
+            ],
+            {},
+        )
 
     host_dir = export_dir
     if not os.path.isabs(host_dir):
         host_dir = os.path.join(EXPORT_HOST_DIR, host_dir)
     export_dir = host_a_contenedor(host_dir)
     if export_dir is None:
-        return ([f"«{host_dir}» está fuera de la carpeta montada ({EXPORT_HOST_DIR}). "
-                 f"Elige una ruta adentro de esa carpeta, o reinicia con "
-                 f"«./raptor webapp --export» apuntando a otro lado."], {})
+        return (
+            [
+                f"«{host_dir}» está fuera de la carpeta montada ({EXPORT_HOST_DIR}). "
+                f"Elige una ruta adentro de esa carpeta, o reinicia con "
+                f"«./raptor webapp --export» apuntando a otro lado."
+            ],
+            {},
+        )
 
     desconocidos = [p for p in products if p not in EXPORT_PRODUCTS]
     if desconocidos:
@@ -975,10 +1040,14 @@ def _validate_export(mission_dir, export_dir, products, raster_fmt, vector_fmt, 
         # RuntimeError incluido: con gdal.UseExceptions() activo (arriba de este
         # módulo), ImportFromEPSG LANZA en vez de devolver un código de error.
         try:
-            osr.SpatialReference().ImportFromEPSG(int(epsg))
+            if osr is not None:
+                osr.SpatialReference().ImportFromEPSG(int(epsg))
+            else:
+                code = int(epsg)
+                if code < 1024 or code > 60000:
+                    raise ValueError(f"EPSG {code} out of valid range")
         except (ValueError, TypeError, RuntimeError):
-            errors.append(f"EPSG «{epsg}» no existe o no lo reconoce PROJ. "
-                          "Usa un código numérico válido, p. ej. 9377.")
+            errors.append(f"EPSG «{epsg}» no existe o no lo reconoce PROJ. Usa un código numérico válido, p. ej. 9377.")
 
     # Se prueba a escribir sobre el ancestro existente más cercano: con
     # crear=True es la carpeta destino misma (se crea acá); con crear=False es
@@ -1000,15 +1069,17 @@ def _validate_export(mission_dir, export_dir, products, raster_fmt, vector_fmt, 
 
     if errors:
         return errors, {}
-    return [], {"EXPORT_DIR": export_dir,
-                # La ruta del host viaja al pipeline para que el manifiesto y
-                # el resumen JSON digan dónde quedaron los archivos EN EL DISCO
-                # DEL USUARIO, no la ruta interna que no le sirve a nadie.
-                "EXPORT_HOST_DIR": host_dir,
-                "EXPORT_PRODUCTS": ",".join(products),
-                "EXPORT_RASTER_FORMAT": raster_fmt,
-                "EXPORT_VECTOR_FORMAT": vector_fmt,
-                "EXPORT_EPSG": epsg or "source"}
+    return [], {
+        "EXPORT_DIR": export_dir,
+        # La ruta del host viaja al pipeline para que el manifiesto y
+        # el resumen JSON digan dónde quedaron los archivos EN EL DISCO
+        # DEL USUARIO, no la ruta interna que no le sirve a nadie.
+        "EXPORT_HOST_DIR": host_dir,
+        "EXPORT_PRODUCTS": ",".join(products),
+        "EXPORT_RASTER_FORMAT": raster_fmt,
+        "EXPORT_VECTOR_FORMAT": vector_fmt,
+        "EXPORT_EPSG": epsg or "source",
+    }
 
 
 def _parse_products(raw):
@@ -1022,18 +1093,21 @@ def check_export(mission: str, export_dir: str = Form(""), export_epsg: str = Fo
     está montada dentro del contenedor: acá se ve al instante en vez de al
     final de una corrida de una hora."""
     _safe, mission_dir = _mission_dir(mission)
-    errors, env = _validate_export(mission_dir, export_dir.strip(), ["rgb"],
-                                   "cog", "geojson", export_epsg, crear=False)
+    errors, env = _validate_export(mission_dir, export_dir.strip(), ["rgb"], "cog", "geojson", export_epsg, crear=False)
     resolved = env.get("EXPORT_HOST_DIR", "")
     nombre = None
     epsg = (export_epsg or "").strip().lower()
     if epsg and epsg != "source" and not errors:
-        srs = osr.SpatialReference()
-        try:
-            srs.ImportFromEPSG(int(epsg))
-            nombre = srs.GetName()
-        except (ValueError, TypeError, RuntimeError):
-            pass
+        if osr is not None:
+            srs = osr.SpatialReference()
+            try:
+                srs.ImportFromEPSG(int(epsg))
+                nombre = srs.GetName()
+            except (ValueError, TypeError, RuntimeError):
+                pass
+        else:
+            _names = {"9377": "MAGNA-SIRGAS 2018 / Origen-Nacional", "32618": "WGS 84 / UTM zone 18N", "4326": "WGS 84"}
+            nombre = _names.get(str(epsg), f"EPSG:{epsg}")
     return {"ok": not errors, "errors": errors, "resolved": resolved, "crs_name": nombre}
 
 
@@ -1068,17 +1142,19 @@ def export_options(mission: str):
         "available_products": _available_export_products(mission_dir),
         "export_enabled": export_disponible(),
         "export_host_root": EXPORT_HOST_DIR,
-        "default_export_dir": (os.path.join(EXPORT_HOST_DIR, _safe)
-                               if export_disponible() else ""),
+        "default_export_dir": (os.path.join(EXPORT_HOST_DIR, _safe) if export_disponible() else ""),
     }
 
 
 @app.post("/api/missions/{mission}/export")
-async def export_mission(mission: str, export_dir: str = Form(...),
-                         export_products: str = Form(...),
-                         export_raster_format: str = Form("cog"),
-                         export_vector_format: str = Form("geojson"),
-                         export_epsg: str = Form("9377")):
+async def export_mission(
+    mission: str,
+    export_dir: str = Form(...),
+    export_products: str = Form(...),
+    export_raster_format: str = Form("cog"),
+    export_vector_format: str = Form("geojson"),
+    export_epsg: str = Form("9377"),
+):
     """Exporta los productos de una misión YA TERMINADA a demanda — no
     depende de haberlo pedido antes de arrancar la corrida (ver
     start_mission()) ni de que esta misión sea la que está symlinkeada como
@@ -1088,8 +1164,7 @@ async def export_mission(mission: str, export_dir: str = Form(...),
     mirando (o procesando) al mismo tiempo en el geovisor."""
     safe, mission_dir = _mission_dir(mission)
     if _running_mission() == safe:
-        raise HTTPException(409, "Esta misión está procesándose ahora mismo — "
-                                 "esperá a que termine para exportar.")
+        raise HTTPException(409, "Esta misión está procesándose ahora mismo — esperá a que termine para exportar.")
     if not export_dir.strip():
         raise HTTPException(400, "Elegí una carpeta de destino.")
     products = _parse_products(export_products)
@@ -1098,12 +1173,16 @@ async def export_mission(mission: str, export_dir: str = Form(...),
     disponibles = set(_available_export_products(mission_dir))
     pedidos_no_disponibles = [p for p in products if p not in disponibles]
     if pedidos_no_disponibles:
-        raise HTTPException(400, f"Esta misión no tiene generado: "
-                                 f"{', '.join(pedidos_no_disponibles)}.")
+        raise HTTPException(400, f"Esta misión no tiene generado: {', '.join(pedidos_no_disponibles)}.")
     errors, env = _validate_export(
-        mission_dir, export_dir.strip(), products,
-        export_raster_format.strip().lower(), export_vector_format.strip().lower(),
-        export_epsg, crear=True)
+        mission_dir,
+        export_dir.strip(),
+        products,
+        export_raster_format.strip().lower(),
+        export_vector_format.strip().lower(),
+        export_epsg,
+        crear=True,
+    )
     if errors:
         raise HTTPException(400, " ".join(errors))
 
@@ -1111,25 +1190,38 @@ async def export_mission(mission: str, export_dir: str = Form(...),
     run_env.update(env)
     run_env["RAPTOR_EXPORT_SOURCE_DIR"] = str(mission_dir / "outputs")
     proc = await asyncio.create_subprocess_exec(
-        sys.executable, "scripts/export_products.py",
-        cwd="/app", env=run_env,
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        sys.executable,
+        "scripts/export_products.py",
+        cwd="/app",
+        env=run_env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
     )
     out, _ = await proc.communicate()
     log = out.decode(errors="replace")
     if proc.returncode != 0:
         # Cola del log, no todo: export_products.py puede imprimir bastante
         # por producto y el modal solo necesita el motivo del fallo.
-        raise HTTPException(500, log.strip().splitlines()[-1] if log.strip() else
-                            "la exportación falló sin mensaje — ver logs del contenedor")
+        raise HTTPException(
+            500,
+            log.strip().splitlines()[-1]
+            if log.strip()
+            else "la exportación falló sin mensaje — ver logs del contenedor",
+        )
     return {"ok": True, "host_dir": env.get("EXPORT_HOST_DIR", "")}
 
 
 @app.get("/api/missions/{mission}/quality-estimate")
-def quality_estimate(mission: str, preset: str = "", quality: int | None = None,
-                     mode: str = "rgb+thermal", terreno: str = "escarpado",
-                     has_multispectral: bool = False, n_photos: int | None = None,
-                     lang: str = "es"):
+def quality_estimate(
+    mission: str,
+    preset: str = "",
+    quality: int | None = None,
+    mode: str = "rgb+thermal",
+    terreno: str = "escarpado",
+    has_multispectral: bool = False,
+    n_photos: int | None = None,
+    lang: str = "es",
+):
     """A qué resolución van a salir los productos y cuánto se espera que
     tarde — mismo cálculo que ve `./raptor run` antes de arrancar
     (scripts/hardware.py, fuente única) y que corre después de verdad en
@@ -1153,8 +1245,7 @@ def quality_estimate(mission: str, preset: str = "", quality: int | None = None,
     por_sensor = None
     if n_photos is None:
         _safe, mission_dir = _mission_dir(mission)
-        uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k))
-                   for k in UPLOAD_KINDS}
+        uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k)) for k in UPLOAD_KINDS}
         n_photos = 0
         rgb = th = ms = 0
         if mode != "none":
@@ -1179,15 +1270,20 @@ def quality_estimate(mission: str, preset: str = "", quality: int | None = None,
     if mode == "thermal-convert":
         en = idioma == "en"
         return {
-            "tiempo_texto": "Estimated time: ~1 minute (SDK conversion to GeoTIFF with EXIF tags)" if en else "Tiempo estimado: ~1 minuto (conversión con SDK a GeoTIFF con tags EXIF/GPS)",
-            "resolucion_texto": "Native thermal resolution (640×512) in Float32 °C" if en else "Resolución nativa del sensor térmico (640×512) en Float32 °C",
-            "modelo_texto": "Thermal conversion only (no 3D reconstruction)" if en else "Solo conversión térmica (sin reconstrucción 3D)",
+            "tiempo_texto": "Estimated time: ~1 minute (SDK conversion to GeoTIFF with EXIF tags)"
+            if en
+            else "Tiempo estimado: ~1 minuto (conversión con SDK a GeoTIFF con tags EXIF/GPS)",
+            "resolucion_texto": "Native thermal resolution (640×512) in Float32 °C"
+            if en
+            else "Resolución nativa del sensor térmico (640×512) en Float32 °C",
+            "modelo_texto": "Thermal conversion only (no 3D reconstruction)"
+            if en
+            else "Solo conversión térmica (sin reconstrucción 3D)",
             "hardware": {"cores": 8, "mem_available_mb": 16384, "gpu": False, "gpu_name": None},
-            "opciones": []
+            "opciones": [],
         }
     try:
-        return estimate_message(elegido, n_photos, terreno=terreno, por_sensor=por_sensor,
-                                idioma=idioma)
+        return estimate_message(elegido, n_photos, terreno=terreno, por_sensor=por_sensor, idioma=idioma)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
@@ -1195,8 +1291,7 @@ def quality_estimate(mission: str, preset: str = "", quality: int | None = None,
 @app.post("/api/missions/{mission}/validate")
 def validate_mission(mission: str, mode: str = Form(...), has_multispectral: bool = Form(False)):
     _safe, mission_dir = _mission_dir(mission)
-    uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k))
-               for k in UPLOAD_KINDS}
+    uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k)) for k in UPLOAD_KINDS}
     errors = _validate(mode, has_multispectral, uploads)
     return {"ok": not errors, "errors": errors}
 
@@ -1208,19 +1303,21 @@ def validate_mission(mission: str, mode: str = Form(...), has_multispectral: boo
 # de arrancar una corrida que podía tardar horas, sin saber todavía qué iba a
 # salir. PipelineRun sigue aceptando `export`, pero acá siempre va vacío.
 @app.post("/api/missions/{mission}/start")
-async def start_mission(mission: str, mode: str = Form(...),
-                        has_multispectral: bool = Form(False),
-                        dband: bool = Form(False),
-                        preset: str = Form("cartografico"),
-                        terreno: str = Form("escarpado"),
-                        subsample: int = Form(0)):
+async def start_mission(
+    mission: str,
+    mode: str = Form(...),
+    has_multispectral: bool = Form(False),
+    dband: bool = Form(False),
+    preset: str = Form("cartografico"),
+    terreno: str = Form("escarpado"),
+    subsample: int = Form(0),
+):
     global _state
     if _state is not None and not _state.done:
         raise HTTPException(409, f"Ya hay una misión procesándose: {_state.mission_name}")
 
     safe, mission_dir = _mission_dir(mission, create=True)
-    uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k))
-               for k in UPLOAD_KINDS}
+    uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k)) for k in UPLOAD_KINDS}
     errors = _validate(mode, has_multispectral, uploads)
     if mode != "thermal-convert":
         try:
@@ -1245,10 +1342,17 @@ async def start_mission(mission: str, mode: str = Form(...),
     activate_mission(mission_dir)
     progress_file = mission_dir / "progress.ndjson"
     run_obj = PipelineRun(
-        mode=mode, source_dir=source_dir, ms_source_dir=ms_source_dir,
-        port=8080, progress_file=progress_file,
-        export={}, preset=preset, dband=dband, terreno=terreno,
-        subsample=subsample, mission_name=safe,
+        mode=mode,
+        source_dir=source_dir,
+        ms_source_dir=ms_source_dir,
+        port=8080,
+        progress_file=progress_file,
+        export={},
+        preset=preset,
+        dband=dband,
+        terreno=terreno,
+        subsample=subsample,
+        mission_name=safe,
     )
     await run_obj.start()
     _state = RunState(safe, mission_dir, run_obj, mode, has_multispectral, dband)
@@ -1268,32 +1372,52 @@ async def events(mission: str):
 
     async def gen():
         pos = 0
-        log_pos = 0   # índice ABSOLUTO (la ventana de log descarta las viejas)
+        log_pos = 0  # índice ABSOLUTO (la ventana de log descarta las viejas)
         # Primer evento: el reloj del servidor y el plan real de la corrida,
         # para que una pestaña que se reengancha reconstruya la vista completa
         # (cronómetro incluido) sin depender de lo que tenía en memoria.
-        yield ("data: " + json.dumps({
-            "kind": "hello", "elapsed": round(state.elapsed()),
-            "mode": state.mode, "has_multispectral": state.has_ms, "dband": state.dband,
-            "done": state.done}) + "\n\n")
+        yield (
+            "data: "
+            + json.dumps(
+                {
+                    "kind": "hello",
+                    "elapsed": round(state.elapsed()),
+                    "mode": state.mode,
+                    "has_multispectral": state.has_ms,
+                    "dband": state.dband,
+                    "done": state.done,
+                }
+            )
+            + "\n\n"
+        )
         while True:
             pos, evs = parse_progress_events(str(state.run.progress_file), pos)
             for ev in evs:
                 yield f"data: {json.dumps({'kind': 'progress', **ev})}\n\n"
             if log_pos < state.log_total:
                 start = max(log_pos, state.log_dropped)
-                for line in state.log_lines[start - state.log_dropped:]:
+                for line in state.log_lines[start - state.log_dropped :]:
                     yield f"data: {json.dumps({'kind': 'log', 'line': line})}\n\n"
                 log_pos = state.log_total
             if state.done:
-                yield ("data: " + json.dumps({
-                    "kind": "done", "returncode": state.returncode,
-                    "elapsed": round(state.elapsed()), "error": state.error}) + "\n\n")
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {
+                            "kind": "done",
+                            "returncode": state.returncode,
+                            "elapsed": round(state.elapsed()),
+                            "error": state.error,
+                        }
+                    )
+                    + "\n\n"
+                )
                 break
             await asyncio.sleep(0.4)
 
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    return StreamingResponse(
+        gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    )
 
 
 @app.post("/api/missions/{mission}/cancel")
@@ -1346,8 +1470,7 @@ def delete_mission(mission: str):
 
     papelera = mission_dir.with_name(f".borrando_{safe}_{int(time.time())}")
     mission_dir.rename(papelera)
-    threading.Thread(target=shutil.rmtree, args=(papelera,),
-                     kwargs={"ignore_errors": True}, daemon=True).start()
+    threading.Thread(target=shutil.rmtree, args=(papelera,), kwargs={"ignore_errors": True}, daemon=True).start()
     return {"ok": True}
 
 
@@ -1358,8 +1481,12 @@ def run_log(mission: str, tail: int = 200):
     adivinando qué pasó."""
     safe = sanitize_mission_name(mission)
     if _state is not None and _state.mission_name == safe:
-        return {"lines": _state.log_lines[-tail:], "done": _state.done,
-                "returncode": _state.returncode, "source": "memoria"}
+        return {
+            "lines": _state.log_lines[-tail:],
+            "done": _state.done,
+            "returncode": _state.returncode,
+            "source": "memoria",
+        }
 
     # Respaldo en DISCO: el estado en memoria solo cubre la última corrida de
     # ESTE proceso, así que tras reiniciar el servidor —o al mirar cualquier
@@ -1378,8 +1505,7 @@ def run_log(mission: str, tail: int = 200):
         lineas = ultimo.read_text(errors="replace").splitlines()
     except OSError as exc:
         raise HTTPException(500, f"no se pudo leer {ultimo.name}: {exc}")
-    return {"lines": lineas[-tail:], "done": True, "returncode": None,
-            "source": f"outputs/logs/{ultimo.name}"}
+    return {"lines": lineas[-tail:], "done": True, "returncode": None, "source": f"outputs/logs/{ultimo.name}"}
 
 
 @app.get("/api/missions/{mission}/sample")
@@ -1466,7 +1592,7 @@ async def save_mission_area(mission: str, data: dict = Body(...)):
     # Guardar en outputs/ y en raíz de la misión
     exp_file = outputs_dir / "area_afectada_experto.geojson"
     exp_file.write_text(json.dumps(gj, indent=2, ensure_ascii=False), encoding="utf-8")
-    
+
     root_exp = mission_dir / "area_afectada_experto.geojson"
     try:
         root_exp.write_text(json.dumps(gj, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -1478,8 +1604,12 @@ async def save_mission_area(mission: str, data: dict = Body(...)):
     for bd in bench_dir.iterdir() if bench_dir.exists() else []:
         if bd.is_dir() and (bd.name.lower().startswith(safe.lower()) or safe.lower().startswith(bd.name.lower())):
             try:
-                (bd / "outputs/area_afectada_experto.geojson").write_text(json.dumps(gj, indent=2, ensure_ascii=False), encoding="utf-8")
-                (bd / "area_afectada_experto.geojson").write_text(json.dumps(gj, indent=2, ensure_ascii=False), encoding="utf-8")
+                (bd / "outputs/area_afectada_experto.geojson").write_text(
+                    json.dumps(gj, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
+                (bd / "area_afectada_experto.geojson").write_text(
+                    json.dumps(gj, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
             except Exception:
                 pass
 
@@ -1488,7 +1618,7 @@ async def save_mission_area(mission: str, data: dict = Body(...)):
         "total_area_ha": total_ha,
         "total_area_m2": round(total_m2, 1),
         "features_count": len(gj.get("features", [])),
-        "message": f"Área afectada guardada correctamente: {total_ha} ha ({round(total_m2, 1)} m²)"
+        "message": f"Área afectada guardada correctamente: {total_ha} ha ({round(total_m2, 1)} m²)",
     }
 
 
@@ -1538,6 +1668,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR), follow_symlink=True)
 
 if __name__ == "__main__":
     import uvicorn
+
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
     print(f"""
 ╔══════════════════════════════════════════════════╗

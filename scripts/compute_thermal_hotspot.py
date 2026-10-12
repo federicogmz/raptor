@@ -20,6 +20,7 @@ Uso: python3 scripts/compute_thermal_hotspot.py
 Lee: outputs/thermal_orthomosaic.tif
 Escribe: outputs/termico_hotspot_class.tif
 """
+
 import os
 import sys
 

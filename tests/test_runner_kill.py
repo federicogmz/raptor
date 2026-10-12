@@ -9,6 +9,7 @@ antes y después. Acá se prueba con un árbol de procesos real (bash
 generando sus propios hijos con `sleep`, sin nada simulado) que
 _descendant_pids()/kill() de verdad los alcanzan a todos.
 """
+
 import asyncio
 import os
 import signal
@@ -42,9 +43,7 @@ class TestDescendantPids:
         # bash que arranca un hijo, que arranca un nieto — árbol real de 3
         # niveles, cada uno un `sleep` propio para poder verificar quién
         # sigue vivo después.
-        p = subprocess.Popen(
-            ["bash", "-c", "sleep 30 & child=$!; "
-             "bash -c 'sleep 30 & wait' & grandchild=$!; wait"])
+        p = subprocess.Popen(["bash", "-c", "sleep 30 & child=$!; bash -c 'sleep 30 & wait' & grandchild=$!; wait"])
         try:
             time.sleep(0.3)  # que el árbol termine de armarse
             hijos = _descendant_pids(p.pid)
@@ -72,17 +71,18 @@ class TestKillMataElArbolCompleto:
         arranca PipelineRun) lanza un hijo, que lanza un nieto — como
         entrypoint.sh -> run.py -> opensfm. kill() tiene que tumbar los
         tres, no solo el primero."""
+
         async def _correr():
-            run = PipelineRun(mode="rgb", source_dir="/tmp",
-                              progress_file=str(tmp_path / "progress.ndjson"))
+            run = PipelineRun(mode="rgb", source_dir="/tmp", progress_file=str(tmp_path / "progress.ndjson"))
             # Reemplaza el binario real (docker/entrypoint.sh) por un árbol
             # de bash equivalente, para no depender de nada del pipeline
             # de verdad.
             run._proc = await asyncio.create_subprocess_exec(
-                "bash", "-c",
-                "sleep 30 & echo hijo:$! ; "
-                "bash -c 'sleep 30 & echo nieto:$! >&2; wait' & wait",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                "bash",
+                "-c",
+                "sleep 30 & echo hijo:$! ; bash -c 'sleep 30 & echo nieto:$! >&2; wait' & wait",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
             await asyncio.sleep(0.3)
             nietos = _descendant_pids(run._proc.pid)
@@ -100,6 +100,7 @@ class TestKillMataElArbolCompleto:
                 await asyncio.wait_for(run._proc.wait(), timeout=5)
             except asyncio.TimeoutError:
                 pass
+
         asyncio.run(_correr())
 
     def test_kill_no_hace_nada_si_no_hay_proceso_corriendo(self):

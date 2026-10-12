@@ -17,6 +17,7 @@ estructural habría detectado. Se deja como test manual, no automatizado:
 agregar Node+jsdom a la imagen de test es una decisión de infraestructura
 aparte, no tomada acá.
 """
+
 import os
 import re
 
@@ -41,7 +42,7 @@ def _cuerpo_de(js, nombre):
         elif js[i] == "}":
             prof -= 1
         i += 1
-    return js[m.end():i - 1]
+    return js[m.end() : i - 1]
 
 
 class TestOrdenDeDeclaracion:
@@ -75,7 +76,8 @@ class TestOrdenDeDeclaracion:
             "let liveMsBandIds tiene que declararse ANTES de la primera llamada "
             "a renderCapasPanel() — esa llamada invoca legend() de forma "
             "síncrona para cada capa, y una 'let' declarada después cae en la "
-            "zona muerta temporal (bug real, ver el docstring de esta clase)")
+            "zona muerta temporal (bug real, ver el docstring de esta clase)"
+        )
 
     def test_solo_hay_una_declaracion_de_liveMsBandIds(self):
         js = _js()
@@ -161,13 +163,15 @@ class TestCajaAgregarMsNoSeDuplica:
         assert "addMsCtaHTML(" not in cuerpo, (
             "el panel de Capas no debe generar su propio botón — "
             "addMsEmptyGroupHTML() ya cubre la explicación sin duplicar el "
-            "que vive al pie del sidebar")
+            "que vive al pie del sidebar"
+        )
 
     def test_renderSummaryCards_no_repite_el_boton(self):
         cuerpo = _cuerpo_de(_js(), "renderSummaryCards")
         assert "addMsCtaHTML(" not in cuerpo, (
             "la tarjeta de 'Área afectada, severidad y vegetación' no debe "
-            "traer su propio botón — el del pie del sidebar ya cubre la acción")
+            "traer su propio botón — el del pie del sidebar ya cubre la acción"
+        )
         assert "Agregar vuelo multiespectral" not in cuerpo
 
     def test_addMsCtaHTML_solo_lo_llama_el_pie_del_sidebar(self):
@@ -177,7 +181,8 @@ class TestCajaAgregarMsNoSeDuplica:
         # la otra tiene que ser la única llamada real — renderFooterAddMsCta().
         assert len(llamadas) == 2, (
             f"se esperaban 2 apariciones de 'addMsCtaHTML(' (la definición + "
-            f"UNA sola llamada, desde renderFooterAddMsCta), hay {len(llamadas)}")
+            f"UNA sola llamada, desde renderFooterAddMsCta), hay {len(llamadas)}"
+        )
         cuerpo = _cuerpo_de(js, "renderFooterAddMsCta")
         assert "addMsCtaHTML(" in cuerpo
 
@@ -233,7 +238,8 @@ class TestComparadorNoRevientaSinCapasOpcionales:
             "sin este filtro, un id de COMPARABLE_IDS sin entrada en "
             "LAYER_REGISTRY (p.ej. un índice en una misión sin "
             "multiespectral) revienta en LAYER_REGISTRY[id].label y corta "
-            "toggleCompare() a la mitad")
+            "toggleCompare() a la mitad"
+        )
 
     def test_initSliderDrag_no_se_llama_en_cada_activacion(self):
         """Antes initSliderDrag() corría en cada apertura de 'Comparar', no
@@ -252,7 +258,8 @@ class TestComparadorNoRevientaSinCapasOpcionales:
         assert i_guard < i_init < i_fullw, (
             "initSliderDrag() tiene que llamarse dentro de la inicialización "
             "de una sola vez (if(!compareLeftMap){...}), antes de fullW=, no "
-            "en cada activación de toggleCompare()")
+            "en cada activación de toggleCompare()"
+        )
 
 
 # TestPestanaVegetacionSinMultiespectral existía acá: protegía la pestaña
@@ -282,7 +289,8 @@ class TestEstadoDeEtapaRendereaHTML:
         cuerpo = _cuerpo_de(_js(), "phSetStage")
         assert "el.innerHTML=" in cuerpo, (
             "phSetStage tiene que asignar con innerHTML — el handler 'done' "
-            "le pasa un ícono <svg> esperando que se renderice, no texto plano")
+            "le pasa un ícono <svg> esperando que se renderice, no texto plano"
+        )
         assert "el.textContent=" not in cuerpo
 
     def test_el_handler_done_le_pasa_markup_de_icono(self):
@@ -291,6 +299,6 @@ class TestEstadoDeEtapaRendereaHTML:
         refactor futuro dejara de llamarlo, este test lo nota."""
         js = _js()
         i = js.index("}else if(d.kind==='done'){")
-        bloque = js[i:i + 800]
+        bloque = js[i : i + 800]
         assert "phSetStage(ok" in bloque
         assert "<svg" in bloque

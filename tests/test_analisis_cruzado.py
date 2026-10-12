@@ -16,6 +16,7 @@ cambiarlo, y estos tests fijan ese orden.
 Este test EXTRAE el bloque real del entrypoint y lo corre con stubs, así que
 no puede quedar desincronizado de la fuente.
 """
+
 import os
 import re
 import subprocess
@@ -63,13 +64,19 @@ def _bloque_completo():
 
 
 def _correr(guion_extra, do_confianza=1, do_thermal=1, do_ms=0, timeout=15):
-    guion = STUBS + f"""
+    guion = (
+        STUBS
+        + f"""
 DO_CONFIANZA={do_confianza}
 DO_THERMAL={do_thermal}
 DO_MS={do_ms}
-""" + guion_extra + "\n" + _bloque() + '\necho "SALIDA=$?"\necho "PIPELINE_HAD_FAILURE=$PIPELINE_HAD_FAILURE"\n'
-    return subprocess.run(["bash", "-c", guion], capture_output=True, text=True,
-                          timeout=timeout)
+"""
+        + guion_extra
+        + "\n"
+        + _bloque()
+        + '\necho "SALIDA=$?"\necho "PIPELINE_HAD_FAILURE=$PIPELINE_HAD_FAILURE"\n'
+    )
+    return subprocess.run(["bash", "-c", guion], capture_output=True, text=True, timeout=timeout)
 
 
 class TestConfianzaYFlightQualityCorrenEnParalelo:
@@ -100,8 +107,8 @@ python3() { return 0; }
         assert "SALIDA=0" in r.stdout, r.stdout + r.stderr
         m = dict((n, int(t)) for n, t in re.findall(r"MARCA (\S+) (\d+)", r.stdout))
         assert m["vuelo-ini"] < m["confianza-fin"], (
-            f"flight-quality esperó a que confianza terminara — ya no "
-            f"debería, ninguna depende de la otra: {m}")
+            f"flight-quality esperó a que confianza terminara — ya no debería, ninguna depende de la otra: {m}"
+        )
 
 
 class TestHotspotYSituacionSiempreConTermico:
@@ -278,20 +285,19 @@ run_odm() {
 }
 """ % str(tmp_path)
         guion = STUBS_DESPACHO_COMPLETO + extra + "\n" + _bloque_completo() + '\necho "SALIDA=$?"\n'
-        r = subprocess.run(["bash", "-c", guion], capture_output=True, text=True,
-                           timeout=30, cwd=str(tmp_path))
+        r = subprocess.run(["bash", "-c", guion], capture_output=True, text=True, timeout=30, cwd=str(tmp_path))
         assert "SALIDA=0" in r.stdout, r.stdout + r.stderr
         m = dict((n, int(t)) for n, t in re.findall(r"MARCA (\S+) (\d+)", r.stdout))
         assert "vuelo-ini" in m, r.stdout + r.stderr
         assert "rgb-fin" in m, r.stdout + r.stderr
         assert m["vuelo-ini"] < m["rgb-fin"], (
-            f"calidad de vuelo esperó a que RGB terminara aunque no depende "
-            f"de RGB (solo de térmico): {m}")
+            f"calidad de vuelo esperó a que RGB terminara aunque no depende de RGB (solo de térmico): {m}"
+        )
         # Confianza SÍ depende de RGB (rgb+térmico) — tiene que esperarlo,
         # a diferencia de calidad de vuelo. Mismo escenario, resultado
         # opuesto a propósito: confirma que la independencia es del sensor
         # correcto, no que "nada espera a nada".
         assert "confianza-ini" in m, r.stdout + r.stderr
         assert m["confianza-ini"] >= m["rgb-fin"], (
-            f"máscara de confianza SÍ depende de RGB — no debería arrancar "
-            f"antes de que termine: {m}")
+            f"máscara de confianza SÍ depende de RGB — no debería arrancar antes de que termine: {m}"
+        )

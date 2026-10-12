@@ -6,6 +6,7 @@ El disparador solía tener un segundo camino ("área afectada sin focos" —
 via el ya eliminado area_ha) — ahora es puramente hotspots_activos > 0,
 porque situation.json ya no tiene ninguna noción de área/severidad.
 """
+
 import json
 import os
 import sys

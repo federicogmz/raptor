@@ -11,11 +11,14 @@ misión con térmico, con o sin multiespectral: focos térmicos discretos
 (temperatura ABSOLUTA, no depende de NDVI) + confianza por cobertura del
 ortomosaico térmico + fecha de captura desde flight_path.geojson.
 """
+
 import json
 import os
 
 import numpy as np
 import pytest
+
+pytest.importorskip("osgeo")
 from osgeo import gdal, osr
 
 gdal.UseExceptions()
@@ -50,8 +53,14 @@ def _hotspot_class(path, clases_2d):
 
 
 def _flight_path(path, tiempos):
-    features = [{"type": "Feature", "properties": {"kind": "capture", "time": t},
-                "geometry": {"type": "Point", "coordinates": [-75.5, 6.4]}} for t in tiempos]
+    features = [
+        {
+            "type": "Feature",
+            "properties": {"kind": "capture", "time": t},
+            "geometry": {"type": "Point", "coordinates": [-75.5, 6.4]},
+        }
+        for t in tiempos
+    ]
     with open(path, "w") as f:
         json.dump({"type": "FeatureCollection", "features": features}, f)
 
@@ -66,6 +75,7 @@ def mision(tmp_path, monkeypatch):
 def _correr():
     import importlib
     import compute_situation_summary as S
+
     importlib.reload(S)
     return S.main()
 
@@ -79,20 +89,19 @@ class TestResumen:
         clases = np.ones((n, n), np.uint8)
         clases[5:10, 5:10] = 4
         _hotspot_class("outputs/termico_hotspot_class.tif", clases)
-        _flight_path("outputs/flight_path.geojson",
-                     ["2026-08-01T10:00:00", "2026-08-01T10:05:00"])
+        _flight_path("outputs/flight_path.geojson", ["2026-08-01T10:00:00", "2026-08-01T10:05:00"])
 
         assert _correr() == 0
         assert os.path.isfile("outputs/situation.json")
         with open("outputs/situation.json") as f:
             s = json.load(f)
 
-        assert s["captura"] == "2026-08-01T10:05:00", \
+        assert s["captura"] == "2026-08-01T10:05:00", (
             "la fecha de captura tiene que salir de flight_path.geojson, no quedar en None"
+        )
         assert s["hotspots_activos"] == 1
         assert s["hotspots"][0]["temp_c"] == 95.0
-        assert "severidad" not in s["hotspots"][0], \
-            "sin polígono de área afectada, el hotspot ya no lleva severidad"
+        assert "severidad" not in s["hotspots"][0], "sin polígono de área afectada, el hotspot ya no lleva severidad"
         # Reportado: sin focos activos, el resumen (y la imagen exportada)
         # no mostraban NINGÚN valor de temperatura — solo el conteo de focos.
         # temp_max/temp_promedio salen de TODO el ortomosaico térmico, no
@@ -102,8 +111,7 @@ class TestResumen:
         assert s["cobertura_pct"] == 100.0
         # Las claves del modo multiespectral (área/severidad/vegetación),
         # producidas por módulos ya eliminados, no existen más en absoluto.
-        for clave in ("solo_termico", "area_ha", "severidad",
-                      "vegetacion_comprometida_pct", "sin_impacto_detectado"):
+        for clave in ("solo_termico", "area_ha", "severidad", "vegetacion_comprometida_pct", "sin_impacto_detectado"):
             assert clave not in s, f"'{clave}' ya no debería aparecer en situation.json"
 
     def test_sin_focos_activos_confianza_por_cobertura_termica(self, mision):
@@ -135,9 +143,9 @@ class TestResumen:
         _thermal("outputs/thermal_orthomosaic.tif", temps)
         _hotspot_class("outputs/termico_hotspot_class.tif", np.ones((n, n), np.uint8))
         _flight_path("outputs/flight_path.geojson", ["2026-08-01T11:00:00"])
-        ndvi_ds = gdal.GetDriverByName("GTiff").Create(
-            "outputs/indices/ndvi.tif", n, n, 1, gdal.GDT_Float32)
-        ndvi_ds.SetGeoTransform(GT); ndvi_ds.SetProjection(_wkt())
+        ndvi_ds = gdal.GetDriverByName("GTiff").Create("outputs/indices/ndvi.tif", n, n, 1, gdal.GDT_Float32)
+        ndvi_ds.SetGeoTransform(GT)
+        ndvi_ds.SetProjection(_wkt())
         ndvi_ds.GetRasterBand(1).WriteArray(np.full((n, n), 0.5, np.float32))
         ndvi_ds = None
 

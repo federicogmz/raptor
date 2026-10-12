@@ -7,12 +7,15 @@ el cwd ya preparado — mismo patrón que el resto de la suite usa para este
 archivo (ver tests/test_trim_characterization.py para el precedente con
 trim_low_overlap_edges.py, que sí tiene la guarda).
 """
+
 import json
 import os
 import sys
 
 import numpy as np
 import pytest
+
+pytest.importorskip("osgeo")
 from osgeo import gdal, osr
 
 gdal.UseExceptions()
@@ -55,7 +58,9 @@ def correr(tmp_path, monkeypatch):
         if REPO_SCRIPTS not in sys.path:
             sys.path.insert(0, REPO_SCRIPTS)
         import generate_tiles as G
+
         return G
+
     return _ejecutar
 
 
@@ -69,12 +74,15 @@ class TestZoomRange:
     módulo, solo importarlo (con cwd escribible, por los efectos de
     importación) y llamarla directo."""
 
-    @pytest.mark.parametrize("px_m,esperado,desc", [
-        (0.08, 21, "RGB/DSM a 8 cm — antes cortaba en 20 (14.8 cm) y tiraba detalle"),
-        (0.21, 20, "térmico a 21 cm"),
-        (0.02, 23, "hipotético 2 cm"),
-        (1.20, 17, "grueso 1.2 m"),
-    ])
+    @pytest.mark.parametrize(
+        "px_m,esperado,desc",
+        [
+            (0.08, 21, "RGB/DSM a 8 cm — antes cortaba en 20 (14.8 cm) y tiraba detalle"),
+            (0.21, 20, "térmico a 21 cm"),
+            (0.02, 23, "hipotético 2 cm"),
+            (1.20, 17, "grueso 1.2 m"),
+        ],
+    )
     def test_deriva_el_zoom_de_la_resolucion_real(self, correr, tmp_path, px_m, esperado, desc):
         G = correr()
         p = _raster(str(tmp_path / f"t_{px_m}.tif"), px_m)
@@ -113,11 +121,14 @@ class TestCapasDisponibles:
         assert "hotspot_termico" in b["capas_disponibles"]
         assert "ndvi_class" not in b["capas_disponibles"]
 
-    @pytest.mark.parametrize("presentes,esperado", [
-        (["termico_hotspot_class.tif"], {"hotspot_termico"}),
-        (["indices/ndvi_class.tif"], {"ndvi_class"}),
-        (["termico_hotspot_class.tif", "indices/ndvi_class.tif"], {"hotspot_termico", "ndvi_class"}),
-    ])
+    @pytest.mark.parametrize(
+        "presentes,esperado",
+        [
+            (["termico_hotspot_class.tif"], {"hotspot_termico"}),
+            (["indices/ndvi_class.tif"], {"ndvi_class"}),
+            (["termico_hotspot_class.tif", "indices/ndvi_class.tif"], {"hotspot_termico", "ndvi_class"}),
+        ],
+    )
     def test_combinaciones_de_insumos(self, correr, presentes, esperado):
         _dsm()
         os.makedirs("outputs/indices", exist_ok=True)
@@ -133,7 +144,8 @@ class TestCapasDisponibles:
         os.makedirs("outputs", exist_ok=True)
         # to_8bit(bands=3) espera un ráster de 3+ bandas (RGB u RGBA real) —
         # a diferencia de severidad/hotspot/índices, que son Byte de 1 banda.
-        s = osr.SpatialReference(); s.ImportFromEPSG(32618)
+        s = osr.SpatialReference()
+        s.ImportFromEPSG(32618)
         ds = gdal.GetDriverByName("GTiff").Create("outputs/rgb_orthomosaic.tif", 64, 64, 4, gdal.GDT_Byte)
         ds.SetGeoTransform((466000.0, 0.08, 0.0, 708900.0, 0.0, -0.08))
         ds.SetProjection(s.ExportToWkt())
@@ -159,7 +171,8 @@ class TestCapasDisponibles:
 
     def test_bandas_ms_crudas_se_reportan(self, correr):
         _dsm()
-        s = osr.SpatialReference(); s.ImportFromEPSG(32618)
+        s = osr.SpatialReference()
+        s.ImportFromEPSG(32618)
         ds = gdal.GetDriverByName("GTiff").Create("outputs/multispectral_orthomosaic.tif", 64, 64, 5, gdal.GDT_Float32)
         ds.SetGeoTransform((466000.0, 0.05, 0.0, 708900.0, 0.0, -0.05))
         ds.SetProjection(s.ExportToWkt())

@@ -10,6 +10,7 @@ sale de la nube dispersa (mismo mecanismo que banda D).
 Estos tests extraen el bloque REAL de docker/entrypoint.sh (_odm_args y el
 chequeo de CUDA), así que no pueden quedar desincronizados de la fuente.
 """
+
 import os
 import re
 import subprocess
@@ -35,8 +36,7 @@ FAST_ORTHOPHOTO_THERMAL={fast_ortho_thermal}
 {_bloque_odm_args()}
 _odm_args thermal
 """
-    return subprocess.run(["bash", "-c", guion], capture_output=True, text=True,
-                          timeout=15)
+    return subprocess.run(["bash", "-c", guion], capture_output=True, text=True, timeout=15)
 
 
 class TestFastOrthophotoTermico:
@@ -73,7 +73,7 @@ class TestChequeoCudaTieneEnCuentaAlTermico:
     def _condicion(self):
         src = open(ENTRYPOINT, encoding="utf-8").read()
         ini = src.index('if [[ "$SKIP_ODM" -eq 0 \\')
-        fin = src.index("&& -x \"$_DENSIFY\" ]]", ini)
+        fin = src.index('&& -x "$_DENSIFY" ]]', ini)
         return src[ini:fin]
 
     def test_la_condicion_menciona_a_FAST_ORTHOPHOTO_THERMAL(self):

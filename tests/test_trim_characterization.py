@@ -11,12 +11,15 @@ el alpha de ODM no tenía). Si un refactor cambia un solo píxel del golden,
 falla — no pretende que el número sea "correcto" en sentido absoluto, es lo
 que el código hace HOY, que es justo lo que un refactor debe preservar.
 """
+
 import hashlib
 import json
 import os
 
 import numpy as np
 import pytest
+
+pytest.importorskip("osgeo")
 from osgeo import gdal
 
 import trim_low_overlap_edges as T
@@ -24,8 +27,7 @@ from synthetic import escribir_raster, extent_para, reconstruccion
 
 gdal.UseExceptions()
 
-GOLDEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden",
-                      "trim_masks.json")
+GOLDEN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golden", "trim_masks.json")
 
 
 def _huella(mask):
@@ -57,8 +59,7 @@ def mision(tmp_path, monkeypatch):
     for b in range(3):
         rgb[b] = (rng.random((H, W)) * 200 + 30).astype(np.uint8)
     rgb[3] = np.where(alpha_bool, 255, 0)
-    rgb_src = escribir_raster(str(d / "rgb_odm.tif"), rgb, gt,
-                              dtype=gdal.GDT_Byte, alpha_last=True)
+    rgb_src = escribir_raster(str(d / "rgb_odm.tif"), rgb, gt, dtype=gdal.GDT_Byte, alpha_last=True)
 
     # Cotas BAJAS a propósito: las poses de OpenSfM son topocéntricas con
     # origen en reference_lla, así que la Z de las cámaras (50 m) y la del DSM
@@ -68,17 +69,20 @@ def mision(tmp_path, monkeypatch):
     dsm = np.where(alpha_bool, 2 + rng.random((H, W)) * 3, np.nan).astype(np.float32)
     dsm_p = escribir_raster(str(d / "dsm.tif"), dsm, gt, nodata=float("nan"))
 
-    th = np.stack([np.where(alpha_bool, 25 + rng.random((H, W)) * 15, np.nan),
-                   np.where(alpha_bool, 255.0, 0.0)]).astype(np.float32)
-    th_src = escribir_raster(str(d / "th_odm.tif"), th, gt, alpha_last=True,
-                             nodata=float("nan"))
+    th = np.stack(
+        [np.where(alpha_bool, 25 + rng.random((H, W)) * 15, np.nan), np.where(alpha_bool, 255.0, 0.0)]
+    ).astype(np.float32)
+    th_src = escribir_raster(str(d / "th_odm.tif"), th, gt, alpha_last=True, nodata=float("nan"))
 
-    ms = np.concatenate([
-        np.stack([np.where(alpha_bool, 0.1 + rng.random((H, W)) * 0.6, np.nan)
-                  for _ in range(4)]),
-        np.where(alpha_bool, 255.0, 0.0)[np.newaxis, ...]]).astype(np.float32)
-    ms_src = escribir_raster(str(d / "ms_odm.tif"), ms, gt, alpha_last=True,
-                             band_names=["Green", "Red", "RedEdge", "NIR", "alpha"])
+    ms = np.concatenate(
+        [
+            np.stack([np.where(alpha_bool, 0.1 + rng.random((H, W)) * 0.6, np.nan) for _ in range(4)]),
+            np.where(alpha_bool, 255.0, 0.0)[np.newaxis, ...],
+        ]
+    ).astype(np.float32)
+    ms_src = escribir_raster(
+        str(d / "ms_odm.tif"), ms, gt, alpha_last=True, band_names=["Green", "Red", "RedEdge", "NIR", "alpha"]
+    )
 
     recon = reconstruccion(str(d / "opensfm" / "reconstruction.json"))
 
@@ -144,7 +148,8 @@ class TestCaracterizacion:
             "el recorte cambió respecto del golden.\n"
             f"esperado: {json.dumps(esperado, indent=2, sort_keys=True)}\n"
             f"obtenido: {json.dumps(got, indent=2, sort_keys=True)}\n"
-            "Si el cambio es intencional, borrá tests/golden/trim_masks.json y regeneralo.")
+            "Si el cambio es intencional, borrá tests/golden/trim_masks.json y regeneralo."
+        )
 
     def test_el_recorte_solo_quita_area_nunca_agrega(self, mision):
         """Invariante estructural, independiente de los números concretos:
@@ -175,7 +180,8 @@ class TestCaracterizacion:
             "el casco convexo debería conservar bastante más del alpha "
             "original en un vuelo en grilla denso — si conserva mucho "
             "menos, algo volvió a exigir solape entre fotos en vez de una "
-            "sola huella")
+            "sola huella"
+        )
 
     def test_area_lejos_del_vuelo_queda_afuera(self, mision):
         """El casco convexo SÍ tiene un límite real: un alpha "bien
@@ -196,8 +202,9 @@ class TestCaracterizacion:
         T.RGB_ODM_SRC = rgb_lejos
         T.trim_rgb()
         final = _mask_de(T.RGB_PATH, 4)
-        assert not final[:5, :].any(), \
+        assert not final[:5, :].any(), (
             "una franja lejos de toda huella de cámara no debería sobrevivir al casco convexo"
+        )
 
     def test_franja_de_una_sola_foto_sin_solape_se_conserva(self, mision):
         """El bug real que motivó el cambio: una franja cubierta por UNA sola
@@ -209,22 +216,19 @@ class TestCaracterizacion:
         cero por construcción — es exactamente la franja de una sola foto
         que había que dejar de recortar."""
         gt, W, H = extent_para(n_lado=1)
-        recon_fila = reconstruccion(str(mision / "opensfm_fila" / "reconstruction.json"),
-                                    n_lado=1)
+        recon_fila = reconstruccion(str(mision / "opensfm_fila" / "reconstruction.json"), n_lado=1)
         # Alpha=255 en TODO el raster: lo único que decide qué sobrevive acá
         # es el casco convexo, no el alpha.
         rgb = np.zeros((4, H, W), np.uint8)
         rgb[:3] = 100
         rgb[3] = 255
-        rgb_src = escribir_raster(str(mision / "rgb_fila.tif"), rgb, gt,
-                                  dtype=gdal.GDT_Byte, alpha_last=True)
+        rgb_src = escribir_raster(str(mision / "rgb_fila.tif"), rgb, gt, dtype=gdal.GDT_Byte, alpha_last=True)
         T.RGB_ODM_SRC = rgb_src
         T.RGB_PATH = str(mision / "out_fila.tif")
         T.RGB_RECON = recon_fila
         T.trim_rgb()
         final = _mask_de(T.RGB_PATH, 4)
-        assert final.sum() > 0, \
-            "la única foto de este vuelo sintético tiene que dejar ALGO adentro del casco"
+        assert final.sum() > 0, "la única foto de este vuelo sintético tiene que dejar ALGO adentro del casco"
 
     def test_sin_reconstruction_json_no_falla_y_avisa(self, mision, capsys):
         """Degradación explícita: sin poses no hay huellas que calcular, pero
@@ -246,5 +250,4 @@ class TestCaracterizacion:
         W, H = ds.RasterXSize, ds.RasterYSize
         ds = None
         mask = T._footprint_hull_mask(T.RGB_RECON, gt, W, H, proj)
-        assert mask is not None and mask.any(), \
-            "las huellas de cámara tienen que caer sobre el raster"
+        assert mask is not None and mask.any(), "las huellas de cámara tienen que caer sobre el raster"

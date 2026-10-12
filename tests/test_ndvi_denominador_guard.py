@@ -14,11 +14,14 @@ afectada — compute_vegetation_indices.py es ahora la ÚNICA fuente de NDVI,
 y siempre tuvo el piso, así que el bug de raíz ya no puede repetirse por
 duplicación de fórmula.
 """
+
 import os
 import sys
 
 import numpy as np
 import pytest
+
+pytest.importorskip("osgeo")
 from osgeo import gdal, osr
 
 gdal.UseExceptions()
@@ -35,7 +38,8 @@ def _ms_raster(path, red, green, nir, rededge, alpha=None):
     n_bands = 5 if alpha is not None else 4
     ds = gdal.GetDriverByName("GTiff").Create(path, w, h, n_bands, gdal.GDT_Float32)
     ds.SetGeoTransform(GT)
-    s = osr.SpatialReference(); s.ImportFromEPSG(EPSG)
+    s = osr.SpatialReference()
+    s.ImportFromEPSG(EPSG)
     ds.SetProjection(s.ExportToWkt())
     for i, (desc, arr) in enumerate([("Red", red), ("Green", green), ("NIR", nir), ("RedEdge", rededge)], start=1):
         b = ds.GetRasterBand(i)
@@ -53,6 +57,7 @@ def mision(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     os.makedirs("outputs")
     import compute_vegetation_indices as mod
+
     return mod
 
 
@@ -77,8 +82,7 @@ class TestPisoDeNdvi:
         ds = None
 
         valid = np.isfinite(ndvi)
-        assert np.all(np.abs(ndvi[valid]) <= 1.0 + 1e-6), \
-            f"NDVI fuera de [-1,1] en píxeles válidos: {ndvi[valid]}"
+        assert np.all(np.abs(ndvi[valid]) <= 1.0 + 1e-6), f"NDVI fuera de [-1,1] en píxeles válidos: {ndvi[valid]}"
         assert not valid[3, 3], "el píxel con denominador casi-cero debería quedar como NaN"
 
     def test_pixeles_normales_no_se_ven_afectados(self, mision):

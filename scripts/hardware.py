@@ -17,12 +17,14 @@ Uso por CLI:
   python3 scripts/hardware.py quality-tier <0-100>
   python3 scripts/hardware.py estimate --quality 75 --photos 1652
 """
+
 import argparse
 import json
 import os
 import shutil
 import subprocess
 import sys
+
 
 # ── Detección de hardware ───────────────────────────────────────────
 def cpu_count():
@@ -55,16 +57,19 @@ def gpu_info():
     if shutil.which("nvidia-smi") is None:
         return False, None, None
     try:
-        r = subprocess.run(["nvidia-smi", "--query-gpu=name",
-                            "--format=csv,noheader"],
-                           capture_output=True, text=True, timeout=5)
+        r = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], capture_output=True, text=True, timeout=5
+        )
         if r.returncode == 0 and r.stdout.strip():
             name = r.stdout.strip().splitlines()[0].strip()
             vram = None
             try:
-                rv = subprocess.run(["nvidia-smi", "--query-gpu=memory.total",
-                                     "--format=csv,noheader,nounits"],
-                                    capture_output=True, text=True, timeout=5)
+                rv = subprocess.run(
+                    ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
                 if rv.returncode == 0 and rv.stdout.strip():
                     vram = int(rv.stdout.strip().splitlines()[0].split()[0])
             except (OSError, ValueError, subprocess.TimeoutExpired):
@@ -77,8 +82,13 @@ def gpu_info():
 
 def detect_hardware():
     has_gpu, gpu_name, vram_mb = gpu_info()
-    return {"cores": cpu_count(), "mem_available_mb": mem_available_mb(),
-            "gpu": has_gpu, "gpu_name": gpu_name, "vram_mb": vram_mb}
+    return {
+        "cores": cpu_count(),
+        "mem_available_mb": mem_available_mb(),
+        "gpu": has_gpu,
+        "gpu_name": gpu_name,
+        "vram_mb": vram_mb,
+    }
 
 
 def _gpu_dense_offload(vram_min_mb=4096):
@@ -255,17 +265,13 @@ def odm_slots(perfiles_mp, ram_frac=0.8, override=None, max_paralelo=None):
                 # esperan turno heredan la cuota del último de esa tanda.
                 peso = perfiles[i if i < n else n - 1] / total
                 por_proyecto = max(MIN_HILOS_POR_PROYECTO, round(cores * peso))
-            out.append(max(1, min(por_proyecto,
-                                  safe_concurrency(mem_mp, ram_frac=ram_frac / n,
-                                                   gpu_aware=gpu_aware))))
+            out.append(max(1, min(por_proyecto, safe_concurrency(mem_mp, ram_frac=ram_frac / n, gpu_aware=gpu_aware))))
         return out
 
     livianos = [LIGHT_MP] * len(perfiles)
     if tope == 1 or not avail or avail <= 0:
         # Sin dato de memoria no se arriesga nada: uno por vez, como siempre.
-        return {"slots": 1,
-                "hilos": _reparto(1, perfiles, gpu_aware=True),
-                "hilos_light": _reparto(1, livianos)}
+        return {"slots": 1, "hilos": _reparto(1, perfiles, gpu_aware=True), "hilos_light": _reparto(1, livianos)}
 
     slots = 1
     for n in range(tope, 1, -1):
@@ -278,9 +284,11 @@ def odm_slots(perfiles_mp, ram_frac=0.8, override=None, max_paralelo=None):
             slots = n
             break
 
-    return {"slots": slots,
-            "hilos": _reparto(slots, perfiles, gpu_aware=True),
-            "hilos_light": _reparto(slots, livianos)}
+    return {
+        "slots": slots,
+        "hilos": _reparto(slots, perfiles, gpu_aware=True),
+        "hilos_light": _reparto(slots, livianos),
+    }
 
 
 # ── Presets de calidad ───────────────────────────────────────────────
@@ -340,27 +348,42 @@ PRESETS = {
         "orden": 0,
         "titulo": "Táctico",
         "para_que": "Respuesta inmediata en campo: ortomosaico 2.5D ultrarrápido con ODM multiband seamline blending, sin nube densa.",
-        "pc_quality": "low", "feature_quality": "lowest", "res_cm": 10,
-        "min_features": 3000, "matcher_neighbors": 4,
-        "sfm_algorithm": "incremental", "hybrid_ba": True, "fast_orthophoto": True,
+        "pc_quality": "low",
+        "feature_quality": "lowest",
+        "res_cm": 10,
+        "min_features": 3000,
+        "matcher_neighbors": 4,
+        "sfm_algorithm": "incremental",
+        "hybrid_ba": True,
+        "fast_orthophoto": True,
         "tiempo_relativo": 0.25,
     },
     "cartografico": {
         "orden": 1,
         "titulo": "Cartográfico",
         "para_que": "La entrega normal de una misión: ortomosaico corregido, DSM y nube 3D.",
-        "pc_quality": "medium", "feature_quality": "high", "res_cm": 4,
-        "min_features": 8000, "matcher_neighbors": 8,
-        "sfm_algorithm": "incremental", "hybrid_ba": True, "fast_orthophoto": False,
+        "pc_quality": "medium",
+        "feature_quality": "high",
+        "res_cm": 4,
+        "min_features": 8000,
+        "matcher_neighbors": 8,
+        "sfm_algorithm": "incremental",
+        "hybrid_ba": True,
+        "fast_orthophoto": False,
         "tiempo_relativo": 4.0,
     },
     "forense": {
         "orden": 2,
         "titulo": "Forense",
         "para_que": "Peritaje y archivo: el máximo detalle físico que dé el vuelo.",
-        "pc_quality": "high", "feature_quality": "ultra", "res_cm": 1,
-        "min_features": 16000, "matcher_neighbors": 24,
-        "sfm_algorithm": "incremental", "hybrid_ba": False, "fast_orthophoto": False,
+        "pc_quality": "high",
+        "feature_quality": "ultra",
+        "res_cm": 1,
+        "min_features": 16000,
+        "matcher_neighbors": 24,
+        "sfm_algorithm": "incremental",
+        "hybrid_ba": False,
+        "fast_orthophoto": False,
         "tiempo_relativo": 16.0,
     },
 }
@@ -386,6 +409,7 @@ _QUALITY_A_PRESET = ((90, "forense"), (40, "cartografico"), (0, "tactico"))
 TERRENOS = ("plano", "escarpado")
 TERRENO_DEFAULT = "plano"
 
+
 def preset(nombre, terreno=None):
     """Config de un preset por nombre. Acepta también un QUALITY numérico
     (0-100) por compatibilidad — ver _QUALITY_A_PRESET."""
@@ -406,12 +430,12 @@ def preset(nombre, terreno=None):
                 break
         if p is None:
             raise ValueError(
-                f"preset desconocido: {nombre!r}. Opciones: "
-                f"{', '.join(PRESETS_ORDENADOS)} (o un número 0-100 heredado)")
+                f"preset desconocido: {nombre!r}. Opciones: {', '.join(PRESETS_ORDENADOS)} (o un número 0-100 heredado)"
+            )
     else:
         raise ValueError(
-            f"preset desconocido: {nombre!r}. Opciones: "
-            f"{', '.join(PRESETS_ORDENADOS)} (o un número 0-100 heredado)")
+            f"preset desconocido: {nombre!r}. Opciones: {', '.join(PRESETS_ORDENADOS)} (o un número 0-100 heredado)"
+        )
 
     terreno = (terreno or TERRENO_DEFAULT).strip().lower()
     if terreno not in TERRENOS:
@@ -524,10 +548,10 @@ def quality_tier(quality):
 # esos números sería no contar la mejora real. Sigue siendo una
 # aproximación (RANGO 0.5x-2x, rotulada "aproximada"): la escena real pesa
 # más que cualquier coeficiente.
-_SEG_FEATURES = 7.4    # features+matching+undistort, s/foto, paralela
-_SEG_INCR = 3.4        # bundle adjustment incremental CON hybrid_ba, s/foto
-_SEG_MVS = 3.7         # DensifyPointCloud, s/foto, sobre GPU de referencia
-_SEG_MESH = 11.9       # malla+textura, s/foto, paralela
+_SEG_FEATURES = 7.4  # features+matching+undistort, s/foto, paralela
+_SEG_INCR = 3.4  # bundle adjustment incremental CON hybrid_ba, s/foto
+_SEG_MVS = 3.7  # DensifyPointCloud, s/foto, sobre GPU de referencia
+_SEG_MESH = 11.9  # malla+textura, s/foto, paralela
 
 # hybrid_ba apaga el ajuste global en cada foto: sin él el costo del
 # incremental crece con la reconstrucción ya armada (una de 224 fotos quedó
@@ -553,10 +577,8 @@ _FEAT_Q_FACTOR = {"lowest": 0.6, "low": 1.0, "medium": 1.2, "high": 1.6, "ultra"
 # quedaba estimado 5x de más y aparecía como camino crítico cuando no lo es.
 _SENSOR_PESO = {"rgb": 1.0, "thermal": 0.29, "multispectral": 0.22, "dband": 1.0}
 
-_TITULO_SENSOR = {"rgb": "RGB", "thermal": "térmico",
-                  "multispectral": "multiespectral", "dband": "banda D"}
-_TITULO_SENSOR_EN = {"rgb": "RGB", "thermal": "thermal",
-                     "multispectral": "multispectral", "dband": "D band"}
+_TITULO_SENSOR = {"rgb": "RGB", "thermal": "térmico", "multispectral": "multiespectral", "dband": "banda D"}
+_TITULO_SENSOR_EN = {"rgb": "RGB", "thermal": "thermal", "multispectral": "multispectral", "dband": "D band"}
 
 # Traducción de titulo/para_que para el mensaje en inglés (estimate_message,
 # preset_options): PRESETS arriba es la fuente única de los VALORES
@@ -565,15 +587,39 @@ _TITULO_SENSOR_EN = {"rgb": "RGB", "thermal": "thermal",
 # webapp/static/index.html::PRESET_UI_OVERRIDE del lado del cliente, que
 # traduce lo mismo para las tarjetas visibles ahí (vistazo/estandar/maxima).
 _PRESETS_EN = {
-    "tactico":      {"titulo": "Tactical",     "para_que": "Immediate field response: fast 2.5D orthomosaic with ODM seamline blending, no dense cloud."},
-    "cartografico": {"titulo": "Cartographic", "para_que": "Standard mission delivery: corrected orthomosaic, DSM and 3D cloud."},
-    "forense":      {"titulo": "Forensic",     "para_que": "Archival and forensic detail: maximum physical resolution the flight can deliver."},
+    "tactico": {
+        "titulo": "Tactical",
+        "para_que": "Immediate field response: fast 2.5D orthomosaic with ODM seamline blending, no dense cloud.",
+    },
+    "cartografico": {
+        "titulo": "Cartographic",
+        "para_que": "Standard mission delivery: corrected orthomosaic, DSM and 3D cloud.",
+    },
+    "forense": {
+        "titulo": "Forensic",
+        "para_que": "Archival and forensic detail: maximum physical resolution the flight can deliver.",
+    },
     # Aliases
-    "vistazo":      {"titulo": "Tactical",     "para_que": "Immediate field response: fast 2.5D orthomosaic with ODM seamline blending, no dense cloud."},
-    "rapido":       {"titulo": "Tactical",     "para_que": "Immediate field response: fast 2.5D orthomosaic with ODM seamline blending, no dense cloud."},
-    "estandar":     {"titulo": "Cartographic", "para_que": "Standard mission delivery: corrected orthomosaic, DSM and 3D cloud."},
-    "alta":         {"titulo": "Cartographic", "para_que": "Standard mission delivery: corrected orthomosaic, DSM and 3D cloud."},
-    "maxima":       {"titulo": "Forensic",     "para_que": "Archival and forensic detail: maximum physical resolution the flight can deliver."},
+    "vistazo": {
+        "titulo": "Tactical",
+        "para_que": "Immediate field response: fast 2.5D orthomosaic with ODM seamline blending, no dense cloud.",
+    },
+    "rapido": {
+        "titulo": "Tactical",
+        "para_que": "Immediate field response: fast 2.5D orthomosaic with ODM seamline blending, no dense cloud.",
+    },
+    "estandar": {
+        "titulo": "Cartographic",
+        "para_que": "Standard mission delivery: corrected orthomosaic, DSM and 3D cloud.",
+    },
+    "alta": {
+        "titulo": "Cartographic",
+        "para_que": "Standard mission delivery: corrected orthomosaic, DSM and 3D cloud.",
+    },
+    "maxima": {
+        "titulo": "Forensic",
+        "para_que": "Archival and forensic detail: maximum physical resolution the flight can deliver.",
+    },
 }
 
 
@@ -663,7 +709,8 @@ def _fmt_minutos(lo, hi, idioma="es"):
             return "less than 1 min" if idioma == "en" else "menos de 1 min"
         if m < 90:
             return f"{m:.0f} min"
-        return f"{m/60:.1f} h"
+        return f"{m / 60:.1f} h"
+
     if hi <= 0:
         return "—"
     return f"{_f(lo)} – {_f(hi)}" if _f(lo) != _f(hi) else _f(lo)
@@ -673,21 +720,19 @@ def _texto_hardware(hw, idioma="es"):
     if idioma == "en":
         partes = [f"{hw['cores']} cores"]
         if hw.get("mem_available_mb"):
-            partes.append(f"{hw['mem_available_mb']/1024:.0f} GB RAM free")
+            partes.append(f"{hw['mem_available_mb'] / 1024:.0f} GB RAM free")
         if hw.get("gpu"):
             vram = hw.get("vram_mb")
-            partes.append(f"GPU: {hw['gpu_name'] or 'yes'}"
-                          + (f" ({vram/1024:.0f} GB VRAM)" if vram else ""))
+            partes.append(f"GPU: {hw['gpu_name'] or 'yes'}" + (f" ({vram / 1024:.0f} GB VRAM)" if vram else ""))
         else:
             partes.append("no GPU (CPU)")
         return partes
     partes = [f"{hw['cores']} núcleos"]
     if hw.get("mem_available_mb"):
-        partes.append(f"{hw['mem_available_mb']/1024:.0f} GB RAM libres")
+        partes.append(f"{hw['mem_available_mb'] / 1024:.0f} GB RAM libres")
     if hw.get("gpu"):
         vram = hw.get("vram_mb")
-        partes.append(f"GPU: {hw['gpu_name'] or 'sí'}"
-                      + (f" ({vram/1024:.0f} GB VRAM)" if vram else ""))
+        partes.append(f"GPU: {hw['gpu_name'] or 'sí'}" + (f" ({vram / 1024:.0f} GB VRAM)" if vram else ""))
     else:
         partes.append("sin GPU (CPU)")
     return partes
@@ -705,17 +750,19 @@ def preset_options(n_photos, hw=None, terreno=None, idioma="es"):
         p = preset(nombre, terreno=terreno)
         textos = _PRESETS_EN[nombre] if idioma == "en" else p
         lo, hi = estimate_minutes(nombre, n_photos, hw, terreno=terreno)
-        opciones.append({
-            "nombre": nombre,
-            "titulo": textos["titulo"],
-            "para_que": textos["para_que"],
-            "res_cm": p["res_cm"],
-            "pc_quality": p["pc_quality"],
-            "sfm_algorithm": p["sfm_algorithm"],
-            "minutos_estimados": [lo, hi],
-            "tiempo_texto": _fmt_minutos(lo, hi, idioma),
-            "por_defecto": nombre == PRESET_DEFAULT,
-        })
+        opciones.append(
+            {
+                "nombre": nombre,
+                "titulo": textos["titulo"],
+                "para_que": textos["para_que"],
+                "res_cm": p["res_cm"],
+                "pc_quality": p["pc_quality"],
+                "sfm_algorithm": p["sfm_algorithm"],
+                "minutos_estimados": [lo, hi],
+                "tiempo_texto": _fmt_minutos(lo, hi, idioma),
+                "por_defecto": nombre == PRESET_DEFAULT,
+            }
+        )
     return opciones
 
 
@@ -740,7 +787,7 @@ def estimate_message(quality, n_photos, hw=None, terreno=None, por_sensor=None, 
     para_que_tier = _PRESETS_EN[tier["nombre"]]["para_que"] if en else tier["para_que"]
     titulo_sensor = _TITULO_SENSOR_EN if en else _TITULO_SENSOR
     partes_hw = _texto_hardware(hw, idioma)
-    aviso_escarpado = (PRESETS[tier["nombre"]]["sfm_algorithm"] != tier["sfm_algorithm"])
+    aviso_escarpado = PRESETS[tier["nombre"]]["sfm_algorithm"] != tier["sfm_algorithm"]
     if por_sensor:
         activos = {s: n for s, n in por_sensor.items() if n > 0}
         # Los sensores son proyectos ODM independientes y corren en paralelo
@@ -751,16 +798,17 @@ def estimate_message(quality, n_photos, hw=None, terreno=None, por_sensor=None, 
         # sobre una máquina que sí solapa prometía casi el doble del tiempo
         # real — medido en palmas: 119 min de camino crítico contra 213 de
         # suma.
-        por_s = {s: estimate_sensor_minutes(s, n, quality, hw, terreno=terreno)
-                 for s, n in activos.items()}
+        por_s = {s: estimate_sensor_minutes(s, n, quality, hw, terreno=terreno) for s, n in activos.items()}
         lo = max((v[0] for v in por_s.values()), default=0.0)
         hi = sum(v[1] for v in por_s.values())
         desglose = " · ".join(
             f"{titulo_sensor.get(s, s)} ≈ "
             f"{_fmt_minutos(*estimate_sensor_minutes(s, n, quality, hw, terreno=terreno), idioma)}"
-            for s, n in activos.items())
-        lo_hi_por_sensor = {s: list(estimate_sensor_minutes(s, n, quality, hw, terreno=terreno))
-                            for s, n in activos.items()}
+            for s, n in activos.items()
+        )
+        lo_hi_por_sensor = {
+            s: list(estimate_sensor_minutes(s, n, quality, hw, terreno=terreno)) for s, n in activos.items()
+        }
     else:
         lo, hi = estimate_minutes(quality, n_photos, hw, terreno=terreno)
         desglose = None
@@ -779,32 +827,39 @@ def estimate_message(quality, n_photos, hw=None, terreno=None, por_sensor=None, 
             f"photo. Higher resolves objects like treetops and roof edges "
             f"better — lower is faster but can flatten those details in the "
             f"surface model."
-            + (" Planar reconstruction (assumes a fixed-altitude nadir flight), "
-               "much faster in the incremental stage."
-               if tier["sfm_algorithm"] == "planar" else
-               " Full incremental reconstruction.")
-            + (" Hybrid bundle adjustment (local per photo, global every 100) "
-               "to avoid wasting time on large flights."
-               if tier["hybrid_ba"] else
-               " Full global bundle adjustment on every photo — the most "
-               "precise option, slower on large flights.")
-            + (" The RGB flight's surface model (DSM) comes from the SPARSE "
-               "point cloud (dense reconstruction is skipped) — on flights of "
-               "hundreds of photos that's the difference between minutes and "
-               "hours, but the resulting DSM is poorer: fewer points, more "
-               "gaps."
-               if tier["fast_orthophoto"] else "")
-            + (f' Steep terrain: incremental reconstruction is forced even '
-               f'though "{titulo_tier}" defaults to planar — on terrain with '
-               f"strong relief, planar reconstruction can silently drop most "
-               f"photos (confirmed live: 76-81% of photos lost on a "
-               f"rocky-terrain mission). ⚠ And the cost is high: incremental "
-               f"reconstruction is sequential (~12 s per photo, not "
-               f"parallelized across photos) and comes to dominate the time "
-               f"— on a flight of hundreds of photos, expect HOURS per "
-               f"sensor, not minutes. Urgent mode (1 out of every 3 photos) "
-               f"or subsampling shorten that wait."
-               if aviso_escarpado else "")
+            + (
+                " Planar reconstruction (assumes a fixed-altitude nadir flight), much faster in the incremental stage."
+                if tier["sfm_algorithm"] == "planar"
+                else " Full incremental reconstruction."
+            )
+            + (
+                " Hybrid bundle adjustment (local per photo, global every 100) to avoid wasting time on large flights."
+                if tier["hybrid_ba"]
+                else " Full global bundle adjustment on every photo — the most precise option, slower on large flights."
+            )
+            + (
+                " The RGB flight's surface model (DSM) comes from the SPARSE "
+                "point cloud (dense reconstruction is skipped) — on flights of "
+                "hundreds of photos that's the difference between minutes and "
+                "hours, but the resulting DSM is poorer: fewer points, more "
+                "gaps."
+                if tier["fast_orthophoto"]
+                else ""
+            )
+            + (
+                f" Steep terrain: incremental reconstruction is forced even "
+                f'though "{titulo_tier}" defaults to planar — on terrain with '
+                f"strong relief, planar reconstruction can silently drop most "
+                f"photos (confirmed live: 76-81% of photos lost on a "
+                f"rocky-terrain mission). ⚠ And the cost is high: incremental "
+                f"reconstruction is sequential (~12 s per photo, not "
+                f"parallelized across photos) and comes to dominate the time "
+                f"— on a flight of hundreds of photos, expect HOURS per "
+                f"sensor, not minutes. Urgent mode (1 out of every 3 photos) "
+                f"or subsampling shorten that wait."
+                if aviso_escarpado
+                else ""
+            )
         )
         if desglose:
             tiempo = (
@@ -825,14 +880,24 @@ def estimate_message(quality, n_photos, hw=None, terreno=None, por_sensor=None, 
             )
         if tier["nombre"] not in ("tactico", "vistazo") and n_photos > 0:
             vis = _fmt_minutos(*estimate_minutes("tactico", n_photos, hw, terreno=terreno), idioma)
-            tiempo += (f' For a quick response: "{_PRESETS_EN["tactico"]["titulo"]}" ≈ {vis} — same flight, '
-                       f'orthomosaic from the sparse cloud, without the dense stage.')
-        return {"tier": tier, "preset": tier["nombre"], "terreno": tier["terreno"],
-                "hardware": hw, "n_photos": n_photos, "minutos_estimados": [lo, hi],
-                "por_sensor": lo_hi_por_sensor, "aviso_escarpado": aviso_escarpado,
-                "opciones": preset_options(n_photos, hw, terreno=terreno, idioma=idioma),
-                "resolucion_texto": resolucion, "modelo_texto": modelo,
-                "tiempo_texto": tiempo}
+            tiempo += (
+                f' For a quick response: "{_PRESETS_EN["tactico"]["titulo"]}" ≈ {vis} — same flight, '
+                f"orthomosaic from the sparse cloud, without the dense stage."
+            )
+        return {
+            "tier": tier,
+            "preset": tier["nombre"],
+            "terreno": tier["terreno"],
+            "hardware": hw,
+            "n_photos": n_photos,
+            "minutos_estimados": [lo, hi],
+            "por_sensor": lo_hi_por_sensor,
+            "aviso_escarpado": aviso_escarpado,
+            "opciones": preset_options(n_photos, hw, terreno=terreno, idioma=idioma),
+            "resolucion_texto": resolucion,
+            "modelo_texto": modelo,
+            "tiempo_texto": tiempo,
+        }
 
     resolucion = (
         f"Hasta {tier['res_cm']} cm/px en el ortomosaico y el DSM — el techo real "
@@ -846,31 +911,39 @@ def estimate_message(quality, n_photos, hw=None, terreno=None, por_sensor=None, 
         f"Más alto resuelve mejor objetos como copas de árboles y bordes de tejados "
         f"— más bajo es más rápido pero puede aplanar esos detalles en el modelo de "
         f"superficie."
-        + (" Reconstrucción planar (asume vuelo nadir a altura fija), mucho más "
-           "rápida en la etapa incremental."
-           if tier["sfm_algorithm"] == "planar" else
-           " Reconstrucción incremental completa.")
-        + (" Bundle adjustment híbrido (ajuste local por foto, global cada 100) "
-           "para no perder tiempo de más con vuelos grandes."
-           if tier["hybrid_ba"] else
-           " Bundle adjustment global completo en cada foto — la opción más "
-           "precisa, más lenta en vuelos grandes.")
-        + (" El modelo de superficie (DSM) del vuelo RGB sale de la nube de "
-           "puntos DISPERSA (se salta la reconstrucción densa) — en vuelos de "
-           "cientos de fotos eso es la diferencia entre minutos y horas, pero "
-           "el DSM resultante es más pobre: menos puntos, más huecos."
-           if tier["fast_orthophoto"] else "")
-        + (f" Terreno escarpado: se fuerza reconstrucción incremental aunque "
-           f"«{tier['titulo']}» por defecto sea planar — en terreno con "
-           f"relieve fuerte, la reconstrucción planar puede descartar la "
-           f"mayoría de las fotos en silencio (confirmado en vivo: 76-81% de "
-           f"las fotos perdidas en una misión de terreno rocoso). "
-           f"⚠ Y el costo es alto: la reconstrucción incremental es secuencial "
-           f"(~12 s por foto, no se paraleliza entre fotos) y pasa a dominar "
-           f"el tiempo — en un vuelo de cientos de fotos esperá HORAS por "
-           f"sensor, no minutos. El modo urgencia (1 de cada 3 fotos) o el "
-           f"submuestreo acortan esa espera."
-           if aviso_escarpado else "")
+        + (
+            " Reconstrucción planar (asume vuelo nadir a altura fija), mucho más rápida en la etapa incremental."
+            if tier["sfm_algorithm"] == "planar"
+            else " Reconstrucción incremental completa."
+        )
+        + (
+            " Bundle adjustment híbrido (ajuste local por foto, global cada 100) "
+            "para no perder tiempo de más con vuelos grandes."
+            if tier["hybrid_ba"]
+            else " Bundle adjustment global completo en cada foto — la opción más precisa, más lenta en vuelos grandes."
+        )
+        + (
+            " El modelo de superficie (DSM) del vuelo RGB sale de la nube de "
+            "puntos DISPERSA (se salta la reconstrucción densa) — en vuelos de "
+            "cientos de fotos eso es la diferencia entre minutos y horas, pero "
+            "el DSM resultante es más pobre: menos puntos, más huecos."
+            if tier["fast_orthophoto"]
+            else ""
+        )
+        + (
+            f" Terreno escarpado: se fuerza reconstrucción incremental aunque "
+            f"«{tier['titulo']}» por defecto sea planar — en terreno con "
+            f"relieve fuerte, la reconstrucción planar puede descartar la "
+            f"mayoría de las fotos en silencio (confirmado en vivo: 76-81% de "
+            f"las fotos perdidas en una misión de terreno rocoso). "
+            f"⚠ Y el costo es alto: la reconstrucción incremental es secuencial "
+            f"(~12 s por foto, no se paraleliza entre fotos) y pasa a dominar "
+            f"el tiempo — en un vuelo de cientos de fotos esperá HORAS por "
+            f"sensor, no minutos. El modo urgencia (1 de cada 3 fotos) o el "
+            f"submuestreo acortan esa espera."
+            if aviso_escarpado
+            else ""
+        )
     )
     if desglose:
         tiempo = (
@@ -894,14 +967,24 @@ def estimate_message(quality, n_photos, hw=None, terreno=None, por_sensor=None, 
     # número mágico quedaba desactualizado sin que nada avisara.
     if tier["nombre"] not in ("tactico", "vistazo") and n_photos > 0:
         vis = _fmt_minutos(*estimate_minutes("tactico", n_photos, hw, terreno=terreno))
-        tiempo += (f" Para respuesta rápida: «Táctico» ≈ {vis} "
-                   f"— mismo vuelo, ortomosaico desde la nube dispersa, sin la etapa densa.")
-    return {"tier": tier, "preset": tier["nombre"], "terreno": tier["terreno"],
-            "hardware": hw, "n_photos": n_photos, "minutos_estimados": [lo, hi],
-            "por_sensor": lo_hi_por_sensor, "aviso_escarpado": aviso_escarpado,
-            "opciones": preset_options(n_photos, hw, terreno=terreno),
-            "resolucion_texto": resolucion, "modelo_texto": modelo,
-            "tiempo_texto": tiempo}
+        tiempo += (
+            f" Para respuesta rápida: «Táctico» ≈ {vis} "
+            f"— mismo vuelo, ortomosaico desde la nube dispersa, sin la etapa densa."
+        )
+    return {
+        "tier": tier,
+        "preset": tier["nombre"],
+        "terreno": tier["terreno"],
+        "hardware": hw,
+        "n_photos": n_photos,
+        "minutos_estimados": [lo, hi],
+        "por_sensor": lo_hi_por_sensor,
+        "aviso_escarpado": aviso_escarpado,
+        "opciones": preset_options(n_photos, hw, terreno=terreno),
+        "resolucion_texto": resolucion,
+        "modelo_texto": modelo,
+        "tiempo_texto": tiempo,
+    }
 
 
 # ── CLI ───────────────────────────────────────────────────────────────
@@ -912,22 +995,29 @@ def main():
     pc = sub.add_parser("concurrency")
     pc.add_argument("megapixels", type=float)
     sl = sub.add_parser("odm-slots")
-    sl.add_argument("megapixels", type=float, nargs="+",
-                    help="MP del sensor de cada proyecto ODM pendiente, en orden")
+    sl.add_argument("megapixels", type=float, nargs="+", help="MP del sensor de cada proyecto ODM pendiente, en orden")
     sl.add_argument("--max-paralelo", type=int, default=None)
-    sl.add_argument("--shell", action="store_true",
-                    help="3 líneas (slots / hilos / hilos_light) en vez de JSON, "
-                         "para leerlas de bash con un solo arranque de Python")
+    sl.add_argument(
+        "--shell",
+        action="store_true",
+        help="3 líneas (slots / hilos / hilos_light) en vez de JSON, "
+        "para leerlas de bash con un solo arranque de Python",
+    )
     qt = sub.add_parser("quality-tier")
     qt.add_argument("quality", type=int)
     pr = sub.add_parser("preset", help="config de un preset (o de un QUALITY 0-100)")
     pr.add_argument("nombre")
-    pr.add_argument("--terreno", default=None,
-                    help="'plano' (default) o 'escarpado' — 'escarpado' fuerza "
-                         "incremental incluso en vistazo/rápido, ver TERRENOS arriba")
-    pr.add_argument("--shell", action="store_true",
-                    help="una línea por campo, en el orden que lee "
-                         "docker/entrypoint.sh (un solo arranque de Python)")
+    pr.add_argument(
+        "--terreno",
+        default=None,
+        help="'plano' (default) o 'escarpado' — 'escarpado' fuerza "
+        "incremental incluso en vistazo/rápido, ver TERRENOS arriba",
+    )
+    pr.add_argument(
+        "--shell",
+        action="store_true",
+        help="una línea por campo, en el orden que lee docker/entrypoint.sh (un solo arranque de Python)",
+    )
     sub.add_parser("presets", help="lista de presets disponibles, en orden")
     es = sub.add_parser("estimate")
     # `--preset` es la forma nueva; `--quality N` sigue aceptándose porque hay
@@ -942,13 +1032,10 @@ def main():
         print(json.dumps(detect_hardware()))
     elif args.cmd == "concurrency":
         override = os.environ.get("MAX_CONCURRENCY")
-        print(safe_concurrency(args.megapixels,
-                               override=int(override) if override else None))
+        print(safe_concurrency(args.megapixels, override=int(override) if override else None))
     elif args.cmd == "odm-slots":
         override = os.environ.get("MAX_CONCURRENCY")
-        r = odm_slots(args.megapixels,
-                      override=int(override) if override else None,
-                      max_paralelo=args.max_paralelo)
+        r = odm_slots(args.megapixels, override=int(override) if override else None, max_paralelo=args.max_paralelo)
         if args.shell:
             # Arrancar el intérprete de Python cuesta ~0.3 s, y esto se
             # consulta justo antes de la primera reconstrucción: pedirlo tres
@@ -970,9 +1057,16 @@ def main():
             # Orden FIJO — docker/entrypoint.sh lo lee posicionalmente con
             # `read`. Antes eran seis invocaciones de python3 seguidas (una
             # por campo) solo para arrancar la corrida.
-            for clave in ("nombre", "titulo", "pc_quality", "feature_quality",
-                          "res_cm", "min_features", "matcher_neighbors",
-                          "sfm_algorithm"):
+            for clave in (
+                "nombre",
+                "titulo",
+                "pc_quality",
+                "feature_quality",
+                "res_cm",
+                "min_features",
+                "matcher_neighbors",
+                "sfm_algorithm",
+            ):
                 print(p[clave])
             print("1" if p["hybrid_ba"] else "0")
             print("1" if p["fast_orthophoto"] else "0")
