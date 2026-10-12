@@ -43,6 +43,7 @@ Lee: processing/{rgb,thermal_native,multispectral}_odm/{img_list.txt,
 Escribe: outputs/flight_quality.json (omite el archivo si no hay ni un solo
      reconstruction.json — misión que no llegó a esa etapa)
 """
+
 import json
 import math
 import os
@@ -140,16 +141,18 @@ def _velocidad_vuelo():
         return None, None
     with open(FLIGHT_PATH) as f:
         fp = json.load(f)
-    caps = [ft for ft in fp.get("features", [])
-            if ft["properties"].get("kind") == "capture" and ft["properties"].get("time")]
+    caps = [
+        ft
+        for ft in fp.get("features", [])
+        if ft["properties"].get("kind") == "capture" and ft["properties"].get("time")
+    ]
     if not caps:
         return None, None
     # Un solo sensor alcanza: la trayectoria física es la misma para todos
     # los que disparan juntos. "rgb" es el que casi siempre existe.
     sensores_presentes = {c["properties"].get("sensor") for c in caps}
     sensor = "rgb" if "rgb" in sensores_presentes else sorted(sensores_presentes)[0]
-    caps = sorted((c for c in caps if c["properties"].get("sensor") == sensor),
-                  key=lambda c: c["properties"]["time"])
+    caps = sorted((c for c in caps if c["properties"].get("sensor") == sensor), key=lambda c: c["properties"]["time"])
     if len(caps) < 2:
         return None, None
     speeds = []
@@ -175,10 +178,14 @@ def _solape():
     bordes) para contar, en la zona cubierta, cuántas fotos ven cada punto
     del terreno."""
     ref = next((path for _, _, path in SENSORES if os.path.isfile(path)), None)
-    recon = next((os.path.join(odm_dir, "opensfm", "reconstruction.json")
-                  for _, odm_dir, path in SENSORES
-                  if path == ref and os.path.isfile(os.path.join(odm_dir, "opensfm", "reconstruction.json"))),
-                 None)
+    recon = next(
+        (
+            os.path.join(odm_dir, "opensfm", "reconstruction.json")
+            for _, odm_dir, path in SENSORES
+            if path == ref and os.path.isfile(os.path.join(odm_dir, "opensfm", "reconstruction.json"))
+        ),
+        None,
+    )
     if ref is None or recon is None:
         return None, None
     ds = gdal_open_retry(ref)
@@ -260,8 +267,10 @@ def main():
         pass
 
     print(f"✅ {OUT_PATH}")
-    print(f"  calidad: {resultado['calidad']} | solape p50: {solape_p50} | "
-          f"velocidad media: {velocidad_media} m/s | reconstrucción mínima: {recon_pct_min}%")
+    print(
+        f"  calidad: {resultado['calidad']} | solape p50: {solape_p50} | "
+        f"velocidad media: {velocidad_media} m/s | reconstrucción mínima: {recon_pct_min}%"
+    )
     return 0
 
 

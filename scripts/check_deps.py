@@ -10,17 +10,15 @@ una misión.
 
 Uso: python3 scripts/check_deps.py   (exit 1 si algo no cumple)
 """
+
 import importlib.metadata as md
 import sys
 
 # paquete -> (mínima soportada, máxima soportada exclusiva o None, por qué)
 HEREDADAS = {
-    "GDAL":   ("3.8.0", None,
-               "lectura/escritura de todos los rásters y la exportación COG"),
-    "pyproj": ("3.6.0", None,
-               "proyección de huellas de cámara y reproyección de la entrega"),
-    "scipy":  ("1.10.0", None,
-               "morfología del recorte de confiabilidad (ndimage)"),
+    "GDAL": ("3.8.0", None, "lectura/escritura de todos los rásters y la exportación COG"),
+    "pyproj": ("3.6.0", None, "proyección de huellas de cámara y reproyección de la entrega"),
+    "scipy": ("1.10.0", None, "morfología del recorte de confiabilidad (ndimage)"),
 }
 
 # La ABI de numpy es un caso aparte: no es "conviene", es que el _gdal_array.so
@@ -41,14 +39,17 @@ def main():
 
     try:
         import numpy as np
+
         if _tupla(np.__version__)[0] >= NUMPY_MAX:
             fallos.append(
                 f"numpy {np.__version__}: el _gdal_array.so de ODM está compilado "
                 f"contra la ABI de numpy 1.x y rompe con 2.x apenas se usa gdal "
-                f"desde Python. Fija numpy<2 en requirements.txt.")
+                f"desde Python. Fija numpy<2 en requirements.txt."
+            )
         else:
             # La prueba que de verdad importa: que el binding funcione.
             from osgeo import gdal
+
             gdal.UseExceptions()
             ds = gdal.GetDriverByName("MEM").Create("", 2, 2, 1)
             ds.GetRasterBand(1).ReadAsArray()

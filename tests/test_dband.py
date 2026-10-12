@@ -5,6 +5,7 @@ preparación para ODM (scripts/prepare_dband_odm.py), y el conteo de
 etapas en docker/entrypoint.sh (STAGE_FLAGS + presupuesto de concurrencia
 compartido con multiespectral/térmico).
 """
+
 import os
 import re
 import shutil
@@ -25,8 +26,7 @@ def _correr_setup(src, cwd):
     copia = docker_dir / "setup-data-multispectral.sh"
     shutil.copy(SETUP_DATA_MS, copia)
     copia.chmod(0o755)
-    return subprocess.run([str(copia), str(src)], cwd=str(cwd),
-                          capture_output=True, text=True, timeout=30)
+    return subprocess.run([str(copia), str(src)], cwd=str(cwd), capture_output=True, text=True, timeout=30)
 
 
 class TestOrganizacionBandaD:
@@ -102,14 +102,21 @@ class TestPrepareDbandOdm:
         monkeypatch.chdir(vacio)
         r = subprocess.run(
             ["python3", os.path.join(REPO, "scripts", "prepare_dband_odm.py")],
-            capture_output=True, text=True, timeout=15)
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
         assert r.returncode != 0
         assert "no encontrado" in r.stdout.lower() or "no encontrado" in r.stderr.lower()
 
     def test_sin_imagenes_d_falla_con_mensaje_claro(self, repo_falso):
         r = subprocess.run(
             ["python3", os.path.join(REPO, "scripts", "prepare_dband_odm.py")],
-            capture_output=True, text=True, timeout=15, cwd=str(repo_falso))
+            capture_output=True,
+            text=True,
+            timeout=15,
+            cwd=str(repo_falso),
+        )
         assert r.returncode != 0
         assert "no se encontraron" in (r.stdout + r.stderr).lower()
 
@@ -131,7 +138,8 @@ class TestConteoDeEtapasConBandaD:
         return src[ini:fin]
 
     def _correr(self, run_ms, do_dband, presupuesto, make_extra):
-        guion = f"""
+        guion = (
+            f"""
 set -uo pipefail
 python3() {{
   if [[ "$1" == "scripts/hardware.py" ]]; then echo {presupuesto}; return 0; fi
@@ -140,7 +148,9 @@ python3() {{
 RUN_MULTISPECTRAL={run_ms}
 DO_DBAND={do_dband}
 safe_concurrency() {{ python3 scripts/hardware.py concurrency "$1"; }}
-""" + self._bloque_prep_split() + f"""
+"""
+            + self._bloque_prep_split()
+            + f"""
 make() {{
   case "$1" in
     {make_extra}
@@ -150,6 +160,7 @@ make() {{
 [[ "$DO_DBAND" -eq 1 ]] && MAX_CONCURRENCY=$PREP_SPLIT make prepare-dband
 echo "th:MAX_CONCURRENCY=${{MAX_CONCURRENCY:-sin-fijar}}"
 """
+        )
         return subprocess.run(["bash", "-c", guion], capture_output=True, text=True, timeout=15)
 
     def test_presupuesto_se_reparte_entre_ms_y_dband_no_con_termico(self):
@@ -160,9 +171,15 @@ echo "th:MAX_CONCURRENCY=${{MAX_CONCURRENCY:-sin-fijar}}"
         guión (echo th:...) corre FUERA de la rama de MAX_CONCURRENCY
         adrede, para confirmar que sin fijarlo explícitamente la variable no
         queda contaminada por el reparto de los otros dos."""
-        r = self._correr(run_ms=1, do_dband=1, presupuesto=9, make_extra=(
-            'prepare-multispectral) echo "ms:MAX_CONCURRENCY=${MAX_CONCURRENCY:-sin-fijar}" ;;\n'
-            '    prepare-dband) echo "db:MAX_CONCURRENCY=${MAX_CONCURRENCY:-sin-fijar}" ;;'))
+        r = self._correr(
+            run_ms=1,
+            do_dband=1,
+            presupuesto=9,
+            make_extra=(
+                'prepare-multispectral) echo "ms:MAX_CONCURRENCY=${MAX_CONCURRENCY:-sin-fijar}" ;;\n'
+                '    prepare-dband) echo "db:MAX_CONCURRENCY=${MAX_CONCURRENCY:-sin-fijar}" ;;'
+            ),
+        )
         assert r.returncode == 0, r.stdout + r.stderr
         # 9 repartido entre 2 streams (multiespectral, banda D) = 5 (redondeo hacia arriba) cada uno
         assert "ms:MAX_CONCURRENCY=5" in r.stdout, r.stdout
@@ -173,9 +190,15 @@ echo "th:MAX_CONCURRENCY=${{MAX_CONCURRENCY:-sin-fijar}}"
         """Confirma que el conteo de streams es DINÁMICO: sin banda D
         activa, multiespectral (el único que queda) se lleva TODO
         PREP_BUDGET sin dividir."""
-        r = self._correr(run_ms=1, do_dband=0, presupuesto=8, make_extra=(
-            'prepare-multispectral) echo "ms:MAX_CONCURRENCY=${MAX_CONCURRENCY:-sin-fijar}" ;;\n'
-            '    prepare-dband) echo "NO DEBERÍA CORRER" ;;'))
+        r = self._correr(
+            run_ms=1,
+            do_dband=0,
+            presupuesto=8,
+            make_extra=(
+                'prepare-multispectral) echo "ms:MAX_CONCURRENCY=${MAX_CONCURRENCY:-sin-fijar}" ;;\n'
+                '    prepare-dband) echo "NO DEBERÍA CORRER" ;;'
+            ),
+        )
         assert r.returncode == 0, r.stdout + r.stderr
         assert "ms:MAX_CONCURRENCY=8" in r.stdout, r.stdout
         assert "NO DEBERÍA CORRER" not in r.stdout, r.stdout
@@ -188,10 +211,9 @@ echo "th:MAX_CONCURRENCY=${{MAX_CONCURRENCY:-sin-fijar}}"
         térmico ni multiespectral, una misión solo-banda-D igual necesita
         recortar su ortofoto."""
         src = open(ENTRYPOINT, encoding="utf-8").read()
-        m = re.search(r'DO_TRIM=0; \[\[ ([^\]]*) \]\]', src)
+        m = re.search(r"DO_TRIM=0; \[\[ ([^\]]*) \]\]", src)
         assert m, "no se encontró la declaración de DO_TRIM"
-        assert "DO_DBAND" in m.group(1), \
-            f"DO_TRIM no incluye DO_DBAND: {m.group(1)}"
+        assert "DO_DBAND" in m.group(1), f"DO_TRIM no incluye DO_DBAND: {m.group(1)}"
 
 
 class TestBandaDUsaFastOrthophoto:
@@ -215,6 +237,5 @@ class TestBandaDUsaFastOrthophoto:
     def test_sigue_sin_pedir_dsm(self):
         # Solo los `echo` con los argumentos reales, no los comentarios de
         # arriba (que sí mencionan --dsm para explicar por qué NO se pide).
-        argumentos = "\n".join(l for l in self._bloque_dband().splitlines()
-                               if not l.lstrip().startswith("#"))
+        argumentos = "\n".join(l for l in self._bloque_dband().splitlines() if not l.lstrip().startswith("#"))
         assert "--dsm" not in argumentos, argumentos

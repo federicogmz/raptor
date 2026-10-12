@@ -10,6 +10,7 @@ El contraejemplo importa igual: `Makefile::prepare-rgb` corre exiftool con
 también el original de data/ — por eso RGB usa `cp --reflink=auto` y no este
 módulo.
 """
+
 import json
 import os
 import subprocess
@@ -93,17 +94,21 @@ class TestGeoTxt:
 
         def _run(cmd, **kwargs):
             rutas = kwargs["input"].strip().splitlines()
-            salida = [dict(registros.get(os.path.basename(p), {}), SourceFile=p)
-                      for p in rutas]
+            salida = [dict(registros.get(os.path.basename(p), {}), SourceFile=p) for p in rutas]
             return subprocess.CompletedProcess(cmd, 0, json.dumps(salida), "")
 
         monkeypatch.setattr(subprocess, "run", _run)
         return registros
 
     def test_usa_la_precision_rtk_cuando_esta(self, tmp_path, exiftool_falso):
-        exiftool_falso["a.TIF"] = {"GPSLatitude": 6.4, "GPSLongitude": -75.3,
-                                    "GPSAltitude": 1500, "RtkStdLon": 0.01,
-                                    "RtkStdLat": 0.02, "RtkStdHgt": 0.03}
+        exiftool_falso["a.TIF"] = {
+            "GPSLatitude": 6.4,
+            "GPSLongitude": -75.3,
+            "GPSAltitude": 1500,
+            "RtkStdLon": 0.01,
+            "RtkStdLat": 0.02,
+            "RtkStdHgt": 0.03,
+        }
         geo = tmp_path / "geo.txt"
         con_gps, sin_gps = escribir_geo_txt(["/x/a.TIF"], str(geo), 1)
 
@@ -137,18 +142,20 @@ class TestGeoTxt:
         por sentado un orden que no está garantizado. Si alguna vez no se
         cumple, geo.txt asigna coordenadas al archivo equivocado — eso no
         falla, produce una reconstrucción mal georreferenciada."""
+
         def _run(cmd, **kwargs):
             rutas = kwargs["input"].strip().splitlines()
             # A propósito, al revés del orden de entrada.
-            salida = [{"SourceFile": p, "GPSLatitude": 6.0 + i, "GPSLongitude": -75.0}
-                      for i, p in reversed(list(enumerate(rutas)))]
+            salida = [
+                {"SourceFile": p, "GPSLatitude": 6.0 + i, "GPSLongitude": -75.0}
+                for i, p in reversed(list(enumerate(rutas)))
+            ]
             return subprocess.CompletedProcess(cmd, 0, json.dumps(salida), "")
 
         monkeypatch.setattr(subprocess, "run", _run)
         geo = tmp_path / "geo.txt"
         escribir_geo_txt(["/x/primero.TIF", "/x/segundo.TIF"], str(geo), 1)
 
-        filas = {l.split("\t")[0]: l.split("\t") for l in
-                 geo.read_text().strip().splitlines()[1:]}
+        filas = {l.split("\t")[0]: l.split("\t") for l in geo.read_text().strip().splitlines()[1:]}
         assert float(filas["primero.TIF"][2]) == pytest.approx(6.0)
         assert float(filas["segundo.TIF"][2]) == pytest.approx(7.0)

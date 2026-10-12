@@ -18,6 +18,7 @@ de que el DSM/ortofoto/post-procesamiento de ese mismo sensor terminen, así
 que no hace falta esperar ni a los otros sensores ni al resto de esta
 misión para tener la nube de puntos lista para abrir en QGIS/Potree.
 """
+
 import os, sys, shutil, subprocess
 from concurrent.futures import ThreadPoolExecutor
 
@@ -42,7 +43,10 @@ NPROCS = safe_concurrency(12.3, override=int(_override) if _override else None)
 # real — su .laz georreferenciado existe igual, más chico pero real.
 PROJECTS = {
     "rgb": (os.environ.get("ODM_RGB_DIR", "processing/rgb_odm"), "point_cloud_rgb.copc.laz"),
-    "multispectral": (os.environ.get("ODM_MS_DIR", "processing/multispectral_odm"), "point_cloud_multispectral.copc.laz"),
+    "multispectral": (
+        os.environ.get("ODM_MS_DIR", "processing/multispectral_odm"),
+        "point_cloud_multispectral.copc.laz",
+    ),
     "thermal": (os.environ.get("ODM_THNAT_DIR", "processing/thermal_native_odm"), "point_cloud_thermal.copc.laz"),
     "dband": (os.environ.get("ODM_DBAND_DIR", "processing/dband_odm"), "point_cloud_dband.copc.laz"),
 }
@@ -78,8 +82,7 @@ def main():
     pedidos = sys.argv[1:] or list(PROJECTS)
     desconocidos = [s for s in pedidos if s not in PROJECTS]
     if desconocidos:
-        print(f"❌ sensor(es) desconocido(s): {', '.join(desconocidos)} "
-              f"(válidos: {', '.join(PROJECTS)})")
+        print(f"❌ sensor(es) desconocido(s): {', '.join(desconocidos)} (válidos: {', '.join(PROJECTS)})")
         sys.exit(1)
 
     pendientes = []
@@ -101,12 +104,11 @@ def main():
 
     def _convertir(par):
         src, dst = par
-        r = subprocess.run([pdal, "translate", src, dst, "--writer", "copc"],
-                           capture_output=True, text=True)
+        r = subprocess.run([pdal, "translate", src, dst, "--writer", "copc"], capture_output=True, text=True)
         if r.returncode != 0:
             print(f"  ❌ {src} → {dst}: {r.stderr[:400]}")
             return False
-        print(f"  ✅ {dst} ({os.path.getsize(dst)/(1024*1024):.0f} MB, desde {src})")
+        print(f"  ✅ {dst} ({os.path.getsize(dst) / (1024 * 1024):.0f} MB, desde {src})")
         return True
 
     with ThreadPoolExecutor(max_workers=min(NPROCS, len(pendientes))) as pool:

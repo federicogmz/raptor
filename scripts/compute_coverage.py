@@ -27,6 +27,7 @@ Escribe: outputs/coverage.json
 
 Uso: python3 scripts/compute_coverage.py  (corre desde /app, como el resto)
 """
+
 import json
 import os
 
@@ -146,8 +147,7 @@ def main():
                 continue
             valid = _valid_mask(ds)
             cubre = int((valid & mask).sum())
-            productos[nombre] = {
-                "cobertura_area_volada_pct": round(100.0 * cubre / en_vuelo, 1)}
+            productos[nombre] = {"cobertura_area_volada_pct": round(100.0 * cubre / en_vuelo, 1)}
         finally:
             ds = None
 
@@ -155,8 +155,7 @@ def main():
         print("  ⚠ sin ortomosaicos recortados todavía — omitiendo cobertura vs vuelo")
         return 0
 
-    alerta = any(p["cobertura_area_volada_pct"] < UMBRAL_ALERTA_PCT
-                 for p in productos.values())
+    alerta = any(p["cobertura_area_volada_pct"] < UMBRAL_ALERTA_PCT for p in productos.values())
     mensaje = None
     if alerta:
         peor = min(productos, key=lambda k: productos[k]["cobertura_area_volada_pct"])
@@ -165,7 +164,8 @@ def main():
             f"{productos[peor]['cobertura_area_volada_pct']}% del área volada "
             f"({area_volada_m2 / 1e6:.2f} km² volados). Posible reconstrucción "
             "incompleta (planar en terreno con relieve descarta fotos en "
-            "silencio). Verificá antes de decidir sobre este mapa.")
+            "silencio). Verificá antes de decidir sobre este mapa."
+        )
         print(mensaje)
 
     data = {
@@ -181,11 +181,11 @@ def main():
         os.chmod(OUT_PATH, 0o666)
     except OSError:
         pass
-    print(f"✅ {OUT_PATH} (área volada {area_volada_m2 / 1e6:.2f} km², "
-          f"{len(productos)} producto(s) con dato)")
+    print(f"✅ {OUT_PATH} (área volada {area_volada_m2 / 1e6:.2f} km², {len(productos)} producto(s) con dato)")
     return 0
 
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(main())

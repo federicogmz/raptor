@@ -5,6 +5,7 @@ Date.now() del navegador, para que el cronómetro general (geovisor/
 app.js::phTick) siga siendo correcto aunque se reconecte a mitad de una
 corrida de horas.
 """
+
 import importlib
 import os
 import sys
@@ -52,6 +53,7 @@ class TestTimestampsEnEventos:
         progress.print_stage_header("SfM", 4, 13)
         sys.path.insert(0, REPO)
         from core.runner import parse_progress_events
+
         _, eventos = parse_progress_events(str(pf), 0)
         assert len(eventos) == 1
         assert "t" in eventos[0]

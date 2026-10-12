@@ -10,11 +10,14 @@ Los dos scripts resuelven la MISMA pregunta desde dos modos:
   - SIN argumentos (pase de seguridad): con salteo de lo que ya esté al día,
     para no reconvertir de gratis lo que el pase por sensor ya dejó listo.
 """
+
 import os
 import subprocess
 
 import numpy as np
 import pytest
+
+pytest.importorskip("osgeo")
 from osgeo import gdal
 
 import export_cog
@@ -164,6 +167,7 @@ class TestExportCopc:
     def proyecto(self, mision):
         """Crea el .laz georreferenciado falso de un sensor en la carpeta
         que le corresponde según PROJECTS."""
+
         def _crear(sensor, proj_dir=None):
             proj_dir = proj_dir or export_copc.PROJECTS[sensor][0]
             geo = os.path.join(proj_dir, "odm_georeferencing")
@@ -171,6 +175,7 @@ class TestExportCopc:
             src = os.path.join(geo, "odm_georeferenced_model.laz")
             open(src, "wb").write(b"fake-laz")
             return src
+
         return _crear
 
     def _fake_pdal(self, monkeypatch):
@@ -184,7 +189,9 @@ class TestExportCopc:
             class R:
                 returncode = 0
                 stderr = ""
+
             return R()
+
         monkeypatch.setattr(subprocess, "run", fake_run)
         return llamadas
 
@@ -253,10 +260,14 @@ class TestExportCopc:
         """El origen de cada sensor sale de PROJECTS (env ODM_*_DIR en la
         corrida real, ver docker/entrypoint.sh) — no de una ruta fija."""
         alterno = str(tmp_path / "otro_lado" / "multispectral_odm")
-        monkeypatch.setattr(export_copc, "PROJECTS", {
-            **export_copc.PROJECTS,
-            "multispectral": (alterno, export_copc.PROJECTS["multispectral"][1]),
-        })
+        monkeypatch.setattr(
+            export_copc,
+            "PROJECTS",
+            {
+                **export_copc.PROJECTS,
+                "multispectral": (alterno, export_copc.PROJECTS["multispectral"][1]),
+            },
+        )
         src = proyecto("multispectral", proj_dir=alterno)
         llamadas = self._fake_pdal(monkeypatch)
         monkeypatch.setattr("sys.argv", ["export_copc.py", "multispectral"])

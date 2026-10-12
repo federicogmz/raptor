@@ -1,4 +1,5 @@
 """Descubrimiento de corridas existentes en /app/runs."""
+
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +35,7 @@ def scan_existing_runs():
         if bounds_file.is_file():
             try:
                 import json
+
                 with open(bounds_file) as f:
                     is_preliminary = bool(json.load(f).get("preliminary"))
             except Exception:

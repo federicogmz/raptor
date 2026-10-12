@@ -3,6 +3,7 @@
 validada — este módulo no reimplementa nada del pipeline, solo lo orquesta.
 Lo usa webapp/main.py.
 """
+
 import asyncio
 import os
 import re
@@ -72,10 +73,23 @@ class PipelineRun:
     progreso estructurados (ver PROGRESS_FILE en scripts/progress.py)
     y el log crudo (para mostrar si falla)."""
 
-    def __init__(self, *, mode, source_dir, ms_source_dir=None,
-                 skip_odm=False, port=8080, progress_file, export=None,
-                 preset=None, quality=None, dband=False, terreno=None,
-                 subsample=0, mission_name=None):
+    def __init__(
+        self,
+        *,
+        mode,
+        source_dir,
+        ms_source_dir=None,
+        skip_odm=False,
+        port=8080,
+        progress_file,
+        export=None,
+        preset=None,
+        quality=None,
+        dband=False,
+        terreno=None,
+        subsample=0,
+        mission_name=None,
+    ):
         self.mode = mode
         self.source_dir = str(source_dir)
         self.ms_source_dir = str(ms_source_dir) if ms_source_dir else None
@@ -83,8 +97,7 @@ class PipelineRun:
         # `preset` es la forma actual (vistazo/rapido/estandar/alta/maxima);
         # `quality` (0-100) es la anterior y se sigue aceptando — el mapeo lo
         # hace scripts/hardware.py, que es donde vive la tabla.
-        self.preset = str(preset if preset is not None
-                          else (quality if quality is not None else "cartografico"))
+        self.preset = str(preset if preset is not None else (quality if quality is not None else "cartografico"))
         self.port = port
         self.progress_file = str(progress_file)
         # export: dict con las EXPORT_* que entiende docker/entrypoint.sh
@@ -113,18 +126,20 @@ class PipelineRun:
 
     def _env(self):
         env = os.environ.copy()
-        env.update({
-            "MODE": self.mode,
-            "SOURCE_DIR": self.source_dir,
-            "SKIP_ODM": "1" if self.skip_odm else "0",
-            "PRESET": self.preset,
-            "TERRENO": self.terreno,
-            "DBAND": "1" if self.dband else "0",
-            "SUB_SAMPLE": str(self.subsample),
-            "SERVE": "0",
-            "PORT": str(self.port),
-            "PROGRESS_FILE": self.progress_file,
-        })
+        env.update(
+            {
+                "MODE": self.mode,
+                "SOURCE_DIR": self.source_dir,
+                "SKIP_ODM": "1" if self.skip_odm else "0",
+                "PRESET": self.preset,
+                "TERRENO": self.terreno,
+                "DBAND": "1" if self.dband else "0",
+                "SUB_SAMPLE": str(self.subsample),
+                "SERVE": "0",
+                "PORT": str(self.port),
+                "PROGRESS_FILE": self.progress_file,
+            }
+        )
         if self.mission_name:
             env["RAPTOR_MISSION"] = self.mission_name
         if self.ms_source_dir:
@@ -134,8 +149,7 @@ class PipelineRun:
         # Se limpian SIEMPRE las EXPORT_* heredadas del proceso padre antes de
         # aplicar las de esta corrida: si no, una misión configurada sin
         # exportación heredaría el destino de otra corrida y escribiría ahí.
-        for k in ("EXPORT_DIR", "EXPORT_PRODUCTS", "EXPORT_RASTER_FORMAT",
-                  "EXPORT_VECTOR_FORMAT", "EXPORT_EPSG"):
+        for k in ("EXPORT_DIR", "EXPORT_PRODUCTS", "EXPORT_RASTER_FORMAT", "EXPORT_VECTOR_FORMAT", "EXPORT_EPSG"):
             env.pop(k, None)
         env.update({k: str(v) for k, v in self.export.items() if v})
         return env
@@ -143,8 +157,10 @@ class PipelineRun:
     async def start(self):
         Path(self.progress_file).write_text("")
         self._proc = await asyncio.create_subprocess_exec(
-            "/app/docker/entrypoint.sh", "run",
-            cwd="/app", env=self._env(),
+            "/app/docker/entrypoint.sh",
+            "run",
+            cwd="/app",
+            env=self._env(),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
@@ -176,7 +192,7 @@ class PipelineRun:
                 break
             buf += chunk.decode(errors="replace")
             parts = _LINE_SPLIT.split(buf)
-            buf = parts.pop()          # el último trozo puede estar incompleto
+            buf = parts.pop()  # el último trozo puede estar incompleto
             for raw in parts:
                 text = _ANSI.sub("", raw).rstrip()
                 if not text:

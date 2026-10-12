@@ -26,6 +26,7 @@ cálculo de casco (_footprint_hull_mask), apuntando cada uno a su propio
 reconstruction.json — el principio (huella real de cámara) no depende del
 sensor.
 """
+
 import os, json
 import numpy as np
 from osgeo import gdal, ogr, osr
@@ -37,16 +38,16 @@ gdal.UseExceptions()
 RGB_PATH = os.environ.get("RGB_PATH", "outputs/rgb_orthomosaic.tif")
 ODM_RGB_DIR = os.environ.get("ODM_RGB_DIR", "processing/rgb_odm")
 RGB_ODM_SRC = os.path.join(ODM_RGB_DIR, "odm_orthophoto/odm_orthophoto.tif")  # alpha real de ODM
-RGB_RECON   = os.path.join(ODM_RGB_DIR, "opensfm/reconstruction.json")        # poses + intrínsecas
-DSM_PATH    = os.environ.get("DSM_PATH", "outputs/dsm.tif")
-TH_PATH  = "outputs/thermal_orthomosaic.tif"
+RGB_RECON = os.path.join(ODM_RGB_DIR, "opensfm/reconstruction.json")  # poses + intrínsecas
+DSM_PATH = os.environ.get("DSM_PATH", "outputs/dsm.tif")
+TH_PATH = "outputs/thermal_orthomosaic.tif"
 ODM_MS_DIR = os.environ.get("ODM_MS_DIR", "processing/multispectral_odm")
 MS_ODM_SRC = os.path.join(ODM_MS_DIR, "odm_orthophoto/odm_orthophoto.tif")
-MS_RECON   = os.path.join(ODM_MS_DIR, "opensfm/reconstruction.json")
-MS_PATH    = "outputs/multispectral_orthomosaic.tif"
+MS_RECON = os.path.join(ODM_MS_DIR, "opensfm/reconstruction.json")
+MS_PATH = "outputs/multispectral_orthomosaic.tif"
 ODM_THNAT_DIR = os.environ.get("ODM_THNAT_DIR", "processing/thermal_native_odm")
 THNAT_ODM_SRC = os.path.join(ODM_THNAT_DIR, "odm_orthophoto/odm_orthophoto.tif")
-THNAT_RECON   = os.path.join(ODM_THNAT_DIR, "opensfm/reconstruction.json")
+THNAT_RECON = os.path.join(ODM_THNAT_DIR, "opensfm/reconstruction.json")
 # Solo RESPALDO, para el caso de un raster sin proyección legible: la CRS real
 # se deriva del propio raster que se está recortando (ver _target_crs).
 UTM_EPSG = 32618
@@ -66,8 +67,8 @@ HULL_MS_PATH = "outputs/hull_multispectral.geojson"
 # Sin relación con el recorte espacial (casco convexo, más abajo): esto es
 # limpieza de VALORES, no de extensión.
 THNAT_HARD_LO, THNAT_HARD_HI = -20.0, 150.0
-THNAT_DESPIKE_WIN = 9      # px: ventana de mediana para detectar spikes puntuales
-THNAT_DESPIKE_DEV = 10.0   # °C: desviación vs mediana local = spike (reemplaza por mediana)
+THNAT_DESPIKE_WIN = 9  # px: ventana de mediana para detectar spikes puntuales
+THNAT_DESPIKE_DEV = 10.0  # °C: desviación vs mediana local = spike (reemplaza por mediana)
 
 
 def _target_crs(proj_wkt):
@@ -82,12 +83,12 @@ def _target_crs(proj_wkt):
     sin ningún aviso claro del motivo.
     """
     from pyproj import CRS
+
     if proj_wkt:
         try:
             return CRS.from_wkt(proj_wkt)
         except Exception as exc:
-            print(f"  ⚠ no se pudo leer la proyección del raster ({exc}) — "
-                  f"se cae al respaldo EPSG:{UTM_EPSG}")
+            print(f"  ⚠ no se pudo leer la proyección del raster ({exc}) — se cae al respaldo EPSG:{UTM_EPSG}")
     else:
         print(f"  ⚠ el raster no trae proyección — se usa el respaldo EPSG:{UTM_EPSG}")
     return CRS.from_epsg(UTM_EPSG)
@@ -95,28 +96,34 @@ def _target_crs(proj_wkt):
 
 def _aa_to_R(aa):
     x, y, z = aa
-    ang = np.sqrt(x*x + y*y + z*z)
+    ang = np.sqrt(x * x + y * y + z * z)
     if ang < 1e-12:
         return np.eye(3)
     ax = np.array([x, y, z]) / ang
-    c, s = np.cos(ang), np.sin(ang); t = 1 - c; ux, uy, uz = ax
-    return np.array([[c+ux*ux*t, ux*uy*t-uz*s, ux*uz*t+uy*s],
-                     [uy*ux*t+uz*s, c+uy*uy*t, uy*uz*t-ux*s],
-                     [uz*ux*t-uy*s, uz*uy*t+ux*s, c+uz*uz*t]])
+    c, s = np.cos(ang), np.sin(ang)
+    t = 1 - c
+    ux, uy, uz = ax
+    return np.array(
+        [
+            [c + ux * ux * t, ux * uy * t - uz * s, ux * uz * t + uy * s],
+            [uy * ux * t + uz * s, c + uy * uy * t, uy * uz * t - ux * s],
+            [uz * ux * t - uy * s, uz * uy * t + ux * s, c + uz * uz * t],
+        ]
+    )
 
 
 RGB_OV_ZBANDS = 5  # nº de bandas de elevación para el solape de cámaras.
-                   # Terreno con relieve real (montañoso) invalida el supuesto
-                   # de "una sola Z de terreno" — proyectar con una Z plana
-                   # única desalinea la huella de cámara en zonas de elevación
-                   # distinta a la mediana, marcando ov=0 en área BIEN
-                   # reconstruida solo porque está más alto/bajo que la
-                   # mediana. 5 bandas por percentil de Z real alcanza para
-                   # terrenos con cientos de metros de relieve sin volverse
-                   # costoso (5× las proyecciones, no por-celda).
+# Terreno con relieve real (montañoso) invalida el supuesto
+# de "una sola Z de terreno" — proyectar con una Z plana
+# única desalinea la huella de cámara en zonas de elevación
+# distinta a la mediana, marcando ov=0 en área BIEN
+# reconstruida solo porque está más alto/bajo que la
+# mediana. 5 bandas por percentil de Z real alcanza para
+# terrenos con cientos de metros de relieve sin volverse
+# costoso (5× las proyecciones, no por-celda).
 RGB_OV_COARSE = 16  # factor de submuestreo para el conteo de solape (rápido; ~1.8m/celda)
 NADIR_MAX_TILT_DEG = 30  # inclinación máxima (respecto a mirar derecho hacia
-                         # abajo) para considerar una foto "nadir".
+# abajo) para considerar una foto "nadir".
 
 
 def _rgb_camera_overlap(gt, W, H, recon_path=None, proj_wkt=None):
@@ -145,21 +152,30 @@ def _rgb_camera_overlap(gt, W, H, recon_path=None, proj_wkt=None):
     if not os.path.isfile(recon_path):
         return None, None, None, None
     from pyproj import Transformer
+
     with open(recon_path) as f:
         data = json.load(f)
     rec = data[0] if isinstance(data, list) else data
     cam = list(rec["cameras"].values())[0]
-    w, h = cam["width"], cam["height"]; sc = max(w, h)
+    w, h = cam["width"], cam["height"]
+    sc = max(w, h)
     if "focal_x" in cam:
-        fx = cam["focal_x"] * sc; fy = cam.get("focal_y", cam["focal_x"]) * sc
+        fx = cam["focal_x"] * sc
+        fy = cam.get("focal_y", cam["focal_x"]) * sc
     else:
         fx = fy = cam["focal"] * sc
-    cx = cam.get("c_x", 0.0) * sc + w/2; cy = cam.get("c_y", 0.0) * sc + h/2
+    cx = cam.get("c_x", 0.0) * sc + w / 2
+    cy = cam.get("c_y", 0.0) * sc + h / 2
     tr = Transformer.from_crs("EPSG:4326", _target_crs(proj_wkt), always_xy=True)
-    ref = rec["reference_lla"]; ref_e, ref_n = tr.transform(ref["longitude"], ref["latitude"])
+    ref = rec["reference_lla"]
+    ref_e, ref_n = tr.transform(ref["longitude"], ref["latitude"])
 
-    cf = RGB_OV_COARSE; gw, gh = W//cf, H//cf; res = gt[1]*cf; x0, y0 = gt[0], gt[3]
-    gx = x0 + (np.arange(gw)+0.5)*res; gy = y0 - (np.arange(gh)+0.5)*res
+    cf = RGB_OV_COARSE
+    gw, gh = W // cf, H // cf
+    res = gt[1] * cf
+    x0, y0 = gt[0], gt[3]
+    gx = x0 + (np.arange(gw) + 0.5) * res
+    gy = y0 - (np.arange(gh) + 0.5) * res
 
     z_local = np.zeros((gh, gw), np.float32)
     z_bands = np.array([0.0])
@@ -177,16 +193,16 @@ def _rgb_camera_overlap(gt, W, H, recon_path=None, proj_wkt=None):
     if z_bands.size < 2:
         z_bands = np.array([float(z_local.mean()) - 1, float(z_local.mean()) + 1])
     band_idx = np.clip(np.digitize(z_local, z_bands[1:-1]), 0, len(z_bands) - 2)
-    band_reps = [(z_bands[b] + z_bands[b+1]) / 2 for b in range(len(z_bands) - 1)]
+    band_reps = [(z_bands[b] + z_bands[b + 1]) / 2 for b in range(len(z_bands) - 1)]
 
-    ctr = np.array([w/2.0, h/2.0])
+    ctr = np.array([w / 2.0, h / 2.0])
     corners = np.array([[0, 0], [w, 0], [w, h], [0, h]], float)
     corners_c = ctr + 0.55 * (corners - ctr)
 
     def _project(R, Cu, corner_set, Zg):
         q = []
-        for (u, v) in corner_set:
-            d = R.T @ np.array([(u-cx)/fx, (v-cy)/fy, 1.0])
+        for u, v in corner_set:
+            d = R.T @ np.array([(u - cx) / fx, (v - cy) / fy, 1.0])
             if abs(d[2]) < 1e-9:
                 return None
             g = Cu + (Zg - Cu[2]) / d[2] * d
@@ -194,16 +210,19 @@ def _rgb_camera_overlap(gt, W, H, recon_path=None, proj_wkt=None):
         return np.array(q)
 
     def _accum(acc, q):
-        c0 = max(0, int((q[:,0].min()-x0)/res)); c1 = min(gw, int((q[:,0].max()-x0)/res)+1)
-        r0 = max(0, int((y0-q[:,1].max())/res)); r1 = min(gh, int((y0-q[:,1].min())/res)+1)
+        c0 = max(0, int((q[:, 0].min() - x0) / res))
+        c1 = min(gw, int((q[:, 0].max() - x0) / res) + 1)
+        r0 = max(0, int((y0 - q[:, 1].max()) / res))
+        r1 = min(gh, int((y0 - q[:, 1].min()) / res) + 1)
         if c0 >= c1 or r0 >= r1:
             return
         XX, YY = np.meshgrid(gx[c0:c1], gy[r0:r1])
         for sign in (1, -1):  # winding-agnostic point-in-quad
             inside = np.ones(XX.shape, bool)
             for k in range(4):
-                x1, y1 = q[k]; x2, y2 = q[(k+1) % 4]
-                inside &= sign*((x2-x1)*(YY-y1) - (y2-y1)*(XX-x1)) >= 0
+                x1, y1 = q[k]
+                x2, y2 = q[(k + 1) % 4]
+                inside &= sign * ((x2 - x1) * (YY - y1) - (y2 - y1) * (XX - x1)) >= 0
             if inside.any():
                 acc[r0:r1, c0:c1] += inside
                 return
@@ -213,16 +232,20 @@ def _rgb_camera_overlap(gt, W, H, recon_path=None, proj_wkt=None):
         return np.degrees(np.arccos(np.clip(-d[2], -1.0, 1.0)))
 
     shots = list(rec["shots"].values())
-    ov = np.zeros((gh, gw), np.int32); ovc = np.zeros((gh, gw), np.int32)
+    ov = np.zeros((gh, gw), np.int32)
+    ovc = np.zeros((gh, gw), np.int32)
     ovn = np.zeros((gh, gw), np.int32)
     for b, Zg in enumerate(band_reps):
         band_mask = band_idx == b
         if not band_mask.any():
             continue
-        ov_b = np.zeros((gh, gw), np.int32); ovc_b = np.zeros((gh, gw), np.int32)
+        ov_b = np.zeros((gh, gw), np.int32)
+        ovc_b = np.zeros((gh, gw), np.int32)
         ovn_b = np.zeros((gh, gw), np.int32)
         for shot in shots:
-            R = _aa_to_R(shot["rotation"]); t = np.array(shot["translation"]); C = -R.T @ t
+            R = _aa_to_R(shot["rotation"])
+            t = np.array(shot["translation"])
+            C = -R.T @ t
             Cu = np.array([ref_e + C[0], ref_n + C[1], C[2]])
             qf = _project(R, Cu, corners, Zg)
             if qf is not None:
@@ -265,7 +288,8 @@ def _reference_agl_m(dsm_path=DSM_PATH):
                 continue
             all_Cz = []
             for shot in rec["shots"].values():
-                R = _aa_to_R(shot["rotation"]); t = np.array(shot["translation"])
+                R = _aa_to_R(shot["rotation"])
+                t = np.array(shot["translation"])
                 all_Cz.append(float((-R.T @ t)[2]))
             cam_z_median = float(np.median(all_Cz))
             dd = gdal.Open(dsm_path)
@@ -282,8 +306,9 @@ def _reference_agl_m(dsm_path=DSM_PATH):
     return None
 
 
-def _footprint_hull_mask(recon_path, gt, W, H, proj_wkt, dsm_path=DSM_PATH, buffer_m=None,
-                          geojson_out=None, agl_hint_m=None):
+def _footprint_hull_mask(
+    recon_path, gt, W, H, proj_wkt, dsm_path=DSM_PATH, buffer_m=None, geojson_out=None, agl_hint_m=None
+):
     """Máscara booleana (H,W): True donde cae DENTRO del casco convexo de las
     huellas en el suelo de TODAS las fotos que entraron a la reconstrucción
     SfM (recon_path) — el área REALMENTE fotografiada, no una aproximación
@@ -324,24 +349,29 @@ def _footprint_hull_mask(recon_path, gt, W, H, proj_wkt, dsm_path=DSM_PATH, buff
     if not os.path.isfile(recon_path):
         return None
     from pyproj import Transformer
+
     with open(recon_path) as f:
         data = json.load(f)
     rec = data[0] if isinstance(data, list) else data
     if not rec.get("shots"):
         return None
     cam = list(rec["cameras"].values())[0]
-    w, h = cam["width"], cam["height"]; sc = max(w, h)
+    w, h = cam["width"], cam["height"]
+    sc = max(w, h)
     # Modelo de cámara OpenSfM: "brown" (RGB, con focal_x/focal_y y
     # descentrado c_x/c_y) vs "perspective"/"simple_pinhole" (multiespectral
     # M3M: una sola "focal", sin descentrado — c_x/c_y quedan en 0).
     if "focal_x" in cam:
-        fx = cam["focal_x"] * sc; fy = cam.get("focal_y", cam["focal_x"]) * sc
+        fx = cam["focal_x"] * sc
+        fy = cam.get("focal_y", cam["focal_x"]) * sc
     else:
         fx = fy = cam["focal"] * sc
-    cx = cam.get("c_x", 0.0) * sc + w / 2; cy = cam.get("c_y", 0.0) * sc + h / 2
+    cx = cam.get("c_x", 0.0) * sc + w / 2
+    cy = cam.get("c_y", 0.0) * sc + h / 2
     target_wkt = _target_crs(proj_wkt).to_wkt()
     tr = Transformer.from_crs("EPSG:4326", target_wkt, always_xy=True)
-    ref = rec["reference_lla"]; ref_e, ref_n = tr.transform(ref["longitude"], ref["latitude"])
+    ref = rec["reference_lla"]
+    ref_e, ref_n = tr.transform(ref["longitude"], ref["latitude"])
 
     # Z de referencia para proyectar las esquinas al suelo. Reportado en vivo
     # (bug real): en una misión real, RGB y multiespectral tenían Cu[2]
@@ -383,7 +413,8 @@ def _footprint_hull_mask(recon_path, gt, W, H, proj_wkt, dsm_path=DSM_PATH, buff
     all_C = []
     all_Cz = []
     for shot in rec["shots"].values():
-        R = _aa_to_R(shot["rotation"]); t = np.array(shot["translation"])
+        R = _aa_to_R(shot["rotation"])
+        t = np.array(shot["translation"])
         C = -R.T @ t
         all_C.append((ref_e + C[0], ref_n + C[1]))
         all_Cz.append(C[2])
@@ -435,13 +466,15 @@ def _footprint_hull_mask(recon_path, gt, W, H, proj_wkt, dsm_path=DSM_PATH, buff
     corners = ctr + SHRINK * (corners - ctr)
     pts = []
     for shot in rec["shots"].values():
-        R = _aa_to_R(shot["rotation"]); t = np.array(shot["translation"]); C = -R.T @ t
+        R = _aa_to_R(shot["rotation"])
+        t = np.array(shot["translation"])
+        C = -R.T @ t
         Cu = np.array([ref_e + C[0], ref_n + C[1], C[2]])
         if not (lo_cam[0] <= Cu[0] <= hi_cam[0] and lo_cam[1] <= Cu[1] <= hi_cam[1]):
             continue  # la cámara misma cae fuera de la región robusta de vuelo
         agl = max(1.0, abs(Cu[2] - z_ref))
         max_corner_dist = CORNER_AGL_MULT * agl
-        for (u, v) in corners:
+        for u, v in corners:
             d = R.T @ np.array([(u - cx) / fx, (v - cy) / fy, 1.0])
             if abs(d[2]) < 0.05:  # rayo casi horizontal: sin intersección de suelo confiable
                 continue
@@ -517,20 +550,20 @@ def _apply_hull(valid, recon_path, gt, W, H, proj, label, geojson_out=None, agl_
     Si no hay reconstruction.json (sensor sin SfM propio, por ejemplo un
     producto reusado sin recorte pedido) se deja `valid` tal cual, con
     aviso — sin casco no hay con qué recortar."""
-    mask = _footprint_hull_mask(recon_path, gt, W, H, proj, geojson_out=geojson_out,
-                                agl_hint_m=agl_hint_m)
+    mask = _footprint_hull_mask(recon_path, gt, W, H, proj, geojson_out=geojson_out, agl_hint_m=agl_hint_m)
     if mask is None:
         print(f"  ⚠ {recon_path} no encontrado — sin recorte por casco convexo ({label})")
         return valid
     before = int(valid.sum())
     after_check = int((valid & mask).sum())
     if before > 0 and after_check == 0:
-        print(f"  ⚠ El casco convexo ({label}) no se superpone con los píxeles válidos ({before:,} px) — conservando ortomosaico original")
+        print(
+            f"  ⚠ El casco convexo ({label}) no se superpone con los píxeles válidos ({before:,} px) — conservando ortomosaico original"
+        )
         return valid
     valid = valid & mask
     after_hull = int(valid.sum())
-    print(f"  casco convexo de huellas ({label}): −{before - after_hull:,} px "
-          f"fuera del área realmente fotografiada")
+    print(f"  casco convexo de huellas ({label}): −{before - after_hull:,} px fuera del área realmente fotografiada")
     return valid
 
 
@@ -551,13 +584,14 @@ def trim_rgb():
 
     valid = _apply_hull(valid, RGB_RECON, gt, W, H, proj, "RGB", geojson_out=HULL_RGB_PATH)
     after = int(valid.sum())
-    print(f"RGB: válidos antes={before:,} ({100*before/valid.size:.1f}%) "
-          f"después={after:,} ({100*after/valid.size:.1f}%)  "
-          f"recortado={100*(before-after)/max(before,1):.2f}%")
+    print(
+        f"RGB: válidos antes={before:,} ({100 * before / valid.size:.1f}%) "
+        f"después={after:,} ({100 * after / valid.size:.1f}%)  "
+        f"recortado={100 * (before - after) / max(before, 1):.2f}%"
+    )
 
     drv = gdal.GetDriverByName("GTiff")
-    out = drv.Create(RGB_PATH, W, H, 4, gdal.GDT_Byte,
-                      ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
+    out = drv.Create(RGB_PATH, W, H, 4, gdal.GDT_Byte, ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
     out.SetGeoTransform(gt)
     out.SetProjection(proj)
     # libtiff congela tags baseline como ExtraSamples apenas se escribe la
@@ -596,9 +630,8 @@ def trim_multispectral():
         full = full[np.newaxis, ...]
     n_total = full.shape[0]
 
-    has_alpha = n_total > 1 and (
-        ds.GetRasterBand(n_total).GetColorInterpretation() == gdal.GCI_AlphaBand)
-    
+    has_alpha = n_total > 1 and (ds.GetRasterBand(n_total).GetColorInterpretation() == gdal.GCI_AlphaBand)
+
     # Igual que en RGB, ignoramos el alpha estricto de ODM para evitar fragmentación
     # en modo urgencia, basando la validez puramente en que existan datos espectrales.
     if has_alpha:
@@ -606,23 +639,22 @@ def trim_multispectral():
     else:
         spectral = full
     valid = np.isfinite(spectral).all(axis=0) & (np.nanmean(spectral, axis=0) > 0)
-    
-    band_names = [ds.GetRasterBand(i + 1).GetDescription() or f"band{i+1}"
-                  for i in range(spectral.shape[0])]
+
+    band_names = [ds.GetRasterBand(i + 1).GetDescription() or f"band{i + 1}" for i in range(spectral.shape[0])]
     ds = None
     before = int(valid.sum())
 
-    valid = _apply_hull(valid, MS_RECON, gt, W, H, proj, "MS", geojson_out=HULL_MS_PATH,
-                        agl_hint_m=_reference_agl_m())
+    valid = _apply_hull(valid, MS_RECON, gt, W, H, proj, "MS", geojson_out=HULL_MS_PATH, agl_hint_m=_reference_agl_m())
     after = int(valid.sum())
-    print(f"Multiespectral: válidos antes={before:,} ({100*before/valid.size:.1f}%) "
-          f"después={after:,} ({100*after/valid.size:.1f}%)  "
-          f"recortado={100*(before-after)/max(before,1):.2f}%")
+    print(
+        f"Multiespectral: válidos antes={before:,} ({100 * before / valid.size:.1f}%) "
+        f"después={after:,} ({100 * after / valid.size:.1f}%)  "
+        f"recortado={100 * (before - after) / max(before, 1):.2f}%"
+    )
 
     drv = gdal.GetDriverByName("GTiff")
     nb = spectral.shape[0]
-    out = drv.Create(MS_PATH, W, H, nb + 1, gdal.GDT_Float32,
-                      ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
+    out = drv.Create(MS_PATH, W, H, nb + 1, gdal.GDT_Float32, ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
     out.SetGeoTransform(gt)
     out.SetProjection(proj)
     # SetColorInterpretation(alpha) tiene que ir ANTES de cualquier WriteArray:
@@ -672,8 +704,7 @@ def trim_thermal_native():
     if full.ndim == 2:
         full = full[np.newaxis, ...]
     n_total = full.shape[0]
-    has_alpha = n_total > 1 and (
-        ds.GetRasterBand(n_total).GetColorInterpretation() == gdal.GCI_AlphaBand)
+    has_alpha = n_total > 1 and (ds.GetRasterBand(n_total).GetColorInterpretation() == gdal.GCI_AlphaBand)
     a = full[0]
     if has_alpha:
         alpha = full[-1]
@@ -691,26 +722,26 @@ def trim_thermal_native():
     med = ndimage.median_filter(a_fill, size=THNAT_DESPIKE_WIN)
     spike = valid & (np.abs(a - med) > THNAT_DESPIKE_DEV)
     a[spike] = med[spike]
-    print(f"  despike: {int(spike.sum()):,} px reemplazados por mediana local "
-          f"(|ΔT|>{THNAT_DESPIKE_DEV}°C)")
+    print(f"  despike: {int(spike.sum()):,} px reemplazados por mediana local (|ΔT|>{THNAT_DESPIKE_DEV}°C)")
 
     # Cota física dura: valores fuera de rango plausible del sensor → nodata.
     extreme = valid & ((a < THNAT_HARD_LO) | (a > THNAT_HARD_HI))
     valid = valid & ~extreme
-    print(f"  extremos físicos (fuera [{THNAT_HARD_LO:.0f},{THNAT_HARD_HI:.0f}]°C): "
-          f"{int(extreme.sum()):,} px")
+    print(f"  extremos físicos (fuera [{THNAT_HARD_LO:.0f},{THNAT_HARD_HI:.0f}]°C): {int(extreme.sum()):,} px")
 
-    valid = _apply_hull(valid, THNAT_RECON, gt, W, H, proj, "térmico", geojson_out=HULL_THERMAL_PATH,
-                        agl_hint_m=_reference_agl_m())
+    valid = _apply_hull(
+        valid, THNAT_RECON, gt, W, H, proj, "térmico", geojson_out=HULL_THERMAL_PATH, agl_hint_m=_reference_agl_m()
+    )
     after = int(valid.sum())
-    print(f"Térmico: válidos antes={before:,} ({100*before/valid.size:.1f}%) "
-          f"después={after:,} ({100*after/valid.size:.1f}%)  "
-          f"recortado={100*(before-after)/max(before,1):.2f}%")
+    print(
+        f"Térmico: válidos antes={before:,} ({100 * before / valid.size:.1f}%) "
+        f"después={after:,} ({100 * after / valid.size:.1f}%)  "
+        f"recortado={100 * (before - after) / max(before, 1):.2f}%"
+    )
 
     out = np.where(valid, a, np.nan)
     drv = gdal.GetDriverByName("GTiff")
-    o = drv.Create(TH_PATH, W, H, 1, gdal.GDT_Float32,
-                    ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
+    o = drv.Create(TH_PATH, W, H, 1, gdal.GDT_Float32, ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
     o.SetGeoTransform(gt)
     o.SetProjection(proj)
     o.GetRasterBand(1).WriteArray(out)
@@ -744,14 +775,15 @@ def trim_dsm():
 
     valid = _apply_hull(valid, RGB_RECON, gt, W, H, proj, "DSM")
     after = int(valid.sum())
-    print(f"DSM: válidos antes={before:,} ({100*before/valid.size:.1f}%) "
-          f"después={after:,} ({100*after/valid.size:.1f}%)  "
-          f"recortado={100*(before-after)/max(before,1):.2f}%")
+    print(
+        f"DSM: válidos antes={before:,} ({100 * before / valid.size:.1f}%) "
+        f"después={after:,} ({100 * after / valid.size:.1f}%)  "
+        f"recortado={100 * (before - after) / max(before, 1):.2f}%"
+    )
 
     out = np.where(valid, z, np.nan).astype(np.float32)
     drv = gdal.GetDriverByName("GTiff")
-    o = drv.Create(DSM_PATH, W, H, 1, gdal.GDT_Float32,
-                    ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
+    o = drv.Create(DSM_PATH, W, H, 1, gdal.GDT_Float32, ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
     o.SetGeoTransform(gt)
     o.SetProjection(proj)
     o.GetRasterBand(1).WriteArray(out)

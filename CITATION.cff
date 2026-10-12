@@ -1,0 +1,29 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata from this file."
+title: "RAPTOR: Containerized Photogrammetry Pipeline for DJI UAVs"
+type: software
+authors:
+  - family-names: "Gómez Cardona"
+    given-names: "Federico"
+    email: "fjgomezc@eafit.edu.co"
+    orcid: "https://orcid.org/0000-0002-8525-4354"
+    affiliation: "SIATA, Sistema de Alerta Temprana de Medellín y el Valle de Aburrá; Universidad EAFIT"
+version: "1.0.0"
+license: MIT
+repository-code: "https://github.com/federicogmz/raptor"
+url: "https://github.com/federicogmz/raptor"
+abstract: >-
+  Open-source containerized photogrammetry pipeline for DJI UAVs (M3T, H20T, M3M).
+  Processes RGB, radiometric thermal, and multispectral imagery to generate orthomosaics,
+  surface models, thermal maps, and vegetation indices (NDVI, NDRE, MSAVI2) with an
+  interactive Leaflet web geovisor.
+keywords:
+  - "photogrammetry"
+  - "UAV"
+  - "drones"
+  - "DJI"
+  - "thermal imaging"
+  - "multispectral"
+  - "NDVI"
+  - "remote sensing"
+  - "geospatial"

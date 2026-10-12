@@ -8,6 +8,7 @@ mapa BASE (CARTO/Esri) sí son inevitablemente remotos: no se pueden
 empaquetar, pero su ausencia tiene que explicarse en vez de dejar un fondo
 gris que se lee como "está roto".
 """
+
 import os
 import re
 
@@ -91,12 +92,12 @@ class TestCompresion:
         assert "GZipMiddleware" in src
         assert "add_middleware(GZipMiddleware" in src
 
-    def test_las_respuestas_de_texto_grandes_llegan_comprimidas(self, tmp_path,
-                                                                monkeypatch):
+    def test_las_respuestas_de_texto_grandes_llegan_comprimidas(self, tmp_path, monkeypatch):
         monkeypatch.setenv("RAPTOR_RUNS_ROOT", str(tmp_path / "runs"))
         from fastapi.testclient import TestClient
         import webapp.main as M
         import importlib
+
         importlib.reload(M)
 
         c = TestClient(M.app)

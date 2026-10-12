@@ -15,18 +15,19 @@ ningún filtro propio) y cruza las dos.
 
 Salida: outputs/confidence_mask.tif.
 """
+
 import numpy as np
 from osgeo import gdal
 
 gdal.UseExceptions()
 
 RGB_PATH = "outputs/rgb_orthomosaic.tif"
-TH_PATH  = "outputs/thermal_orthomosaic.tif"
+TH_PATH = "outputs/thermal_orthomosaic.tif"
 CONF_PATH = "outputs/confidence_mask.tif"
 
 
 def _pct_of(num, den):
-    return f"{100*num/den:.1f}%" if den else "n/a (0 px)"
+    return f"{100 * num / den:.1f}%" if den else "n/a (0 px)"
 
 
 def _leer_valido_rgb():
@@ -50,7 +51,8 @@ def _leer_valido_thermal():
 def build_confidence(rgb_valid, rgb_gt, rgb_w, rgb_h, th_valid, th_gt, th_w, th_h):
     """Resamplea la validez RGB a la grilla térmica (el factor limitante) y
     cruza ambas: 255 donde los DOS productos tienen dato válido."""
-    rows = np.arange(th_h); cols = np.arange(th_w)
+    rows = np.arange(th_h)
+    cols = np.arange(th_w)
     CC, RR = np.meshgrid(cols, rows)
     UX = th_gt[0] + (CC + 0.5) * th_gt[1]
     UY = th_gt[3] + (RR + 0.5) * th_gt[5]
@@ -61,13 +63,14 @@ def build_confidence(rgb_valid, rgb_gt, rgb_w, rgb_h, th_valid, th_gt, th_w, th_
     rgb_on_th[ok] = rgb_valid[RR2[ok], RC[ok]]
 
     confidence = rgb_on_th & th_valid
-    print(f"Confianza combinada (RGB válido AND térmico válido, grilla térmica): "
-          f"{int(confidence.sum()):,} px ({100*confidence.mean():.1f}% de la grilla térmica, "
-          f"{_pct_of(int(confidence.sum()), int(th_valid.sum()))} del footprint térmico)")
+    print(
+        f"Confianza combinada (RGB válido AND térmico válido, grilla térmica): "
+        f"{int(confidence.sum()):,} px ({100 * confidence.mean():.1f}% de la grilla térmica, "
+        f"{_pct_of(int(confidence.sum()), int(th_valid.sum()))} del footprint térmico)"
+    )
 
     drv = gdal.GetDriverByName("GTiff")
-    out_ds = drv.Create(CONF_PATH, th_w, th_h, 1, gdal.GDT_Byte,
-                         ["COMPRESS=LZW", "TILED=YES"])
+    out_ds = drv.Create(CONF_PATH, th_w, th_h, 1, gdal.GDT_Byte, ["COMPRESS=LZW", "TILED=YES"])
     out_ds.SetGeoTransform(th_gt)
     srs = gdal.Open(TH_PATH).GetProjection()
     out_ds.SetProjection(srs)

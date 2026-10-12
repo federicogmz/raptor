@@ -22,6 +22,34 @@ sensors reconstruct at once" below).
 
 ---
 
+## Geovisor & Sensor Outputs
+
+RAPTOR includes an interactive Leaflet-based web geovisor accessible at `http://localhost:8080`, supporting real-time layer switching, radiometric temperature measurements, and vegetation index analysis:
+
+| Web Geovisor Interface | Radiometric Thermal Mosaic | Multispectral Indices (NDVI) |
+| :---: | :---: | :---: |
+| [![Geovisor Overview](docs/images/geovisor_overview.png)](docs/images/geovisor_overview.png) | [![Thermal Radiometric](docs/images/thermal_radiometric.png)](docs/images/thermal_radiometric.png) | [![Multispectral Indices](docs/images/multispectral_indices.png)](docs/images/multispectral_indices.png) |
+| *Interactive Leaflet geovisor with telemetry & flight trajectories* | *Direct DJI Thermal SDK radiometric export (°C)* | *Calibrated multispectral orthomosaic with canopy vigor* |
+
+<details>
+<summary><strong>View Detailed Previews</strong></summary>
+
+### 1. Interactive Geovisor Overview
+![RAPTOR Geovisor Overview](docs/images/geovisor_overview.png)
+*Full-screen Leaflet geovisor overview with layer controls, GSD metrics, and coordinate overlays.*
+
+### 2. Thermal Radiometric Orthomosaic
+![RAPTOR Radiometric Thermal](docs/images/thermal_radiometric.png)
+*Calibrated surface temperature maps (°C) with automatic hotspot detection and thermal anomaly identification.*
+
+### 3. Multispectral Vegetation Indices
+![RAPTOR Multispectral Indices](docs/images/multispectral_indices.png)
+*Normalized Difference Vegetation Index (NDVI) orthomosaic calibrated from sunshine sensor and panel data.*
+
+</details>
+
+---
+
 ## Installation: persistent webapp (default)
 
 The way to install RAPTOR on a machine (your own or someone else's) is one
@@ -46,6 +74,14 @@ deploys the webapp. The two questions:
 Both are saved to `~/.raptor/config`; `raptor init` reruns just this
 onboarding later if you want to change them (follow it with `raptor
 restart` to apply).
+
+On a fresh Linux machine `install` also checks the host first and offers
+(asking before each step, using `sudo`) to install whatever is missing:
+Docker Engine (official `get.docker.com` script), your user in the `docker`
+group (the install continues under that group; new terminals pick it up
+after logging out and back in), and `nvidia-container-toolkit` when there's
+an NVIDIA GPU that Docker can't use yet. On macOS/Windows it stops and points
+you to Docker Desktop instead.
 
 If `install` can't write to `/usr/local/bin` (no `~/.local/bin` either), it
 tells you so and prints the `export PATH=...` line to add to your shell

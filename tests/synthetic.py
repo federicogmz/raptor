@@ -5,10 +5,14 @@ La geometría es deliberadamente sencilla (vuelo en grilla, cámaras nadir salvo
 las que se pidan oblicuas) pero pasa por el MISMO camino que una misión real:
 proyección de huellas con las poses SfM, pisos adaptativos y recorte de núcleo.
 """
+
 import json
 import os
 
 import numpy as np
+import pytest
+
+pytest.importorskip("osgeo")
 from osgeo import gdal, osr
 
 gdal.UseExceptions()
@@ -25,8 +29,7 @@ def _wkt(epsg):
     return s.ExportToWkt()
 
 
-def escribir_raster(path, arr, gt, epsg=UTM18N, dtype=gdal.GDT_Float32,
-                    alpha_last=False, nodata=None, band_names=None):
+def escribir_raster(path, arr, gt, epsg=UTM18N, dtype=gdal.GDT_Float32, alpha_last=False, nodata=None, band_names=None):
     """arr: (bandas, H, W) o (H, W)."""
     if arr.ndim == 2:
         arr = arr[np.newaxis, ...]
@@ -49,8 +52,7 @@ def escribir_raster(path, arr, gt, epsg=UTM18N, dtype=gdal.GDT_Float32,
     return path
 
 
-def reconstruccion(path, n_lado=10, altura=50.0, paso_m=10.0, w=1024, h=768,
-                   focal=0.85, oblicuas=()):
+def reconstruccion(path, n_lado=10, altura=50.0, paso_m=10.0, w=1024, h=768, focal=0.85, oblicuas=()):
     """reconstruction.json de OpenSfM con un vuelo en grilla n_lado x n_lado.
 
     El sistema local de OpenSfM tiene origen en reference_lla, X al este, Y al
@@ -89,8 +91,17 @@ def reconstruccion(path, n_lado=10, altura=50.0, paso_m=10.0, w=1024, h=768,
             shots[f"IMG_{k:04d}.JPG"] = {"rotation": list(aa), "translation": list(t)}
             k += 1
     rec = {
-        "cameras": {"cam": {"projection_type": "brown", "width": w, "height": h,
-                            "focal_x": focal, "focal_y": focal, "c_x": 0.0, "c_y": 0.0}},
+        "cameras": {
+            "cam": {
+                "projection_type": "brown",
+                "width": w,
+                "height": h,
+                "focal_x": focal,
+                "focal_y": focal,
+                "c_x": 0.0,
+                "c_y": 0.0,
+            }
+        },
         "shots": shots,
         "reference_lla": {"latitude": REF_LAT, "longitude": REF_LON, "altitude": 0.0},
     }
@@ -121,6 +132,7 @@ def extent_para(n_lado=10, paso_m=10.0, px=0.5, margen_m=50.0):
     pisos de solape no descartan un solo píxel y el test de caracterización
     dejaría de proteger justamente el bloque que se refactoriza."""
     from pyproj import Transformer
+
     tr = Transformer.from_crs("EPSG:4326", f"EPSG:{UTM18N}", always_xy=True)
     e0, n0 = tr.transform(REF_LON, REF_LAT)
     medio = (n_lado - 1) * paso_m / 2 + margen_m

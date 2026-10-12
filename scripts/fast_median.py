@@ -30,6 +30,7 @@ y el array llega pre-padeado por réplica, así que cada bloque ve exactamente
 los mismos vecinos que vería la pasada global — de ahí que el resultado sea
 idéntico y no "equivalente". Se verifica en tests/test_fast_median.py.
 """
+
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -83,8 +84,8 @@ def median_filter_fast(a, size=9):
         y0, y1 = limites
         # El bloque incluye r filas de halo a cada lado; mode="nearest" acá
         # solo afecta a las columnas de los extremos, que ya vienen padeadas.
-        parcial = ndimage.median_filter(pad[y0:y1 + 2 * r], size=size, mode="nearest")
-        salida[y0:y1] = parcial[r:r + (y1 - y0), r:r + ancho]
+        parcial = ndimage.median_filter(pad[y0 : y1 + 2 * r], size=size, mode="nearest")
+        salida[y0:y1] = parcial[r : r + (y1 - y0), r : r + ancho]
 
     tramos = [(y0, min(y0 + filas, alto)) for y0 in range(0, alto, filas)]
     with ThreadPoolExecutor(max_workers=nthr) as pool:

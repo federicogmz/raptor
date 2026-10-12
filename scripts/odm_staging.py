@@ -25,6 +25,7 @@ Si el hardlink no se puede hacer (fuente y destino en filesystems distintos,
 que es lo normal cuando data/ y processing/ son volúmenes separados) se cae a
 copy2 sin decir nada: el resultado es el mismo, solo más lento.
 """
+
 import json
 import os
 import shutil
@@ -67,8 +68,7 @@ def poblar_images(src_dir, images_dir, sufijos, nprocs, etiqueta="archivos"):
         return []
 
     nombres_set = set(nombres)
-    viejos = [f for f in os.listdir(images_dir)
-              if f.upper().endswith(sufijos) and f not in nombres_set]
+    viejos = [f for f in os.listdir(images_dir) if f.upper().endswith(sufijos) and f not in nombres_set]
     if viejos:
         print(f"🧹 Limpiando {len(viejos)} de otra misión/corrida …")
         for f in viejos:
@@ -80,20 +80,20 @@ def poblar_images(src_dir, images_dir, sufijos, nprocs, etiqueta="archivos"):
         print(f"✅ {ya} {etiqueta} ya estaban preparados, nada que enlazar")
         return nombres
 
-    print(f"🔗 Enlazando {len(pendientes)} {etiqueta} nuevos con {nprocs} en paralelo"
-          + (f" ({ya} ya existentes, reutilizados) …" if ya else " …"))
+    print(
+        f"🔗 Enlazando {len(pendientes)} {etiqueta} nuevos con {nprocs} en paralelo"
+        + (f" ({ya} ya existentes, reutilizados) …" if ya else " …")
+    )
     with ThreadPoolExecutor(max_workers=nprocs) as pool:
         # list() para que una excepción de cualquier enlace salga acá con su
         # traceback real, en vez de perderse en un futuro sin cosechar.
-        list(pool.map(lambda f: enlazar_o_copiar(os.path.join(src_dir, f),
-                                                 os.path.join(images_dir, f)),
-                      pendientes))
+        list(pool.map(lambda f: enlazar_o_copiar(os.path.join(src_dir, f), os.path.join(images_dir, f)), pendientes))
     return nombres
 
 
 def _lotes(lista, n):
     tam = max(1, -(-len(lista) // n))
-    return [lista[i:i + tam] for i in range(0, len(lista), tam)]
+    return [lista[i : i + tam] for i in range(0, len(lista), tam)]
 
 
 def _leer_gps_lote(rutas):
@@ -101,12 +101,26 @@ def _leer_gps_lote(rutas):
     # M3M son 4 archivos por captura, así que una misión mediana ya pasa el
     # millar y la línea de comandos tiene un tope duro (ARG_MAX).
     r = subprocess.run(
-        ["exiftool", "-j", "-n",
-         "-GPSLatitude", "-GPSLongitude", "-GPSAltitude",
-         "-GimbalYawDegree", "-GimbalPitchDegree", "-GimbalRollDegree",
-         "-RtkStdLon", "-RtkStdLat", "-RtkStdHgt", "-@", "-"],
+        [
+            "exiftool",
+            "-j",
+            "-n",
+            "-GPSLatitude",
+            "-GPSLongitude",
+            "-GPSAltitude",
+            "-GimbalYawDegree",
+            "-GimbalPitchDegree",
+            "-GimbalRollDegree",
+            "-RtkStdLon",
+            "-RtkStdLat",
+            "-RtkStdHgt",
+            "-@",
+            "-",
+        ],
         input="\n".join(rutas),
-        capture_output=True, text=True, timeout=300,
+        capture_output=True,
+        text=True,
+        timeout=300,
     )
     if r.returncode != 0:
         raise RuntimeError(r.stderr)
@@ -163,9 +177,10 @@ def escribir_geo_txt(rutas, geo_txt, nprocs, etiqueta="archivos"):
 
     exif_todos = []
     if pendientes:
-        print(f"🔍 Extrayendo GPS de {len(pendientes)} {etiqueta} nuevos con exiftool "
-              f"({nprocs} en paralelo)"
-              + (f" — {len(previas)} ya en geo.txt, reutilizados" if previas else "") + " …")
+        print(
+            f"🔍 Extrayendo GPS de {len(pendientes)} {etiqueta} nuevos con exiftool "
+            f"({nprocs} en paralelo)" + (f" — {len(previas)} ya en geo.txt, reutilizados" if previas else "") + " …"
+        )
         try:
             with ThreadPoolExecutor(max_workers=nprocs) as pool:
                 for datos in pool.map(_leer_gps_lote, _lotes(pendientes, nprocs)):
@@ -210,8 +225,7 @@ def escribir_geo_txt(rutas, geo_txt, nprocs, etiqueta="archivos"):
             con_rtk_nuevas += 1
         else:
             h_acc, v_acc = H_ACC_SIN_RTK, V_ACC_SIN_RTK
-        nuevas[nombre] = (f"{nombre}\t{lon}\t{lat}\t{alt}\t{yaw}\t{pitch}\t{roll}"
-                          f"\t{h_acc:.5f}\t{v_acc:.5f}")
+        nuevas[nombre] = f"{nombre}\t{lon}\t{lat}\t{alt}\t{yaw}\t{pitch}\t{roll}\t{h_acc:.5f}\t{v_acc:.5f}"
 
     # Orden estable según `rutas` (no según el orden de respuesta de exiftool,
     # que llega por lote y no coincide con el de entrada).

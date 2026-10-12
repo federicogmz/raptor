@@ -4,6 +4,7 @@ El principio que protege este archivo está en el docstring de webapp/main.py:
 una misión que no puede terminar bien tiene que fallar EN EL FORMULARIO, en
 segundos y corregible ahí mismo, y no 40 minutos después adentro de ODM.
 """
+
 import importlib
 import os
 
@@ -19,12 +20,15 @@ def app(tmp_path, monkeypatch):
     montaje.mkdir()
     monkeypatch.setenv("EXPORT_MOUNT", str(montaje))
     from fastapi.testclient import TestClient
+
     # core.scan fija RUNS_ROOT al importarse, así que hay que recargarlo ANTES
     # que webapp.main — si no, la webapp sigue apuntando a /app/runs y los
     # tests pasan sin tocar el directorio temporal.
     from core import scan
+
     importlib.reload(scan)
     from webapp import main as M
+
     importlib.reload(M)
     M._state = None
     assert M.RUNS_ROOT == tmp_path / "runs", "el RUNS_ROOT temporal no tomó efecto"
@@ -50,27 +54,28 @@ class TestBandasMultiespectrales:
     def test_capturas_completas_pasan(self, app):
         c, M, runs, montaje = app
         _subir(runs, "m", "multispectral", _bandas(["DJI_0001", "DJI_0002"]))
-        uploads = {"rgb_thermal": M.classify_files([]),
-                   "multispectral": M.classify_files(_bandas(["DJI_0001", "DJI_0002"]))}
+        uploads = {
+            "rgb_thermal": M.classify_files([]),
+            "multispectral": M.classify_files(_bandas(["DJI_0001", "DJI_0002"])),
+        }
         assert M._validate("none", True, uploads) == []
 
     def test_captura_incompleta_se_rechaza_nombrandola(self, app):
         c, M, runs, montaje = app
         archivos = _bandas(["DJI_0001"]) + _bandas(["DJI_0002"], ("G", "R", "RE"))
-        uploads = {"rgb_thermal": M.classify_files([]),
-                   "multispectral": M.classify_files(archivos)}
+        uploads = {"rgb_thermal": M.classify_files([]), "multispectral": M.classify_files(archivos)}
         errs = M._validate("none", True, uploads)
         assert errs, "una captura sin su banda NIR tiene que rechazarse"
         assert "DJI_0002" in errs[0], f"el error debe nombrar la captura: {errs[0]}"
-        assert "NIR" not in errs[0].split("solo")[1].split(")")[0], \
-            "debe listar las bandas PRESENTES, no la que falta"
+        assert "NIR" not in errs[0].split("solo")[1].split(")")[0], "debe listar las bandas PRESENTES, no la que falta"
 
     def test_banda_entera_faltante_se_distingue_de_captura_incompleta(self, app):
         c, M, runs, montaje = app
         # Ninguna captura tiene NIR: es una banda entera ausente, no capturas sueltas
         archivos = _bandas(["DJI_0001", "DJI_0002"], ("G", "R", "RE"))
-        errs = M._validate("none", True, {"rgb_thermal": M.classify_files([]),
-                                          "multispectral": M.classify_files(archivos)})
+        errs = M._validate(
+            "none", True, {"rgb_thermal": M.classify_files([]), "multispectral": M.classify_files(archivos)}
+        )
         assert errs and "bandas enteras" in errs[0], errs
         assert "NIR" in errs[0]
 
@@ -82,7 +87,7 @@ class TestBandasMultiespectrales:
 
     def test_lista_capturas_incompletas_ordenadas(self, app):
         c, M, runs, montaje = app
-        archivos = (_bandas(["C"]) + _bandas(["A"], ("G",)) + _bandas(["B"], ("G", "R")))
+        archivos = _bandas(["C"]) + _bandas(["A"], ("G",)) + _bandas(["B"], ("G", "R"))
         inc = M._incomplete_captures(archivos)
         assert [p for p, _ in inc] == ["A", "B"]
         assert inc[0][1] == ["G"] and inc[1][1] == ["G", "R"]
@@ -91,10 +96,10 @@ class TestBandasMultiespectrales:
         c, M, runs, montaje = app
         # Una captura completa, para que ninguna BANDA falte entera y el error
         # sea el de capturas incompletas y no el de banda ausente.
-        archivos = (_bandas(["DJI_9999"])
-                    + _bandas([f"DJI_{i:04d}" for i in range(10)], ("G", "R")))
-        errs = M._validate("none", True, {"rgb_thermal": M.classify_files([]),
-                                          "multispectral": M.classify_files(archivos)})
+        archivos = _bandas(["DJI_9999"]) + _bandas([f"DJI_{i:04d}" for i in range(10)], ("G", "R"))
+        errs = M._validate(
+            "none", True, {"rgb_thermal": M.classify_files([]), "multispectral": M.classify_files(archivos)}
+        )
         assert "10 captura" in errs[0] and "más" in errs[0], errs[0]
 
 
@@ -119,25 +124,25 @@ class TestEntregaAlHost:
 
     def test_check_export_confirma_la_ruta_del_host(self, app):
         c, M, runs, montaje = app
-        r = c.post("/api/missions/m1/check-export",
-                   data={"export_dir": "/home/usuario/entregas/la_clara",
-                         "export_epsg": "9377"}).json()
+        r = c.post(
+            "/api/missions/m1/check-export",
+            data={"export_dir": "/home/usuario/entregas/la_clara", "export_epsg": "9377"},
+        ).json()
         assert r["ok"], r["errors"]
         assert r["resolved"] == "/home/usuario/entregas/la_clara"
         assert r["crs_name"] == "MAGNA-SIRGAS 2018 / Origen-Nacional"
 
     def test_check_export_rechaza_fuera_del_montaje(self, app):
         c, M, runs, montaje = app
-        r = c.post("/api/missions/m1/check-export",
-                   data={"export_dir": "/etc", "export_epsg": "9377"}).json()
+        r = c.post("/api/missions/m1/check-export", data={"export_dir": "/etc", "export_epsg": "9377"}).json()
         assert not r["ok"]
         assert "fuera de la carpeta montada" in " ".join(r["errors"])
 
     def test_epsg_inexistente_se_rechaza(self, app):
         c, M, runs, montaje = app
-        r = c.post("/api/missions/m1/check-export",
-                   data={"export_dir": "/home/usuario/entregas/x",
-                         "export_epsg": "999999"}).json()
+        r = c.post(
+            "/api/missions/m1/check-export", data={"export_dir": "/home/usuario/entregas/x", "export_epsg": "999999"}
+        ).json()
         assert not r["ok"] and "no existe" in " ".join(r["errors"])
 
     def test_export_host_dir_con_punto_sin_resolver_no_rompe_la_comparacion(self, tmp_path, monkeypatch):
@@ -156,9 +161,11 @@ class TestEntregaAlHost:
         monkeypatch.setenv("EXPORT_HOST_DIR", f"{tmp_path}/./entregas")
         monkeypatch.setenv("EXPORT_MOUNT", str(montaje))
         from webapp import main as M
+
         importlib.reload(M)
-        assert M.EXPORT_HOST_DIR == str(tmp_path / "entregas"), \
+        assert M.EXPORT_HOST_DIR == str(tmp_path / "entregas"), (
             "EXPORT_HOST_DIR tiene que quedar normalizado, sin el './' literal"
+        )
         # La ruta por defecto que la webapp le ofrece al usuario para SU
         # propia misión tiene que resolver bien, no rebotar como "fuera
         # de la carpeta montada".
@@ -169,6 +176,7 @@ class TestEntregaAlHost:
         monkeypatch.delenv("EXPORT_HOST_DIR", raising=False)
         from fastapi.testclient import TestClient
         from webapp import main as M
+
         importlib.reload(M)
         M._state = None
         s = TestClient(M.app).get("/api/missions/m1/status").json()
@@ -201,16 +209,16 @@ class TestExportacionADemanda:
     def test_rechaza_producto_no_generado(self, app):
         c, M, runs, montaje = app
         self._con_rgb_generado(runs, "m1")
-        r = c.post("/api/missions/m1/export", data={
-            "export_dir": "/home/usuario/entregas/m1",
-            "export_products": "rgb,multispectral"})
+        r = c.post(
+            "/api/missions/m1/export",
+            data={"export_dir": "/home/usuario/entregas/m1", "export_products": "rgb,multispectral"},
+        )
         assert r.status_code == 400 and "multispectral" in r.json()["detail"]
 
     def test_rechaza_carpeta_fuera_del_montaje(self, app):
         c, M, runs, montaje = app
         self._con_rgb_generado(runs, "m1")
-        r = c.post("/api/missions/m1/export", data={
-            "export_dir": "/etc", "export_products": "rgb"})
+        r = c.post("/api/missions/m1/export", data={"export_dir": "/etc", "export_products": "rgb"})
         assert r.status_code == 400
 
     def test_rechaza_mientras_la_mision_esta_corriendo(self, app):
@@ -219,10 +227,12 @@ class TestExportacionADemanda:
 
         class _Falsa:
             mission_name, done = "m1", False
+
         M._state = _Falsa()
         try:
-            r = c.post("/api/missions/m1/export", data={
-                "export_dir": "/home/usuario/entregas/m1", "export_products": "rgb"})
+            r = c.post(
+                "/api/missions/m1/export", data={"export_dir": "/home/usuario/entregas/m1", "export_products": "rgb"}
+            )
             assert r.status_code == 409
         finally:
             M._state = None
@@ -234,8 +244,7 @@ class TestExportacionADemanda:
         # puede llegar como campo AUSENTE del lado del server según el
         # cliente, lo que da 422 (Form(...) required) en vez de ejercitar la
         # validación real de "sin productos" que se busca probar acá.
-        r = c.post("/api/missions/m1/export", data={
-            "export_dir": "/home/usuario/entregas/m1", "export_products": " "})
+        r = c.post("/api/missions/m1/export", data={"export_dir": "/home/usuario/entregas/m1", "export_products": " "})
         assert r.status_code == 400
 
 
@@ -278,8 +287,12 @@ class TestOdmProjects:
 
     def _con_processing(self, runs, mision, *sensores):
         d = runs / mision / "processing"
-        for s, sub in (("rgb", "rgb_odm"), ("thermal", "thermal_native_odm"),
-                      ("multispectral", "multispectral_odm"), ("dband", "dband_odm")):
+        for s, sub in (
+            ("rgb", "rgb_odm"),
+            ("thermal", "thermal_native_odm"),
+            ("multispectral", "multispectral_odm"),
+            ("dband", "dband_odm"),
+        ):
             if s in sensores:
                 p = d / sub / "opensfm"
                 p.mkdir(parents=True)
@@ -305,12 +318,15 @@ class TestCancelarMision:
 
         class _RunFalso:
             killed = False
+
             def kill(self):
                 self.killed = True
+
         run_falso = _RunFalso()
 
         class _Falsa:
             mission_name, done, run = "corriendo", False, run_falso
+
         M._state = _Falsa()
         try:
             r = c.post("/api/missions/corriendo/cancel")
@@ -328,6 +344,7 @@ class TestCancelarMision:
 
         class _Falsa:
             mission_name, done = "corriendo", True
+
         M._state = _Falsa()
         try:
             r = c.post("/api/missions/corriendo/cancel")
@@ -349,6 +366,7 @@ class TestEstadoDeLaUltimaCorridaSobreviveElReinicio:
         d = runs / mision / "outputs"
         d.mkdir(parents=True, exist_ok=True)
         import json
+
         (d / "run_summary.json").write_text(json.dumps({"ok": ok, "exit_code": 0 if ok else 2}))
 
     def test_mision_fallida_sin_estado_en_memoria_sale_ok_false(self, app):
@@ -388,6 +406,7 @@ class TestEstadoDeLaUltimaCorridaSobreviveElReinicio:
 
         class _Falsa:
             mission_name, done, returncode = "m4", True, 0  # memoria: tuvo éxito
+
         M._state = _Falsa()
         try:
             r = c.get("/api/missions")
@@ -406,6 +425,7 @@ class TestGuardasDeMisionActiva:
 
         class _Falsa:
             mission_name, done = "corriendo", False
+
         M._state = _Falsa()
         try:
             r = c.post("/api/missions/otra/activate")
@@ -431,8 +451,10 @@ class TestImportarLocal:
         monkeypatch.setenv("IMPORT_MOUNT", str(fuente))
         from fastapi.testclient import TestClient
         from core import scan
+
         importlib.reload(scan)
         from webapp import main as M
+
         importlib.reload(M)
         M._state = None
         return TestClient(M.app), M, tmp_path / "runs", fuente
@@ -448,6 +470,7 @@ class TestImportarLocal:
         monkeypatch.delenv("IMPORT_HOST_DIR", raising=False)
         from fastapi.testclient import TestClient
         from webapp import main as M
+
         importlib.reload(M)
         M._state = None
         s = TestClient(M.app).get("/api/missions/m1/status").json()
@@ -463,14 +486,14 @@ class TestImportarLocal:
         c, M, runs, fuente = app
         (fuente / "DJI_0001_V.JPG").write_text("rgb")
         (fuente / "DJI_0001_T.JPG").write_text("termica")
-        r = c.post("/api/missions/mi_mision/import-local",
-                   data={"kind": "rgb_thermal", "host_path": str(fuente)})
+        r = c.post("/api/missions/mi_mision/import-local", data={"kind": "rgb_thermal", "host_path": str(fuente)})
         assert r.status_code == 200
         j = r.json()
         assert j["uploads"]["rgb"] == 1 and j["uploads"]["thermal"] == 1
         dest = runs / "mi_mision" / "raw" / "rgb_thermal"
-        assert dest.is_dir() and not dest.is_symlink(), \
+        assert dest.is_dir() and not dest.is_symlink(), (
             "raw/rgb_thermal tiene que ser un directorio real (contenedor de symlinks)"
+        )
         entrada = dest / j["entry"]
         assert entrada.is_symlink(), "la carpeta agregada tiene que ser un symlink, no una copia"
         assert os.readlink(entrada) == str(fuente)
@@ -486,8 +509,7 @@ class TestImportarLocal:
         sub = fuente / "100MEDIA"
         sub.mkdir()
         (sub / "DJI_0001_V.JPG").write_text("x")
-        r = c.post("/api/missions/m/import-local",
-                   data={"kind": "rgb_thermal", "host_path": str(fuente)}).json()
+        r = c.post("/api/missions/m/import-local", data={"kind": "rgb_thermal", "host_path": str(fuente)}).json()
         assert r["uploads"]["rgb"] == 1
         dest = runs / "m" / "raw" / "rgb_thermal"
         entrada = dest / r["entry"]
@@ -500,10 +522,8 @@ class TestImportarLocal:
         devuelve la entrada existente tal cual."""
         c, M, runs, fuente = app
         (fuente / "a_V.JPG").write_text("x")
-        r1 = c.post("/api/missions/m/import-local",
-                    data={"kind": "rgb_thermal", "host_path": str(fuente)}).json()
-        r2 = c.post("/api/missions/m/import-local",
-                    data={"kind": "rgb_thermal", "host_path": str(fuente)}).json()
+        r1 = c.post("/api/missions/m/import-local", data={"kind": "rgb_thermal", "host_path": str(fuente)}).json()
+        r2 = c.post("/api/missions/m/import-local", data={"kind": "rgb_thermal", "host_path": str(fuente)}).json()
         assert r2["entry"] == r1["entry"], "reimportar la misma carpeta no debería crear una entrada nueva"
         dest = runs / "m" / "raw" / "rgb_thermal"
         assert len(list(dest.iterdir())) == 1, "no debería haber quedado una segunda entrada duplicada"
@@ -521,10 +541,8 @@ class TestImportarLocal:
         M.IMPORT_HOST_DIR = str(fuente.parent)
         M.IMPORT_MOUNT = str(fuente.parent)
 
-        r1 = c.post("/api/missions/m/import-local",
-                    data={"kind": "rgb_thermal", "host_path": str(fuente)}).json()
-        r2 = c.post("/api/missions/m/import-local",
-                    data={"kind": "rgb_thermal", "host_path": str(otra)}).json()
+        r1 = c.post("/api/missions/m/import-local", data={"kind": "rgb_thermal", "host_path": str(fuente)}).json()
+        r2 = c.post("/api/missions/m/import-local", data={"kind": "rgb_thermal", "host_path": str(otra)}).json()
         assert r1["entry"] != r2["entry"]
         assert r2["uploads"]["rgb"] == 2, "las dos carpetas tienen que sumar, no reemplazarse"
         dest = runs / "m" / "raw" / "rgb_thermal"
@@ -545,8 +563,7 @@ class TestImportarLocal:
         (nueva / "nueva_V.JPG").write_text("n")
         M.IMPORT_HOST_DIR = str(fuente.parent)
         M.IMPORT_MOUNT = str(fuente.parent)
-        r = c.post("/api/missions/m/import-local",
-                   data={"kind": "rgb_thermal", "host_path": str(nueva)}).json()
+        r = c.post("/api/missions/m/import-local", data={"kind": "rgb_thermal", "host_path": str(nueva)}).json()
 
         assert dest.is_dir() and not dest.is_symlink(), "se migró a directorio real"
         assert r["uploads"]["rgb"] == 2, "las fotos viejas no se perdieron en la migración"
@@ -561,13 +578,10 @@ class TestImportarLocal:
         (otra / "b_V.JPG").write_text("y")
         M.IMPORT_HOST_DIR = str(fuente.parent)
         M.IMPORT_MOUNT = str(fuente.parent)
-        r1 = c.post("/api/missions/m/import-local",
-                    data={"kind": "rgb_thermal", "host_path": str(fuente)}).json()
-        c.post("/api/missions/m/import-local",
-               data={"kind": "rgb_thermal", "host_path": str(otra)})
+        r1 = c.post("/api/missions/m/import-local", data={"kind": "rgb_thermal", "host_path": str(fuente)}).json()
+        c.post("/api/missions/m/import-local", data={"kind": "rgb_thermal", "host_path": str(otra)})
 
-        r = c.post("/api/missions/m/import-remove",
-                   data={"kind": "rgb_thermal", "name": r1["entry"]})
+        r = c.post("/api/missions/m/import-remove", data={"kind": "rgb_thermal", "name": r1["entry"]})
         assert r.status_code == 200
         assert r.json()["uploads"]["rgb"] == 1, "solo debería quedar la carpeta que no se sacó"
         assert (otra / "b_V.JPG").exists(), "la carpeta que sigue agregada no se toca"
@@ -579,33 +593,28 @@ class TestImportarLocal:
         de la carpeta real del usuario del otro lado."""
         c, M, runs, fuente = app
         (fuente / "a_V.JPG").write_text("x")
-        c.post("/api/missions/m/import-local",
-               data={"kind": "rgb_thermal", "host_path": str(fuente)})
+        c.post("/api/missions/m/import-local", data={"kind": "rgb_thermal", "host_path": str(fuente)})
         dest = runs / "m" / "raw" / "rgb_thermal"
         assert dest.is_dir()
         r = c.post("/api/missions/m/clear-uploads", data={"kind": "rgb_thermal"})
         assert r.status_code == 200
         assert not dest.exists()
-        assert (fuente / "a_V.JPG").read_text() == "x", \
-            "la carpeta original del usuario no debería haberse tocado"
+        assert (fuente / "a_V.JPG").read_text() == "x", "la carpeta original del usuario no debería haberse tocado"
 
     def test_ruta_fuera_del_montaje_se_rechaza(self, app):
         c, M, runs, fuente = app
-        r = c.post("/api/missions/m/import-local",
-                   data={"kind": "rgb_thermal", "host_path": "/etc"})
+        r = c.post("/api/missions/m/import-local", data={"kind": "rgb_thermal", "host_path": "/etc"})
         assert r.status_code == 400
         assert "fuera de la carpeta montada" in r.json()["detail"]
 
     def test_kind_invalido_se_rechaza(self, app):
         c, M, runs, fuente = app
-        r = c.post("/api/missions/m/import-local",
-                   data={"kind": "lo_que_sea", "host_path": str(fuente)})
+        r = c.post("/api/missions/m/import-local", data={"kind": "lo_que_sea", "host_path": str(fuente)})
         assert r.status_code == 400
 
     def test_carpeta_inexistente_se_rechaza(self, app):
         c, M, runs, fuente = app
-        r = c.post("/api/missions/m/import-local",
-                   data={"kind": "rgb_thermal", "host_path": str(fuente / "no_existe")})
+        r = c.post("/api/missions/m/import-local", data={"kind": "rgb_thermal", "host_path": str(fuente / "no_existe")})
         assert r.status_code == 400
         assert "no existe" in r.json()["detail"]
 
@@ -628,8 +637,10 @@ class TestExplorarCarpetas:
         monkeypatch.setenv("IMPORT_MOUNT", str(raiz))
         from fastapi.testclient import TestClient
         from core import scan
+
         importlib.reload(scan)
         from webapp import main as M
+
         importlib.reload(M)
         M._state = None
         return TestClient(M.app), M, raiz
@@ -698,6 +709,7 @@ class TestExplorarCarpetas:
         monkeypatch.delenv("IMPORT_HOST_DIR", raising=False)
         from fastapi.testclient import TestClient
         from webapp import main as M
+
         importlib.reload(M)
         M._state = None
         r = TestClient(M.app).get("/api/import/browse")
@@ -734,4 +746,3 @@ class TestClasificacionGeneral:
         }
         errs = M._validate("rgb", False, uploads)
         assert errs == [], f"No debería haber errores con fotos RGB estándar: {errs}"
-

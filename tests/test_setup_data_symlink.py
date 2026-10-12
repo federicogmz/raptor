@@ -16,6 +16,7 @@ problema (por eso la webapp SÍ contaba bien las fotos al validar el
 formulario) — es específico de cómo `find` interpreta sus argumentos de
 línea de comandos.
 """
+
 import os
 import shutil
 import subprocess
@@ -36,8 +37,7 @@ def _correr(script_real, src, cwd):
     copia = docker_dir / os.path.basename(script_real)
     shutil.copy(script_real, copia)
     copia.chmod(0o755)
-    return subprocess.run([str(copia), str(src)], cwd=str(cwd),
-                          capture_output=True, text=True, timeout=30)
+    return subprocess.run([str(copia), str(src)], cwd=str(cwd), capture_output=True, text=True, timeout=30)
 
 
 class TestSetupDataSigueSymlinks:
@@ -60,8 +60,9 @@ class TestSetupDataSigueSymlinks:
         r = _correr(SETUP_DATA, symlink_src, cwd)
         assert r.returncode == 0, r.stdout + r.stderr
         assert "No se encontraron imágenes RGB" not in r.stdout, r.stdout
-        assert (cwd / "data" / "rgb_mosaico" / "DJI_0001_V.JPG").exists(), \
+        assert (cwd / "data" / "rgb_mosaico" / "DJI_0001_V.JPG").exists(), (
             "el símlink de origen tiene que atravesarse, no tratarse como un archivo suelto"
+        )
         assert (cwd / "data" / "termica_mosaico" / "DJI_0002_T.JPG").exists()
 
     def test_multiespectral_tambien_sigue_symlinks(self, tmp_path):
