@@ -18,4 +18,10 @@ To update or replace screenshots from your local RAPTOR deployment:
 3. **Confidentiality & Data Protection Guidelines:**
    - **Do not include confidential client flight data, restricted airspace information, or sensitive GPS coordinates.**
    - Prefer synthetic flights or de-identified public demo datasets.
-   - Ensure high resolution (recommended minimum 1280×720) in PNG format with optimized file size.
+   - Ensure high resolution (recommended minimum 1280×720, default 1920×1080) in PNG format with optimized file size.
+
+4. **Deep-linking & Layer Selection Shortcuts:**
+   - Overview: `http://localhost:8080/geovisor/index.html?mission=<nombre>`
+   - Thermal with colormap legend: `http://localhost:8080/geovisor/index.html?mission=<nombre>&solo=thermal&legend=thermal`
+   - NDVI with vegetation vigor legend: `http://localhost:8080/geovisor/index.html?mission=<nombre>&solo=ndvi&legend=ndvi`
+   - Satellite base layer: add `&base=sat`
