@@ -22,6 +22,7 @@ Variables de entorno (todas opcionales; sin EXPORT_DIR no corre):
 
 Uso: python3 scripts/export_products.py
 """
+
 import json
 import os
 import shutil
@@ -29,9 +30,13 @@ import subprocess
 import sys
 import tempfile
 
-from osgeo import gdal, osr
+try:
+    from osgeo import gdal, osr
 
-gdal.UseExceptions()
+    gdal.UseExceptions()
+except ImportError:
+    gdal = None
+    osr = None
 
 # Configurable para exportar a demanda una misión que NO es la que está
 # symlinkeada ahora mismo a /app/outputs (ver webapp/main.py::export_mission):
@@ -50,31 +55,40 @@ OUTPUTS = os.environ.get("RAPTOR_EXPORT_SOURCE_DIR", "outputs")
 # teselarlos — promediar clases vecinas inventa una clase intermedia que no
 # existe (un 2.5 entre "elevado" y "caliente" no significa nada).
 CATALOG = {
-    "rgb":           ("Ortomosaico RGB", "raster", [f"{OUTPUTS}/rgb_orthomosaic.tif"]),
-    "thermal":       ("Ortomosaico térmico (°C)", "raster", [f"{OUTPUTS}/thermal_orthomosaic.tif"]),
-    "dsm":           ("Modelo digital de superficie", "raster", [f"{OUTPUTS}/dsm.tif"]),
+    "rgb": ("Ortomosaico RGB", "raster", [f"{OUTPUTS}/rgb_orthomosaic.tif"]),
+    "thermal": ("Ortomosaico térmico (°C)", "raster", [f"{OUTPUTS}/thermal_orthomosaic.tif"]),
+    "dsm": ("Modelo digital de superficie", "raster", [f"{OUTPUTS}/dsm.tif"]),
     "multispectral": ("Ortomosaico multiespectral", "raster", [f"{OUTPUTS}/multispectral_orthomosaic.tif"]),
-    "indices":       ("Índices de vegetación", "raster",
-                      [f"{OUTPUTS}/indices/{n}.tif" for n in ("ndvi", "gndvi", "ndre", "msavi2")]),
-    "classes":       ("Hotspot e índices clasificados", "raster_discreto",
-                      [f"{OUTPUTS}/termico_hotspot_class.tif"]
-                      + [f"{OUTPUTS}/indices/{n}_class.tif" for n in ("ndvi", "gndvi", "ndre", "msavi2")]),
-    "confidence":    ("Máscara de confianza", "raster_discreto", [f"{OUTPUTS}/confidence_mask.tif"]),
-    "flight_path":   ("Ruta de vuelo", "vector", [f"{OUTPUTS}/flight_path.geojson"]),
-    "situation":     ("Resumen de situación (JSON)", "copia", [f"{OUTPUTS}/situation.json"]),
-    "pointclouds":   ("Nubes de puntos", "nube",
-                      [f"{OUTPUTS}/point_cloud_{n}.copc.laz" for n in ("rgb", "thermal", "multispectral", "dband")]),
+    "indices": (
+        "Índices de vegetación",
+        "raster",
+        [f"{OUTPUTS}/indices/{n}.tif" for n in ("ndvi", "gndvi", "ndre", "msavi2")],
+    ),
+    "classes": (
+        "Hotspot e índices clasificados",
+        "raster_discreto",
+        [f"{OUTPUTS}/termico_hotspot_class.tif"]
+        + [f"{OUTPUTS}/indices/{n}_class.tif" for n in ("ndvi", "gndvi", "ndre", "msavi2")],
+    ),
+    "confidence": ("Máscara de confianza", "raster_discreto", [f"{OUTPUTS}/confidence_mask.tif"]),
+    "flight_path": ("Ruta de vuelo", "vector", [f"{OUTPUTS}/flight_path.geojson"]),
+    "situation": ("Resumen de situación (JSON)", "copia", [f"{OUTPUTS}/situation.json"]),
+    "pointclouds": (
+        "Nubes de puntos",
+        "nube",
+        [f"{OUTPUTS}/point_cloud_{n}.copc.laz" for n in ("rgb", "thermal", "multispectral", "dband")],
+    ),
 }
 
 RASTER_FORMATS = {
-    "cog":   ("COG", ".tif", ["COMPRESS=DEFLATE", "OVERVIEW_RESAMPLING=AVERAGE", "BIGTIFF=IF_SAFER"]),
+    "cog": ("COG", ".tif", ["COMPRESS=DEFLATE", "OVERVIEW_RESAMPLING=AVERAGE", "BIGTIFF=IF_SAFER"]),
     "gtiff": ("GTiff", ".tif", ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_SAFER"]),
 }
 VECTOR_FORMATS = {
     "geojson": ("GeoJSON", ".geojson"),
-    "gpkg":    ("GPKG", ".gpkg"),
-    "shp":     ("ESRI Shapefile", ".shp"),
-    "kml":     ("KML", ".kml"),
+    "gpkg": ("GPKG", ".gpkg"),
+    "shp": ("ESRI Shapefile", ".shp"),
+    "kml": ("KML", ".kml"),
 }
 
 PDAL_BIN = "/code/SuperBuild/install/bin/pdal"
@@ -87,12 +101,32 @@ def _srs_from_epsg(code):
     return srs
 
 
+def _resample_alg(src, discreto):
+    """Remuestreo al reproyectar, según qué representa el ráster.
+
+    - Clases: vecino más cercano (promediar inventa clases intermedias).
+    - Térmico (°C): vecino más cercano. Es una MEDICIÓN por píxel y los focos
+      se definen por temperatura absoluta (>= 88 °C): el cúbico que se usaba
+      antes aplanaba los picos (Bello: 121.4 °C nativo -> 104.5 °C exportado)
+      y su sobreoscilación inventaba valores imposibles (-11.5 °C en Envigado).
+    - DSM, multiespectral e índices: bilineal, que nunca sale del rango de
+      sus vecinos (el cúbico sí, y son magnitudes que se miden).
+    - RGB y banda D: cúbico, solo importa el aspecto visual.
+    """
+    if discreto:
+        return "near"
+    nombre = os.path.basename(src)
+    if nombre.startswith("thermal_orthomosaic"):
+        return "near"
+    if nombre.startswith(("rgb_orthomosaic", "dband_orthomosaic")):
+        return "cubic"
+    return "bilinear"
+
+
 def _export_raster(src, dst_dir, fmt_key, epsg, discreto):
     drv, ext, copts = RASTER_FORMATS[fmt_key]
     dst = os.path.join(dst_dir, os.path.splitext(os.path.basename(src))[0] + ext)
-    # Vecino más cercano para clases; cúbico para continuo (RGB/térmico/DSM/
-    # índices), que da mejor resultado que bilineal al cambiar de grilla.
-    resample = "near" if discreto else "cubic"
+    resample = _resample_alg(src, discreto)
     # PREDICTOR según el tipo real del dato, mismo criterio que export_cog.py:
     # 3 para punto flotante, 2 para entero.
     ds = gdal.Open(src)
@@ -117,14 +151,20 @@ def _export_raster(src, dst_dir, fmt_key, epsg, discreto):
         if epsg is not None:
             fd, tmp = tempfile.mkstemp(suffix=".tif", dir=dst_dir)
             os.close(fd)
-            warped = gdal.Warp(tmp, src, options=gdal.WarpOptions(
-                format="GTiff", resampleAlg=resample, multithread=True,
-                dstSRS=_srs_from_epsg(epsg),
-                creationOptions=["TILED=YES", "BIGTIFF=IF_SAFER"]))
+            warped = gdal.Warp(
+                tmp,
+                src,
+                options=gdal.WarpOptions(
+                    format="GTiff",
+                    resampleAlg=resample,
+                    multithread=True,
+                    dstSRS=_srs_from_epsg(epsg),
+                    creationOptions=["TILED=YES", "BIGTIFF=IF_SAFER"],
+                ),
+            )
             warped = None
             source = tmp
-        out = gdal.Translate(dst, source, options=gdal.TranslateOptions(
-            format=drv, creationOptions=copts))
+        out = gdal.Translate(dst, source, options=gdal.TranslateOptions(format=drv, creationOptions=copts))
         out = None
     finally:
         if tmp and os.path.exists(tmp):
@@ -158,12 +198,25 @@ def _export_pointcloud(src, dst_dir, epsg):
         print(f"  ⚠ {os.path.basename(src)}: pdal no encontrado — se copia sin reproyectar")
         shutil.copy2(src, dst)
         return dst
-    r = subprocess.run([pdal, "translate", src, dst, "reprojection",
-                        f"--filters.reprojection.out_srs=EPSG:{epsg}", "--writer", "copc"],
-                       capture_output=True, text=True)
+    r = subprocess.run(
+        [
+            pdal,
+            "translate",
+            src,
+            dst,
+            "reprojection",
+            f"--filters.reprojection.out_srs=EPSG:{epsg}",
+            "--writer",
+            "copc",
+        ],
+        capture_output=True,
+        text=True,
+    )
     if r.returncode != 0:
-        print(f"  ⚠ {os.path.basename(src)}: no se pudo reproyectar ({r.stderr.strip()[:160]}) "
-              f"— se copia en la CRS original")
+        print(
+            f"  ⚠ {os.path.basename(src)}: no se pudo reproyectar ({r.stderr.strip()[:160]}) "
+            f"— se copia en la CRS original"
+        )
         shutil.copy2(src, dst)
     return dst
 
@@ -175,8 +228,7 @@ def main():
         return 0
 
     requested = os.environ.get("EXPORT_PRODUCTS", "all").strip()
-    keys = list(CATALOG) if requested in ("", "all") else [
-        k.strip() for k in requested.split(",") if k.strip()]
+    keys = list(CATALOG) if requested in ("", "all") else [k.strip() for k in requested.split(",") if k.strip()]
     desconocidas = [k for k in keys if k not in CATALOG]
     if desconocidas:
         print(f"❌ ERROR: productos desconocidos: {desconocidas}")
@@ -197,7 +249,7 @@ def main():
     if epsg_raw and epsg_raw != "source":
         try:
             epsg = int(epsg_raw)
-            _srs_from_epsg(epsg)          # falla acá si el código no existe
+            _srs_from_epsg(epsg)  # falla acá si el código no existe
         except Exception as exc:
             print(f"❌ ERROR: EPSG '{epsg_raw}' inválido o desconocido: {exc}")
             return 1
@@ -213,8 +265,12 @@ def main():
     print(f"  CRS     : {crs_label}")
     print(f"  formatos: ráster={raster_fmt} · vectorial={vector_fmt}")
 
-    manifest = {"crs": f"EPSG:{epsg}" if epsg else "origen", "raster_format": raster_fmt,
-                "vector_format": vector_fmt, "archivos": []}
+    manifest = {
+        "crs": f"EPSG:{epsg}" if epsg else "origen",
+        "raster_format": raster_fmt,
+        "vector_format": vector_fmt,
+        "archivos": [],
+    }
     n_ok = n_skip = 0
     for key in keys:
         label, kind, sources = CATALOG[key]
@@ -226,8 +282,7 @@ def main():
         for src in presentes:
             try:
                 if kind in ("raster", "raster_discreto"):
-                    dst = _export_raster(src, export_dir, raster_fmt, epsg,
-                                         discreto=(kind == "raster_discreto"))
+                    dst = _export_raster(src, export_dir, raster_fmt, epsg, discreto=(kind == "raster_discreto"))
                 elif kind == "vector":
                     dst = _export_vector(src, export_dir, vector_fmt, epsg)
                 elif kind == "nube":
@@ -240,9 +295,15 @@ def main():
                 return 1
             size_mb = os.path.getsize(dst) / 1e6
             print(f"  ✅ {os.path.basename(dst)}  ({size_mb:.1f} MB)  ← {label}")
-            manifest["archivos"].append({"producto": key, "etiqueta": label,
-                                         "archivo": os.path.basename(dst),
-                                         "origen": src, "mb": round(size_mb, 1)})
+            manifest["archivos"].append(
+                {
+                    "producto": key,
+                    "etiqueta": label,
+                    "archivo": os.path.basename(dst),
+                    "origen": src,
+                    "mb": round(size_mb, 1),
+                }
+            )
             n_ok += 1
 
     with open(os.path.join(export_dir, "export_manifest.json"), "w", encoding="utf-8") as f:
@@ -257,8 +318,10 @@ def main():
             except OSError:
                 pass
 
-    print(f"\n✅ {n_ok} archivo(s) exportado(s) a {export_dir}"
-          + (f" ({n_skip} producto(s) no disponibles en esta misión)" if n_skip else ""))
+    print(
+        f"\n✅ {n_ok} archivo(s) exportado(s) a {export_dir}"
+        + (f" ({n_skip} producto(s) no disponibles en esta misión)" if n_skip else "")
+    )
     return 0
 
 

@@ -14,6 +14,7 @@ preparación, recorte, exportación por sensor) y el análisis cruzado en
 paralelo, no solo una lista de `make` secuenciales como antes. Los stubs
 cubren esa superficie: python3 (hardware.py + export_cog/copc.py) y make.
 """
+
 import os
 import re
 import subprocess
@@ -77,7 +78,9 @@ def _correr(mode, run_rgb, run_ms, export_dir="", tmp_path=None, export_products
     # debería, de rebote, sumar la etapa de confianza en tests que no la
     # están probando a propósito.
     tmp_path.mkdir(parents=True, exist_ok=True)
-    guion = STUBS + f"""
+    guion = (
+        STUBS
+        + f"""
 cd "{tmp_path}"
 mkdir -p outputs/logs scripts
 MODE={mode}
@@ -86,9 +89,11 @@ RUN_MULTISPECTRAL={run_ms}
 EXPORT_DIR="{export_dir}"
 EXPORT_PRODUCTS="{export_products}"
 RUN_THERMAL=0; [[ "$MODE" == "rgb+thermal" || "$MODE" == "thermal" ]] && RUN_THERMAL=1
-""" + _bloque_de_etapas() + "\necho \"FINAL $STAGE $TOTAL_STAGES\"\n"
-    r = subprocess.run(["bash", "-c", guion], capture_output=True, text=True,
-                       timeout=30, cwd=str(tmp_path))
+"""
+        + _bloque_de_etapas()
+        + '\necho "FINAL $STAGE $TOTAL_STAGES"\n'
+    )
+    r = subprocess.run(["bash", "-c", guion], capture_output=True, text=True, timeout=30, cwd=str(tmp_path))
     assert r.returncode == 0, f"el bloque falló:\n{r.stdout}\n{r.stderr}"
     etapas = re.findall(r"^STAGE (\d+)/(\d+) (.+)$", r.stdout, re.M)
     final = re.search(r"^FINAL (\d+) (\d+)$", r.stdout, re.M)
@@ -97,14 +102,14 @@ RUN_THERMAL=0; [[ "$MODE" == "rgb+thermal" || "$MODE" == "thermal" ]] && RUN_THE
 
 # (descripción, MODE, RUN_RGB, RUN_MULTISPECTRAL, EXPORT_DIR)
 CONFIGS = [
-    ("RGB solo",                      "rgb",         1, 0, ""),
-    ("RGB + térmico",                 "rgb+thermal", 1, 0, ""),
-    ("RGB + multiespectral",          "rgb",         1, 1, ""),
+    ("RGB solo", "rgb", 1, 0, ""),
+    ("RGB + térmico", "rgb+thermal", 1, 0, ""),
+    ("RGB + multiespectral", "rgb", 1, 1, ""),
     ("RGB + térmico + multiespectral", "rgb+thermal", 1, 1, ""),
-    ("solo multiespectral",           "none",        0, 1, ""),
-    ("RGB + entrega",                 "rgb",         1, 0, "/export"),
-    ("completo + entrega",            "rgb+thermal", 1, 1, "/export"),
-    ("solo multiespectral + entrega", "none",        0, 1, "/export"),
+    ("solo multiespectral", "none", 0, 1, ""),
+    ("RGB + entrega", "rgb", 1, 0, "/export"),
+    ("completo + entrega", "rgb+thermal", 1, 1, "/export"),
+    ("solo multiespectral + entrega", "none", 0, 1, "/export"),
 ]
 
 
@@ -113,8 +118,7 @@ class TestContadorDeEtapas:
     def test_el_total_coincide_con_las_etapas_que_corren(self, desc, mode, rgb, ms, exp, tmp_path):
         """Lo que la barra promete al empezar es lo que efectivamente pasa."""
         etapas, stage_final, total, salida = _correr(mode, rgb, ms, exp, tmp_path)
-        assert len(etapas) == total, (
-            f"{desc}: corrieron {len(etapas)} etapas pero el total dice {total}\n{salida}")
+        assert len(etapas) == total, f"{desc}: corrieron {len(etapas)} etapas pero el total dice {total}\n{salida}"
         assert stage_final == total, f"{desc}: contador final {stage_final} != {total}"
         assert "progreso desfasado" not in salida, desc
 
@@ -143,11 +147,11 @@ class TestContadorDeEtapas:
         EXPORT_PRODUCTS tiene que sumar SU PROPIA etapa además de la de
         entrega, no pedirla no debería sumar nada de más."""
         sin_confianza, _, total_sin, _ = _correr(
-            "rgb+thermal", 1, 1, "/export", tmp_path / "sin_confianza",
-            export_products="rgb,thermal")
+            "rgb+thermal", 1, 1, "/export", tmp_path / "sin_confianza", export_products="rgb,thermal"
+        )
         con_confianza, _, total_con, _ = _correr(
-            "rgb+thermal", 1, 1, "/export", tmp_path / "con_confianza",
-            export_products="rgb,thermal,confidence")
+            "rgb+thermal", 1, 1, "/export", tmp_path / "con_confianza", export_products="rgb,thermal,confidence"
+        )
         assert total_con == total_sin + 1
         assert len(con_confianza) == len(sin_confianza) + 1
         assert any("confianza" in n.lower() for _, _, n in con_confianza)
@@ -156,7 +160,9 @@ class TestContadorDeEtapas:
     def test_detecta_el_desfase_si_alguien_agrega_una_etapa_sin_su_flag(self, tmp_path):
         """La red de seguridad del propio entrypoint: se agrega un stage_begin
         de más y tiene que avisar en vez de dejar la barra mintiendo."""
-        guion = STUBS + f"""
+        guion = (
+            STUBS
+            + f"""
 cd "{tmp_path}"
 mkdir -p outputs/logs scripts
 MODE=rgb
@@ -164,10 +170,12 @@ RUN_RGB=1
 RUN_MULTISPECTRAL=0
 RUN_THERMAL=0
 EXPORT_DIR=""
-""" + _bloque_de_etapas().replace(
-            'stage_begin "Generación de tiles XYZ"',
-            'stage_begin "Etapa nueva sin flag"\nstage_begin "Generación de tiles XYZ"', 1)
-        r = subprocess.run(["bash", "-c", guion], capture_output=True, text=True,
-                           timeout=30, cwd=str(tmp_path))
-        assert "progreso desfasado" in r.stdout, \
-            f"el entrypoint no avisó del desfase:\n{r.stdout}"
+"""
+            + _bloque_de_etapas().replace(
+                'stage_begin "Generación de tiles XYZ"',
+                'stage_begin "Etapa nueva sin flag"\nstage_begin "Generación de tiles XYZ"',
+                1,
+            )
+        )
+        r = subprocess.run(["bash", "-c", guion], capture_output=True, text=True, timeout=30, cwd=str(tmp_path))
+        assert "progreso desfasado" in r.stdout, f"el entrypoint no avisó del desfase:\n{r.stdout}"

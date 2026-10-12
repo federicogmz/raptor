@@ -21,6 +21,7 @@ que ver con la de los demás (segundos a minutos). Ahora cada sensor prepara
 y recién compite por un cupo de reconstrucción cuando SU preparación termina
 — ver TestDespachoAsincronoPorSensor.
 """
+
 import json
 import os
 import re
@@ -31,8 +32,7 @@ import pytest
 import hardware
 from hardware import MIN_HILOS_POR_PROYECTO, odm_slots
 
-ENTRYPOINT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                          "docker", "entrypoint.sh")
+ENTRYPOINT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docker", "entrypoint.sh")
 
 RGB_MP, MS_MP, TERMICO_MP = 12.3, 5.0, 0.33
 
@@ -41,9 +41,12 @@ RGB_MP, MS_MP, TERMICO_MP = 12.3, 5.0, 0.33
 def maquina(monkeypatch):
     """Fija núcleos y RAM disponible: el reparto no puede depender de en qué
     máquina corran los tests."""
+    monkeypatch.setattr(hardware, "_gpu_dense_offload", lambda: False)
+
     def _fijar(cores, mem_mb):
         monkeypatch.setattr(hardware, "cpu_count", lambda: cores)
         monkeypatch.setattr(hardware, "mem_available_mb", lambda: mem_mb)
+
     return _fijar
 
 
@@ -58,7 +61,8 @@ class TestOdmSlots:
         assert juntos["slots"] == 2
         assert sum(juntos["hilos"]) <= solo + 1, (
             f"dos proyectos juntos ({juntos['hilos']}) no pueden sumar más "
-            f"hilos que uno solo con toda la máquina ({solo})")
+            f"hilos que uno solo con toda la máquina ({solo})"
+        )
 
     def test_el_rgb_no_comparte_en_una_maquina_chica(self, maquina):
         """12.3 MP son ~6.3 GB por hilo en MVS: en 23 GB no entra con nadie
@@ -76,7 +80,7 @@ class TestOdmSlots:
     def test_nunca_por_debajo_del_minimo_util(self, maquina):
         maquina(20, 20480)
         r = odm_slots([MS_MP, MS_MP, TERMICO_MP])
-        for h in r["hilos"][:r["slots"]]:
+        for h in r["hilos"][: r["slots"]]:
             assert h >= MIN_HILOS_POR_PROYECTO
 
     def test_reparte_tambien_la_fase_liviana(self, maquina):
@@ -91,10 +95,10 @@ class TestOdmSlots:
         assert sum(juntos["hilos_light"]) <= solo + 1
 
     def test_nunca_mas_hilos_que_nucleos(self, maquina):
-        maquina(4, 512 * 1024)     # RAM de sobra, pocos núcleos
+        maquina(4, 512 * 1024)  # RAM de sobra, pocos núcleos
         r = odm_slots([MS_MP, MS_MP])
-        assert sum(r["hilos"][:r["slots"]]) <= 4
-        assert sum(r["hilos_light"][:r["slots"]]) <= 4
+        assert sum(r["hilos"][: r["slots"]]) <= 4
+        assert sum(r["hilos_light"][: r["slots"]]) <= 4
 
     def test_max_concurrency_cae_a_secuencial(self, maquina):
         """MAX_CONCURRENCY es la perilla de 'cuidame la memoria': respetarla
@@ -120,9 +124,12 @@ class TestOdmSlots:
 
     def test_cli_devuelve_json(self):
         repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        r = subprocess.run(["python3", os.path.join(repo, "scripts", "hardware.py"),
-                            "odm-slots", "5", "5", "--max-paralelo", "1"],
-                           capture_output=True, text=True, timeout=30)
+        r = subprocess.run(
+            ["python3", os.path.join(repo, "scripts", "hardware.py"), "odm-slots", "5", "5", "--max-paralelo", "1"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
         assert r.returncode == 0, r.stderr
         datos = json.loads(r.stdout)
         assert datos["slots"] == 1
@@ -148,13 +155,17 @@ class TestFastOrthophotoEnRgb:
     estándar/alta/máxima mantienen la nube densa completa."""
 
     def _args_rgb(self, fast, extra_vars=""):
-        guion = f"""
+        guion = (
+            f"""
 set -uo pipefail
 FEAT_QUALITY=medium; ODM_RES_CM=15; MIN_FEATURES=4000; MATCHER_NEIGHBORS=8
 PC_QUALITY=low; SFM_ALGORITHM=planar
 FAST_ORTHOPHOTO_RGB={fast}
 {extra_vars}
-""" + _bloque_odm_args() + '\n_odm_args rgb\n'
+"""
+            + _bloque_odm_args()
+            + "\n_odm_args rgb\n"
+        )
         r = subprocess.run(["bash", "-c", guion], capture_output=True, text=True, timeout=10)
         assert r.returncode == 0, r.stdout + r.stderr
         return r.stdout
@@ -172,13 +183,17 @@ FAST_ORTHOPHOTO_RGB={fast}
         assert "--dsm" in self._args_rgb(fast=0)
 
     def _args_ms(self, fast):
-        guion = f"""
+        guion = (
+            f"""
 set -uo pipefail
 FEAT_QUALITY=medium; ODM_RES_CM=15; MIN_FEATURES=4000; MATCHER_NEIGHBORS=8
 PC_QUALITY=low; SFM_ALGORITHM=planar
 FAST_ORTHOPHOTO_RGB={fast}
 RUN_RGB=1
-""" + _bloque_odm_args() + '\n_odm_args multispectral\n'
+"""
+            + _bloque_odm_args()
+            + "\n_odm_args multispectral\n"
+        )
         r = subprocess.run(["bash", "-c", guion], capture_output=True, text=True, timeout=10)
         assert r.returncode == 0, r.stdout + r.stderr
         return r.stdout
@@ -214,10 +229,14 @@ class TestPerfilDeMemoriaRgbConFastOrthophoto:
     reconstruía solo, con térmico ya terminado."""
 
     def _mp(self, fast, tmp_path):
-        guion = f"""
+        guion = (
+            f"""
 set -uo pipefail
 FAST_ORTHOPHOTO_RGB={fast}
-""" + _bloque_odm_mp() + '\n_odm_mp rgb\n'
+"""
+            + _bloque_odm_mp()
+            + "\n_odm_mp rgb\n"
+        )
         r = subprocess.run(["bash", "-c", guion], capture_output=True, text=True, timeout=10)
         assert r.returncode == 0, r.stdout + r.stderr
         return float(r.stdout.strip())
@@ -234,10 +253,14 @@ FAST_ORTHOPHOTO_RGB={fast}
         assert mp > 0.33
 
     def _mps_otros(self, fast):
-        guion = f"""
+        guion = (
+            f"""
 set -uo pipefail
 FAST_ORTHOPHOTO_RGB={fast}
-""" + _bloque_odm_mp() + '\n_odm_mp thermal\n_odm_mp multispectral\n_odm_mp dband\n'
+"""
+            + _bloque_odm_mp()
+            + "\n_odm_mp thermal\n_odm_mp multispectral\n_odm_mp dband\n"
+        )
         r = subprocess.run(["bash", "-c", guion], capture_output=True, text=True, timeout=10)
         assert r.returncode == 0, r.stdout + r.stderr
         return r.stdout.split()
@@ -287,11 +310,13 @@ class TestDespachoAsincronoPorSensor:
     de los demás."""
 
     def _correr(self, tmp_path, orden, slots="1", extra=""):
-        guion = STUBS_COMUNES + f"""
+        guion = (
+            STUBS_COMUNES
+            + f"""
 cd "{tmp_path}"
 mkdir -p outputs/logs scripts
 RUN_RGB=0; RUN_THERMAL=0; RUN_MULTISPECTRAL=0; DO_DBAND=0
-{chr(10).join(f'{v}=1' for v in orden)}
+{chr(10).join(f"{v}=1" for v in orden)}
 T0=$(date +%s%N)
 marca() {{ echo "MARCA $1 $(( ($(date +%s%N)-T0)/1000000 ))" >> traza.txt; }}
 python3() {{
@@ -305,9 +330,13 @@ python3() {{
   fi
   command python3 "$@"
 }}
-""" + extra + "\n" + _bloque_despacho() + '\necho "SALIDA=$?"\n'
-        return subprocess.run(["bash", "-c", guion], capture_output=True,
-                              text=True, timeout=30, cwd=str(tmp_path))
+"""
+            + extra
+            + "\n"
+            + _bloque_despacho()
+            + '\necho "SALIDA=$?"\n'
+        )
+        return subprocess.run(["bash", "-c", guion], capture_output=True, text=True, timeout=30, cwd=str(tmp_path))
 
     def _marcas(self, tmp_path):
         eventos = {}
@@ -385,8 +414,7 @@ make() {
 }
 run_odm() { :; }
 """
-        r = self._correr(tmp_path, ["RUN_RGB", "RUN_THERMAL", "RUN_MULTISPECTRAL"],
-                         slots="3", extra=extra)
+        r = self._correr(tmp_path, ["RUN_RGB", "RUN_THERMAL", "RUN_MULTISPECTRAL"], slots="3", extra=extra)
         assert "SALIDA=0" in r.stdout, r.stdout + r.stderr
         assert "rgb:MAX_CONCURRENCY=sin-fijar" in r.stdout
         assert "ms:MAX_CONCURRENCY=4" in r.stdout
@@ -411,8 +439,7 @@ run_odm() { echo "NO-DEBERIA-CORRER" >> traza.txt; }
 """
         r = self._correr(tmp_path, ["RUN_RGB"], extra=extra)
         assert "SALIDA=0" in r.stdout, r.stdout + r.stderr
-        assert not (tmp_path / "traza.txt").exists() or \
-            "NO-DEBERIA-CORRER" not in (tmp_path / "traza.txt").read_text()
+        assert not (tmp_path / "traza.txt").exists() or "NO-DEBERIA-CORRER" not in (tmp_path / "traza.txt").read_text()
 
     def test_solo_preparan_los_sensores_presentes(self, tmp_path):
         extra = r"""
@@ -428,11 +455,13 @@ run_odm() { :; }
 
 class TestSemaforoDeReconstruccion:
     def _correr(self, tmp_path, orden, slots, dormir="0.3"):
-        guion = STUBS_COMUNES + f"""
+        guion = (
+            STUBS_COMUNES
+            + f"""
 cd "{tmp_path}"
 mkdir -p outputs/logs scripts
 RUN_RGB=0; RUN_THERMAL=0; RUN_MULTISPECTRAL=0; DO_DBAND=0
-{chr(10).join(f'{v}=1' for v in orden)}
+{chr(10).join(f"{v}=1" for v in orden)}
 make() {{ [[ "$1" == prepare-* ]] && return 0; echo "make $*" >> makes.txt; }}
 python3() {{
   if [[ "$1" == "scripts/hardware.py" ]]; then
@@ -447,9 +476,11 @@ run_odm() {{
   sleep {dormir}
   echo "FIN $1 $(date +%s%N)" >> traza.txt
 }}
-""" + _bloque_despacho() + '\necho "SALIDA=$?"\n'
-        return subprocess.run(["bash", "-c", guion], capture_output=True,
-                              text=True, timeout=30, cwd=str(tmp_path))
+"""
+            + _bloque_despacho()
+            + '\necho "SALIDA=$?"\n'
+        )
+        return subprocess.run(["bash", "-c", guion], capture_output=True, text=True, timeout=30, cwd=str(tmp_path))
 
     def _intervalos(self, tmp_path):
         eventos = {}
@@ -463,16 +494,16 @@ run_odm() {{
         assert "SALIDA=0" in r.stdout, r.stdout + r.stderr
         ev = self._intervalos(tmp_path)
         assert set(ev) == {"multispectral", "dband"}
-        assert (ev["dband"]["INICIO"] >= ev["multispectral"]["FIN"]
-                or ev["multispectral"]["INICIO"] >= ev["dband"]["FIN"]), ev
+        assert (
+            ev["dband"]["INICIO"] >= ev["multispectral"]["FIN"] or ev["multispectral"]["INICIO"] >= ev["dband"]["FIN"]
+        ), ev
 
     def test_con_dos_slots_si_se_solapan(self, tmp_path):
         r = self._correr(tmp_path, ["RUN_MULTISPECTRAL", "DO_DBAND"], slots=2)
         assert "SALIDA=0" in r.stdout, r.stdout + r.stderr
         ev = self._intervalos(tmp_path)
         a, b = ev["multispectral"], ev["dband"]
-        assert a["INICIO"] < b["FIN"] and b["INICIO"] < a["FIN"], (
-            f"con 2 slots tenían que solaparse: {ev}")
+        assert a["INICIO"] < b["FIN"] and b["INICIO"] < a["FIN"], f"con 2 slots tenían que solaparse: {ev}"
 
     def test_lanza_el_recorte_y_la_exportacion_de_cada_sensor_al_terminar(self, tmp_path):
         r = self._correr(tmp_path, ["RUN_MULTISPECTRAL", "DO_DBAND"], slots=2)
@@ -503,7 +534,9 @@ run_odm() {{
         la reconstrucción" que buscar: ese descubrimiento/reporte pasa
         recién cuando algo pregunta por el sensor, probado en
         test_analisis_cruzado.py."""
-        guion = STUBS_COMUNES + f"""
+        guion = (
+            STUBS_COMUNES
+            + f"""
 cd "{tmp_path}"
 mkdir -p outputs/logs scripts
 RUN_RGB=0; RUN_THERMAL=0; RUN_MULTISPECTRAL=1; DO_DBAND=1
@@ -514,9 +547,11 @@ python3() {{
   command python3 "$@"
 }}
 run_odm() {{ echo "CORRIO $1" >> traza2.txt; exit 7; }}
-""" + _bloque_despacho() + '\necho "SALIDA=$?"\n'
-        r = subprocess.run(["bash", "-c", guion], capture_output=True,
-                           text=True, timeout=30, cwd=str(tmp_path))
+"""
+            + _bloque_despacho()
+            + '\necho "SALIDA=$?"\n'
+        )
+        r = subprocess.run(["bash", "-c", guion], capture_output=True, text=True, timeout=30, cwd=str(tmp_path))
         assert "SALIDA=0" in r.stdout, r.stdout + r.stderr
         assert "reintentando" in r.stdout, r.stdout
         # El semáforo de UN cupo decide cuál de los dos sensores (multiespectral,
@@ -531,6 +566,7 @@ run_odm() {{ echo "CORRIO $1" >> traza2.txt; exit 7; }}
         assert (corrio_ms, corrio_dband) in [(2, 0), (0, 2)], (
             f"exactamente un sensor tenía que intentar reconstruir (2 veces, "
             f"por los reintentos) y el otro cero, bloqueado por FALLOFLAG: "
-            f"multispectral={corrio_ms} dband={corrio_dband}\n{traza2}")
+            f"multispectral={corrio_ms} dband={corrio_dband}\n{traza2}"
+        )
         corridas = (tmp_path / "traza2.txt").read_text().splitlines()
         assert len(corridas) == 2, corridas

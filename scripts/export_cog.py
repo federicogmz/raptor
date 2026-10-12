@@ -20,6 +20,7 @@ de seguridad final: recorre TODO lo que exista en outputs/, e IGNORA lo que
 ya sea COG (ver _ya_es_cog) para no re-escribir de gratis lo que el pase por
 sensor ya dejó listo.
 """
+
 import os, sys, glob, subprocess, tempfile
 from concurrent.futures import ThreadPoolExecutor
 from osgeo import gdal
@@ -95,12 +96,25 @@ def to_cog(path):
     os.close(fd)
     try:
         result = subprocess.run(
-            ["gdal_translate", "-of", "COG",
-             "-co", "COMPRESS=DEFLATE", "-co", f"PREDICTOR={predictor}",
-             "-co", "OVERVIEW_RESAMPLING=AVERAGE", "-co", "BIGTIFF=IF_SAFER",
-             "-co", "NUM_THREADS=ALL_CPUS",
-             path, tmp],
-            capture_output=True, text=True
+            [
+                "gdal_translate",
+                "-of",
+                "COG",
+                "-co",
+                "COMPRESS=DEFLATE",
+                "-co",
+                f"PREDICTOR={predictor}",
+                "-co",
+                "OVERVIEW_RESAMPLING=AVERAGE",
+                "-co",
+                "BIGTIFF=IF_SAFER",
+                "-co",
+                "NUM_THREADS=ALL_CPUS",
+                path,
+                tmp,
+            ],
+            capture_output=True,
+            text=True,
         )
         if result.returncode != 0:
             print(f"  ❌ {path}: {result.stderr[:300]}")
@@ -110,7 +124,7 @@ def to_cog(path):
         if os.path.exists(tmp):
             os.unlink(tmp)
     after = os.path.getsize(path)
-    print(f"  ✅ {path}: {before/1e6:.0f}MB → {after/1e6:.0f}MB (COG, predictor={predictor})")
+    print(f"  ✅ {path}: {before / 1e6:.0f}MB → {after / 1e6:.0f}MB (COG, predictor={predictor})")
     return True
 
 
@@ -132,8 +146,11 @@ def main():
             print(f"  ✓ {p}: ya es COG, omitiendo")
 
     if not pendientes:
-        print("  ⚠ Nada para convertir a COG" if argfiles else
-              "  ⚠ No se encontró ningún raster final en outputs/ para convertir")
+        print(
+            "  ⚠ Nada para convertir a COG"
+            if argfiles
+            else "  ⚠ No se encontró ningún raster final en outputs/ para convertir"
+        )
         print("\n✅ 0 raster(es) convertido(s) a COG")
         return
 

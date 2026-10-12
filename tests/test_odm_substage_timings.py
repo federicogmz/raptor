@@ -9,6 +9,7 @@ que la banda D de barbosa-picodegallo eran 108 min de features + 56 de matching
 + 267 de SfM incremental + 107 de undistort hubo que parsear a mano los
 timestamps de un log de 2.5 MB.
 """
+
 import json
 import os
 import subprocess
@@ -39,8 +40,7 @@ def _correr_filtro(tmp_path, salida, label="odm_dband.log", resume=None):
     args = [sys.executable, FILTRO, "ODM DBAND", str(logdir / label)]
     if resume:
         args.append(resume)
-    return subprocess.run(args, input=salida, capture_output=True, text=True,
-                          timeout=20, cwd=str(tmp_path))
+    return subprocess.run(args, input=salida, capture_output=True, text=True, timeout=20, cwd=str(tmp_path))
 
 
 class TestSubstages:
@@ -81,11 +81,13 @@ class TestSubstages:
         primera, MVS en la segunda). La segunda no puede borrar lo que midió la
         primera."""
         _correr_filtro(tmp_path, SALIDA_ODM)
-        _correr_filtro(tmp_path,
-                       "[INFO]    Running openmvs stage\n"
-                       "[INFO]    Estimated depth-maps 1 (10.00%, ETA 5m)\n"
-                       "[INFO]    Finished openmvs stage\n",
-                       resume="openmvs")
+        _correr_filtro(
+            tmp_path,
+            "[INFO]    Running openmvs stage\n"
+            "[INFO]    Estimated depth-maps 1 (10.00%, ETA 5m)\n"
+            "[INFO]    Finished openmvs stage\n",
+            resume="openmvs",
+        )
 
         datos = json.loads((tmp_path / "outputs" / "logs" / "odm_dband_substages.json").read_text())
         assert "features" in datos, "la segunda fase pisó lo que midió la primera"
@@ -95,8 +97,9 @@ class TestSubstages:
     def test_print_timings_incluye_las_sub_etapas(self, tmp_path):
         _correr_filtro(tmp_path, SALIDA_ODM)
         entorno = dict(os.environ, T_MISSION_START="1000", T_MISSION_END="4600")
-        r = subprocess.run([sys.executable, TIMINGS], capture_output=True, text=True,
-                           timeout=20, cwd=str(tmp_path), env=entorno)
+        r = subprocess.run(
+            [sys.executable, TIMINGS], capture_output=True, text=True, timeout=20, cwd=str(tmp_path), env=entorno
+        )
         assert r.returncode == 0, r.stdout + r.stderr
         assert "Dentro de cada reconstrucción" in r.stdout, r.stdout
         assert "dentro del SfM" in r.stdout, r.stdout

@@ -12,16 +12,17 @@ Uso: python3 scripts/print_timings.py
 (no recibe argumentos — todo sale de las variables T_* ya exportadas al
 entorno por entrypoint.sh)
 """
+
 import json
 import os
 
 # (clave interna, etiqueta legible, prefijo de la variable de entorno)
 STAGES = [
-    ("prep",         "Preparación (RGB + MS + térmico, en paralelo)", "T_PREP"),
-    ("odm_rgb",       "ODM RGB",                                       "T_ODM_RGB"),
-    ("odm_thermal",   "ODM Térmico",                                   "T_ODM_THERMAL"),
-    ("odm_ms",        "ODM Multiespectral",                            "T_ODM_MS"),
-    ("odm_dband",     "ODM Banda D",                                   "T_ODM_DBAND"),
+    ("prep", "Preparación (RGB + MS + térmico, en paralelo)", "T_PREP"),
+    ("odm_rgb", "ODM RGB", "T_ODM_RGB"),
+    ("odm_thermal", "ODM Térmico", "T_ODM_THERMAL"),
+    ("odm_ms", "ODM Multiespectral", "T_ODM_MS"),
+    ("odm_dband", "ODM Banda D", "T_ODM_DBAND"),
     # "post" mide desde que termina la ÚLTIMA reconstrucción hasta el final
     # (T_POST_START se setea después del bloque ODM en docker/entrypoint.sh):
     # lo que corre en paralelo con la reconstrucción siguiente (recortes) es
@@ -30,8 +31,8 @@ STAGES = [
     # reconstrucción (en barbosa-chorrera figuraba 4813s para una corrida de
     # 82 min que además saltó ODM, y en la corrida completa hubiera incluido
     # las ~9.5 h de ODM).
-    ("post",          "Post-procesamiento (recortes finales, tiles, export)", "T_POST"),
-    ("total",         "Total de la misión",                            "T_MISSION"),
+    ("post", "Post-procesamiento (recortes finales, tiles, export)", "T_POST"),
+    ("total", "Total de la misión", "T_MISSION"),
 ]
 
 
@@ -42,9 +43,9 @@ STAGES = [
 # bundle adjustment incremental) — que es justo la diferencia entre "se puede
 # arreglar con hilos" y "hay que cambiar de algoritmo".
 SUBSTAGE_LABELS = {
-    "features":  "features (paralelizable)",
-    "matching":  "matching",
-    "sfm":       "reconstrucción incremental (secuencial)",
+    "features": "features (paralelizable)",
+    "matching": "matching",
+    "sfm": "reconstrucción incremental (secuencial)",
     "undistort": "undistort (paralelizable)",
 }
 
@@ -53,19 +54,19 @@ SUBSTAGE_LABELS = {
 # arriba solo ven lo que imprime una línea por imagen, y en la corrida de
 # verificación eso dejaba 27 de 34 minutos sin explicar.
 ODM_STAGE_LABELS = {
-    "dataset":            "cargar dataset",
-    "split":              "división en sub-modelos",
-    "merge":              "fusión de sub-modelos",
-    "opensfm":            "SfM (features + matching + reconstrucción)",
-    "openmvs":            "nube de puntos densa (MVS)",
-    "odm_filterpoints":   "filtrado de la nube",
-    "odm_meshing":        "malla 3D",
-    "mvs_texturing":      "texturizado",
+    "dataset": "cargar dataset",
+    "split": "división en sub-modelos",
+    "merge": "fusión de sub-modelos",
+    "opensfm": "SfM (features + matching + reconstrucción)",
+    "openmvs": "nube de puntos densa (MVS)",
+    "odm_filterpoints": "filtrado de la nube",
+    "odm_meshing": "malla 3D",
+    "mvs_texturing": "texturizado",
     "odm_georeferencing": "georreferenciación",
-    "odm_dem":            "DSM",
-    "odm_orthophoto":     "renderizado de la ortofoto",
-    "odm_report":         "reporte",
-    "odm_postprocess":    "post-procesamiento de ODM",
+    "odm_dem": "DSM",
+    "odm_orthophoto": "renderizado de la ortofoto",
+    "odm_report": "reporte",
+    "odm_postprocess": "post-procesamiento de ODM",
 }
 
 
@@ -84,7 +85,7 @@ def leer_substages():
     for nombre in nombres:
         if not (nombre.startswith("odm_") and nombre.endswith("_substages.json")):
             continue
-        odm_id = nombre[len("odm_"):-len("_substages.json")]
+        odm_id = nombre[len("odm_") : -len("_substages.json")]
         try:
             with open(os.path.join("outputs/logs", nombre)) as f:
                 fuera[odm_id] = json.load(f)
@@ -136,8 +137,7 @@ def main():
                 print("    · dentro del SfM:")
                 for clave, valores in detalle.items():
                     etiqueta = SUBSTAGE_LABELS.get(clave, clave)
-                    print(f"      {etiqueta:<42} {fmt(valores['segundos'])}"
-                          f"  ({valores['n']} imágenes)")
+                    print(f"      {etiqueta:<42} {fmt(valores['segundos'])}  ({valores['n']} imágenes)")
         print("════════════════════════════════════════════")
 
     os.makedirs("outputs/logs", exist_ok=True)

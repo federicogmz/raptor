@@ -7,11 +7,11 @@ claro). Nuestro override pisa background/color/border pero no tocaba
 text-shadow, así que en tema oscuro el texto (claro) quedaba con un halo casi
 del mismo tono desplazado 1px — se ve como el número duplicado.
 """
+
 import os
 import re
 
-STYLE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                     "geovisor", "style.css")
+STYLE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "geovisor", "style.css")
 
 
 def _regla(selector):
@@ -25,7 +25,8 @@ def test_la_escala_no_hereda_el_text_shadow_de_leaflet():
     regla = _regla(".leaflet-control-scale-line")
     assert re.search(r"text-shadow\s*:\s*none\s*!important", regla), (
         "sin 'text-shadow:none!important' vuelve el halo blanco de leaflet.css "
-        "que se ve como el número de la escala duplicado")
+        "que se ve como el número de la escala duplicado"
+    )
 
 
 def test_panel_toggle_sigue_visible_en_pantallas_angostas():
@@ -44,4 +45,5 @@ def test_panel_toggle_sigue_visible_en_pantallas_angostas():
     assert not re.search(r"\.panel-toggle\s*\{[^}]*display\s*:\s*none", bloque), (
         "el botón para reabrir el panel (.panel-toggle) no debe ocultarse "
         "en pantallas angostas — es la única forma de reabrirlo una vez "
-        "colapsado ahí")
+        "colapsado ahí"
+    )

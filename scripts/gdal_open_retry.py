@@ -16,6 +16,7 @@ scripts del análisis cruzado (confidence_mask.py, compute_flight_quality.py)
 que abren ortomosaicos de sensores que pueden haber terminado de escribirse
 hace apenas segundos.
 """
+
 import time
 
 from osgeo import gdal
@@ -39,7 +40,6 @@ def gdal_open_retry(path, tries=DEFAULT_TRIES, delay_s=DEFAULT_DELAY_S, **kwargs
             if "not recognized as being in a supported file format" not in str(exc):
                 raise
             if intento < tries:
-                print(f"  ⚠ {path}: lectura falló (intento {intento}/{tries}), "
-                      f"reintentando en {delay_s:.0f}s — {exc}")
+                print(f"  ⚠ {path}: lectura falló (intento {intento}/{tries}), reintentando en {delay_s:.0f}s — {exc}")
                 time.sleep(delay_s)
     raise last_exc

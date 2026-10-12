@@ -19,30 +19,32 @@ regeneración de vegetación en terreno de cobertura baja. Con cobertura de dose
 converge con NDVI (mismo valor, sin pérdida); diverge justo donde NDVI es
 menos confiable, que es donde aporta.
 """
+
 import os, sys
 import numpy as np
 from osgeo import gdal
 
 gdal.UseExceptions()
 
-MS_PATH   = "outputs/multispectral_orthomosaic.tif"
-OUT_DIR   = "outputs/indices"
+MS_PATH = "outputs/multispectral_orthomosaic.tif"
+OUT_DIR = "outputs/indices"
 
 # nombre_lógico → substrings que identifican la banda en GetDescription()
 # (RedEdge antes que Red: "red" es substring de "rededge")
 BAND_ALIASES = {
-    "nir":     ["nir"],
+    "nir": ["nir"],
     "rededge": ["rededge", "red edge", "red_edge"],
-    "red":     ["red"],
-    "green":   ["green"],
+    "red": ["red"],
+    "green": ["green"],
 }
 
 # índice → (banda_a, banda_b) calculado como (a-b)/(a+b)
 INDICES = {
-    "ndvi":  ("nir", "red"),
+    "ndvi": ("nir", "red"),
     "gndvi": ("nir", "green"),
-    "ndre":  ("nir", "rededge"),
+    "ndre": ("nir", "rededge"),
 }
+
 
 # MSAVI2 (Modified Soil-Adjusted Vegetation Index, Qi et al. 1994) — no es
 # un ratio (a-b)/(a+b) simple, se calcula aparte. Se prefiere sobre SAVI
@@ -98,8 +100,7 @@ def main():
 
     def write_index(name, idx_arr):
         out_path = os.path.join(OUT_DIR, f"{name}.tif")
-        out = drv.Create(out_path, W, H, 1, gdal.GDT_Float32,
-                          ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
+        out = drv.Create(out_path, W, H, 1, gdal.GDT_Float32, ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
         out.SetGeoTransform(gt)
         out.SetProjection(proj)
         out.GetRasterBand(1).WriteArray(idx_arr)
@@ -107,8 +108,7 @@ def main():
         out = None
         vals = idx_arr[np.isfinite(idx_arr)]
         if vals.size:
-            print(f"  ✅ {out_path}: {name.upper()} {vals.min():.2f}..{vals.max():.2f} "
-                  f"(mediana {np.median(vals):.2f})")
+            print(f"  ✅ {out_path}: {name.upper()} {vals.min():.2f}..{vals.max():.2f} (mediana {np.median(vals):.2f})")
         else:
             print(f"  ⚠ {out_path}: sin píxeles válidos")
 

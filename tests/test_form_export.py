@@ -9,6 +9,7 @@ La exportación ya NO se pregunta durante el setup (ver tests/test_webapp.py::
 TestExportacionADemanda para el comportamiento real del backend) — se pregunta
 por misión, al abrir el modal desde el botón "Exportar" del listado.
 """
+
 import os
 import re
 
@@ -35,7 +36,7 @@ def _cuerpo_de(js, nombre):
         elif js[i] == "}":
             prof -= 1
         i += 1
-    return js[m.end():i - 1]
+    return js[m.end() : i - 1]
 
 
 class TestModalDeExportacion:
@@ -51,11 +52,11 @@ class TestModalDeExportacion:
         esté disponible: el catch tiene que mostrar el aviso de deshabilitado,
         no dejar el formulario abierto con datos viejos."""
         cuerpo = _cuerpo_de(_js(), "openExportModal")
-        catch = cuerpo[cuerpo.index("catch"):]
+        catch = cuerpo[cuerpo.index("catch") :]
         assert re.search(r"xm-disabled.*remove\('hidden'\)", catch), (
-            "el catch de openExportModal no muestra xm-disabled")
-        assert re.search(r"xm-form.*add\('hidden'\)", catch), (
-            "el catch de openExportModal no oculta xm-form")
+            "el catch de openExportModal no muestra xm-disabled"
+        )
+        assert re.search(r"xm-form.*add\('hidden'\)", catch), "el catch de openExportModal no oculta xm-form"
 
     def test_renderExportModalProducts_solo_ofrece_lo_disponible(self):
         """Los checkboxes salen de xmAvailable (lo que devolvió el server para
@@ -66,8 +67,7 @@ class TestModalDeExportacion:
 
     def test_submitExportModal_manda_los_campos_que_el_backend_espera(self):
         cuerpo = _cuerpo_de(_js(), "submitExportModal")
-        for campo in ("export_dir", "export_products", "export_raster_format",
-                      "export_vector_format", "export_epsg"):
+        for campo in ("export_dir", "export_products", "export_raster_format", "export_vector_format", "export_epsg"):
             assert campo in cuerpo, f"submitExportModal no manda {campo}"
         assert "xmMission" in cuerpo  # el POST va a la misión abierta, no a una fija
 
@@ -78,14 +78,19 @@ class TestBackendCoincideConElModal:
 
     def test_export_options_manda_las_claves_que_el_modal_lee(self):
         backend = open(os.path.join(REPO, "webapp", "main.py"), encoding="utf-8").read()
-        for clave in ("available_products", "export_enabled", "export_host_root",
-                      "default_export_dir"):
+        for clave in ("available_products", "export_enabled", "export_host_root", "default_export_dir"):
             assert f'"{clave}"' in backend, f"{clave} no lo manda el backend"
 
-    @pytest.mark.parametrize("campo", [
-        "export_dir", "export_products", "export_raster_format",
-        "export_vector_format", "export_epsg",
-    ])
+    @pytest.mark.parametrize(
+        "campo",
+        [
+            "export_dir",
+            "export_products",
+            "export_raster_format",
+            "export_vector_format",
+            "export_epsg",
+        ],
+    )
     def test_los_campos_del_modal_existen_en_export(self, campo):
         js = _js()
         backend = open(os.path.join(REPO, "webapp", "main.py"), encoding="utf-8").read()

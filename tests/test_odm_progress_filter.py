@@ -6,26 +6,20 @@ lo que pase), aunque esa etapa sea un no-op real cuando ya corrió antes —
 sin resume_from, la fase 2 mostraba "[1/13] Cargando dataset" de nuevo,
 dando la falsa impresión de que estaba reprocesando imágenes.
 """
+
 import os
 import subprocess
 
-SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                       "scripts", "odm_progress_filter.py")
+SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "odm_progress_filter.py")
 
-ENTRADA = (
-    "Running dataset stage\n"
-    "Finished dataset stage\n"
-    "Running opensfm stage\n"
-    "Finished opensfm stage\n"
-)
+ENTRADA = "Running dataset stage\nFinished dataset stage\nRunning opensfm stage\nFinished opensfm stage\n"
 
 
 def _correr(args):
     # print_stage_header/print_progress/print_done (scripts/progress.py)
     # escriben a STDERR a propósito (una barra de progreso no es "salida" en
     # el sentido de datos, y así no se mezcla con algo que alguien redirija).
-    r = subprocess.run(["python3", SCRIPT, *args], input=ENTRADA,
-                        capture_output=True, text=True, timeout=10)
+    r = subprocess.run(["python3", SCRIPT, *args], input=ENTRADA, capture_output=True, text=True, timeout=10)
     return r.stderr
 
 

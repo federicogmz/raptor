@@ -33,8 +33,7 @@ class TestPresets:
         assert HW.preset("maxima")["nombre"] == "forense"
 
     def test_estimacion_tactico_es_mas_rapida_que_cartografico(self):
-        hw = {"cores": 16, "mem_available_mb": 32000, "gpu": True,
-              "gpu_name": "RTX 3080", "vram_mb": 10240}
+        hw = {"cores": 16, "mem_available_mb": 32000, "gpu": True, "gpu_name": "RTX 3080", "vram_mb": 10240}
         t_lo, t_hi = HW.estimate_minutes("tactico", 500, hw)
         c_lo, c_hi = HW.estimate_minutes("cartografico", 500, hw)
         assert t_lo < c_lo, f"tactico ({t_lo}) debe ser más rápido que cartográfico ({c_lo})"

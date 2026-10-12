@@ -28,6 +28,7 @@ Produce:
 Uso:
   python3 scripts/prepare_thermal_native_odm.py
 """
+
 import os, sys, glob, json, subprocess
 import numpy as np
 from osgeo import gdal
@@ -35,10 +36,10 @@ from osgeo import gdal
 gdal.UseExceptions()
 
 SRC_DENOISED = "preprocessing/thermal_dji_sdk_denoised"
-SRC_RAW      = "preprocessing/thermal_dji_sdk"
-OUTPUT_DIR   = "processing/thermal_native_odm"
-IMAGES_DIR   = os.path.join(OUTPUT_DIR, "images")
-GEO_TXT      = os.path.join(OUTPUT_DIR, "geo.txt")
+SRC_RAW = "preprocessing/thermal_dji_sdk"
+OUTPUT_DIR = "processing/thermal_native_odm"
+IMAGES_DIR = os.path.join(OUTPUT_DIR, "images")
+GEO_TXT = os.path.join(OUTPUT_DIR, "geo.txt")
 _BASE = os.path.dirname(os.path.abspath(__file__))
 EXIFTOOL_CONFIG = os.path.join(_BASE, "camera_ns.exiftool.config")
 
@@ -71,8 +72,7 @@ def main():
     # retry sobre una misión ya preparada no debería re-encodear TODO desde
     # cero, solo lo que de verdad falta.
     src_basenames = {os.path.basename(f) for f in src_files}
-    obsoletas = [f for f in glob.glob(os.path.join(IMAGES_DIR, "*.tif"))
-                 if os.path.basename(f) not in src_basenames]
+    obsoletas = [f for f in glob.glob(os.path.join(IMAGES_DIR, "*.tif")) if os.path.basename(f) not in src_basenames]
     if obsoletas:
         print(f"🧹 Limpiando {len(obsoletas)} imágenes obsoletas (otra misión/corrida) …")
         for f in obsoletas:
@@ -103,8 +103,10 @@ def main():
         nuevas += 1
         if nuevas % 100 == 0:
             print(f"  {nuevas} re-encodeadas …")
-    print(f"  ✅ {nuevas} TIFF re-encodeados nuevos, {len(dst_files) - nuevas} ya existentes "
-          f"reutilizados (°C → Kelvin×100 uint16)")
+    print(
+        f"  ✅ {nuevas} TIFF re-encodeados nuevos, {len(dst_files) - nuevas} ya existentes "
+        f"reutilizados (°C → Kelvin×100 uint16)"
+    )
 
     # ── 2. EXIF/XMP: copiar GPS/gimbal de la fuente + forzar tags de banda ──
     # -api Compact=Shorthand + -xmp-drone-dji:all: preserva los tags de
@@ -120,13 +122,32 @@ def main():
     # miles de frames y la línea de comandos tiene un tope duro (ARG_MAX).
     # Mismo patrón que export_flight_path.py.
     result = subprocess.run(
-        ["exiftool", "-api", "Compact=Shorthand", "-config", EXIFTOOL_CONFIG, "-overwrite_original",
-         "-tagsfromfile", src_pattern,
-         "-gps:all", "-xmp-drone-dji:all", "-GimbalYawDegree", "-GimbalPitchDegree", "-GimbalRollDegree",
-         "-FlightYawDegree", "-FlightPitchDegree", "-FlightRollDegree",
-         "-Make=DJI", "-Model=ZH20T", "-XMP-Camera:BandName=LWIR", "-@", "-"],
+        [
+            "exiftool",
+            "-api",
+            "Compact=Shorthand",
+            "-config",
+            EXIFTOOL_CONFIG,
+            "-overwrite_original",
+            "-tagsfromfile",
+            src_pattern,
+            "-gps:all",
+            "-xmp-drone-dji:all",
+            "-GimbalYawDegree",
+            "-GimbalPitchDegree",
+            "-GimbalRollDegree",
+            "-FlightYawDegree",
+            "-FlightPitchDegree",
+            "-FlightRollDegree",
+            "-Make=DJI",
+            "-Model=ZH20T",
+            "-XMP-Camera:BandName=LWIR",
+            "-@",
+            "-",
+        ],
         input="\n".join(dst_files),
-        capture_output=True, text=True
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
         print(f"❌ ERROR etiquetando EXIF/XMP: {result.stderr[:500]}")
@@ -141,11 +162,26 @@ def main():
     # precision RTK real (~1-3cm) del propio termico.
     print("  Generando geo.txt …")
     r = subprocess.run(
-        ["exiftool", "-j", "-n", "-GPSLatitude", "-GPSLongitude", "-GPSAltitude",
-         "-GimbalYawDegree", "-GimbalPitchDegree", "-GimbalRollDegree",
-         "-RtkStdLon", "-RtkStdLat", "-RtkStdHgt", "-@", "-"],
+        [
+            "exiftool",
+            "-j",
+            "-n",
+            "-GPSLatitude",
+            "-GPSLongitude",
+            "-GPSAltitude",
+            "-GimbalYawDegree",
+            "-GimbalPitchDegree",
+            "-GimbalRollDegree",
+            "-RtkStdLon",
+            "-RtkStdLat",
+            "-RtkStdHgt",
+            "-@",
+            "-",
+        ],
         input="\n".join(dst_files),
-        capture_output=True, text=True, timeout=180
+        capture_output=True,
+        text=True,
+        timeout=180,
     )
     data = json.loads(r.stdout)
     lines = ["EPSG:4326"]
@@ -176,11 +212,11 @@ def main():
         lines.append(f"{fname}\t{lon}\t{lat}\t{alt}\t{yaw}\t{pitch}\t{roll}\t{h_acc:.5f}\t{v_acc:.5f}")
     if missing:
         print(f"  ⚠ {missing} imágenes sin GPS (omitidas de geo.txt)")
-    print(f"  precision RTK disponible: {n_rtk}/{len(dst_files)-missing} imágenes")
+    print(f"  precision RTK disponible: {n_rtk}/{len(dst_files) - missing} imágenes")
     with open(GEO_TXT, "w") as f:
         f.write("\n".join(lines) + "\n")
 
-    print(f"\n✅ {len(lines)-1}/{len(dst_files)} imágenes con GPS")
+    print(f"\n✅ {len(lines) - 1}/{len(dst_files)} imágenes con GPS")
     print(f"   Directorio ODM: {OUTPUT_DIR}/")
     print(f"   geo.txt: {GEO_TXT}")
     print("\nSiguiente paso: ODM térmico nativo (invocado por docker/entrypoint.sh)")

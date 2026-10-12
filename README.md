@@ -22,6 +22,34 @@ sensors reconstruct at once" below).
 
 ---
 
+## Geovisor & Sensor Outputs
+
+RAPTOR includes an interactive Leaflet-based web geovisor accessible at `http://localhost:8080`, supporting real-time layer switching, radiometric temperature measurements, and vegetation index analysis:
+
+| Web Geovisor Interface | Radiometric Thermal Mosaic | Multispectral Indices (NDVI) |
+| :---: | :---: | :---: |
+| [![Geovisor Overview](docs/images/geovisor_overview.png)](docs/images/geovisor_overview.png) | [![Thermal Radiometric](docs/images/thermal_radiometric.png)](docs/images/thermal_radiometric.png) | [![Multispectral Indices](docs/images/multispectral_indices.png)](docs/images/multispectral_indices.png) |
+| *Interactive Leaflet geovisor with telemetry & flight trajectories* | *Direct DJI Thermal SDK radiometric export (°C)* | *Calibrated multispectral orthomosaic with canopy vigor* |
+
+<details>
+<summary><strong>View Detailed Previews</strong></summary>
+
+### 1. Interactive Geovisor Overview
+![RAPTOR Geovisor Overview](docs/images/geovisor_overview.png)
+*Full-screen Leaflet geovisor overview with layer controls, GSD metrics, and coordinate overlays.*
+
+### 2. Thermal Radiometric Orthomosaic
+![RAPTOR Radiometric Thermal](docs/images/thermal_radiometric.png)
+*Calibrated surface temperature maps (°C) with automatic hotspot detection and thermal anomaly identification.*
+
+### 3. Multispectral Vegetation Indices
+![RAPTOR Multispectral Indices](docs/images/multispectral_indices.png)
+*Normalized Difference Vegetation Index (NDVI) orthomosaic calibrated from sunshine sensor and panel data.*
+
+</details>
+
+---
+
 ## Installation: persistent webapp (default)
 
 The way to install RAPTOR on a machine (your own or someone else's) is one
@@ -46,6 +74,14 @@ deploys the webapp. The two questions:
 Both are saved to `~/.raptor/config`; `raptor init` reruns just this
 onboarding later if you want to change them (follow it with `raptor
 restart` to apply).
+
+On a fresh Linux machine `install` also checks the host first and offers
+(asking before each step, using `sudo`) to install whatever is missing:
+Docker Engine (official `get.docker.com` script), your user in the `docker`
+group (the install continues under that group; new terminals pick it up
+after logging out and back in), and `nvidia-container-toolkit` when there's
+an NVIDIA GPU that Docker can't use yet. On macOS/Windows it stops and points
+you to Docker Desktop instead.
 
 If `install` can't write to `/usr/local/bin` (no `~/.local/bin` either), it
 tells you so and prints the `export PATH=...` line to add to your shell
@@ -164,7 +200,7 @@ model, so in `cartografico` and `forense` it always goes through
 (`--fast-orthophoto`, the same mechanism D band always uses): the DSM and
 orthomosaic come from the sparse SfM cloud instead of the dense one, poorer
 and with more gaps, but the difference is measured in hours. Confirmed
-live: an RGB reconstruction of ~1200 photos with a laptop GPU took ~11h in
+live: an RGB reconstruction of ~1200 photos on an RTX 2080 took ~11h in
 `DensifyPointCloud`. With `--fast-orthophoto` that stage doesn't run.
 
 With `lowest` feature quality, SfM on small or low-texture flights can split
@@ -183,10 +219,10 @@ your hardware:
 ./raptor run --input ./vuelos/la_clara --preset forense
 ```
 ```
-🖥️  Hardware detected: 20 cores, 27 GB RAM free, no GPU (runs on CPU)
+🖥️  Hardware detected: 16 cores, 41 GB RAM free, GPU: NVIDIA GeForce RTX 2080 (8 GB VRAM)
 🎚️  Preset "Forensic": Archival and forensic detail: maximum physical resolution…
 📐 Up to 1 cm/px in the orthomosaic and DSM — the real ceiling is set by your flight's GSD…
-⏱️  Estimated time with your hardware: 6.6 h – 26.3 h for 1652 photos. Approximate…
+⏱️  Estimated time with your hardware: 5.9 h – 23.6 h for 1652 photos. Approximate…
 ```
 
 To see all three presets with their estimated time without starting
@@ -571,7 +607,7 @@ data/rgb_mosaico/ + data/termica_mosaico/  [+ data/multiespectral_mosaico/ + dat
 a fixed table. Use `python3 scripts/hardware.py estimate --photos N
 [--preset P] [--terreno T]` for the real estimate for your case. The
 reference that motivated dropping `planar`, measured live with the former
-fastest preset (20-core laptop, RTX A1000 6GB, ~1200 photos per sensor,
+fastest preset (Intel Core i9-9900K, 8 cores / 16 threads, NVIDIA RTX 2080 8 GB, ~1200 photos per sensor,
 rugged terrain):
 
 | SfM algorithm | RGB | Thermal |

@@ -13,6 +13,7 @@ mientras una misión sigue procesando) tampoco debe cachearse "para siempre"
 como 404 — con "no-cache" uniforme esto queda cubierto solo, sin caso
 especial.
 """
+
 import importlib
 
 import pytest
@@ -29,8 +30,10 @@ def cliente(tmp_path, monkeypatch):
     monkeypatch.setenv("RAPTOR_RUNS_ROOT", str(tmp_path / "runs"))
     from fastapi.testclient import TestClient
     from core import scan
+
     importlib.reload(scan)
     from webapp import main as M
+
     importlib.reload(M)
     return TestClient(M.app)
 
@@ -46,6 +49,7 @@ class TestCacheDeTilesPNG:
         """Un reintento sobre la misma misión reescribe el tile en el mismo
         path — "immutable" le mentiría al navegador."""
         from webapp import main as M
+
         tile_dir = M.GEOVISOR_DIR / "tiles" / "thermal" / "0" / "0"
         tile_dir.mkdir(parents=True, exist_ok=True)
         (tile_dir / "0.png").write_bytes(b"\x89PNG\r\n\x1a\n")

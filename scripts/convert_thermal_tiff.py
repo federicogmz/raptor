@@ -34,7 +34,7 @@ NPROCS = safe_concurrency(0.33, override=int(_override) if _override else None)
 # ── Configuración ──────────────────────────────────────────────────
 _BASE = os.path.dirname(os.path.abspath(__file__))
 SDK_LIB_DIR = os.path.join(_BASE, "..", "dji_thermal_sdk/tsdk-core/lib/linux/release_x64")
-DJI_IRP     = os.path.join(_BASE, "..", "dji_thermal_sdk/utility/bin/linux/release_x64/dji_irp")
+DJI_IRP = os.path.join(_BASE, "..", "dji_thermal_sdk/utility/bin/linux/release_x64/dji_irp")
 
 
 def _jpeg_size(path):
@@ -80,11 +80,23 @@ def convert_one(src_jpg: str, dst_tif: str) -> bool:
         # para la entrega a Agisoft → comparación justa.
         try:
             result = subprocess.run(
-                [DJI_IRP, "-s", src_jpg, "-a", "measure",
-                 "-o", raw_path, "--measurefmt", "float32", "--distance", "25"],
+                [
+                    DJI_IRP,
+                    "-s",
+                    src_jpg,
+                    "-a",
+                    "measure",
+                    "-o",
+                    raw_path,
+                    "--measurefmt",
+                    "float32",
+                    "--distance",
+                    "25",
+                ],
                 env=env,
-                capture_output=True, text=True,
-                timeout=30
+                capture_output=True,
+                text=True,
+                timeout=30,
             )
         except subprocess.TimeoutExpired:
             # Bug real, reportado en vivo: sin este catch, un solo dji_irp
@@ -112,16 +124,17 @@ def convert_one(src_jpg: str, dst_tif: str) -> bool:
         size = thermal_size(src_jpg, len(raw))
         if size is None:
             jw, jh = _jpeg_size(src_jpg)
-            print(f"  ❌ {os.path.basename(src_jpg)}: dji_irp devolvió {len(raw):,} "
-                  f"valores pero la imagen es {jw}x{jh} ({jw*jh:,} px) — no coinciden, "
-                  f"no se puede saber cómo ordenar el arreglo")
+            print(
+                f"  ❌ {os.path.basename(src_jpg)}: dji_irp devolvió {len(raw):,} "
+                f"valores pero la imagen es {jw}x{jh} ({jw * jh:,} px) — no coinciden, "
+                f"no se puede saber cómo ordenar el arreglo"
+            )
             return False
         w, h = size
         arr = raw.reshape(h, w)
 
         drv = gdal.GetDriverByName("GTiff")
-        ds = drv.Create(dst_tif, w, h, 1, gdal.GDT_Float32,
-                        ["COMPRESS=LZW", "TILED=YES"])
+        ds = drv.Create(dst_tif, w, h, 1, gdal.GDT_Float32, ["COMPRESS=LZW", "TILED=YES"])
         ds.GetRasterBand(1).WriteArray(arr)
         ds.GetRasterBand(1).SetNoDataValue(np.nan)
         ds.FlushCache()
@@ -141,15 +154,32 @@ def convert_one(src_jpg: str, dst_tif: str) -> bool:
         # radiométrico ya escrito arriba sigue siendo válido igual).
         try:
             subprocess.run(
-                ["exiftool", "-overwrite_original", "-tagsfromfile", src_jpg,
-                 "-gps:all", "-GimbalYawDegree", "-GimbalPitchDegree", "-GimbalRollDegree",
-                 "-FlightYawDegree", "-FlightPitchDegree", "-FlightRollDegree",
-                 "-RelativeAltitude",
-                 "-Make", "-Model", "-FocalLength", "-FocalLengthIn35mmFormat",
-                 "-ExifImageWidth", "-ExifImageHeight",
-                 "-DateTimeOriginal", "-SubSecTimeOriginal",
-                 dst_tif],
-                capture_output=True, text=True, timeout=15
+                [
+                    "exiftool",
+                    "-overwrite_original",
+                    "-tagsfromfile",
+                    src_jpg,
+                    "-gps:all",
+                    "-GimbalYawDegree",
+                    "-GimbalPitchDegree",
+                    "-GimbalRollDegree",
+                    "-FlightYawDegree",
+                    "-FlightPitchDegree",
+                    "-FlightRollDegree",
+                    "-RelativeAltitude",
+                    "-Make",
+                    "-Model",
+                    "-FocalLength",
+                    "-FocalLengthIn35mmFormat",
+                    "-ExifImageWidth",
+                    "-ExifImageHeight",
+                    "-DateTimeOriginal",
+                    "-SubSecTimeOriginal",
+                    dst_tif,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=15,
             )
         except Exception:
             pass
@@ -179,9 +209,11 @@ def main():
         sys.exit(1)
 
     jw, jh = _jpeg_size(jpgs[0])
-    print(f"Convirtiendo {len(jpgs)} R-JPEG → GeoTIFF Float32 "
-          f"(sensor térmico {jw}x{jh}, inferido de las fotos) "
-          f"con {NPROCS} en paralelo...")
+    print(
+        f"Convirtiendo {len(jpgs)} R-JPEG → GeoTIFF Float32 "
+        f"(sensor térmico {jw}x{jh}, inferido de las fotos) "
+        f"con {NPROCS} en paralelo..."
+    )
     t0 = time.time()
     ok = 0
     skip = 0
@@ -218,7 +250,7 @@ def main():
 
     elapsed = time.time() - t0
     print(f"\n✅ {ok} convertidos, {skip} existentes, {fail} fallidos")
-    print(f"   Tiempo: {elapsed:.0f}s ({elapsed/60:.1f} min)")
+    print(f"   Tiempo: {elapsed:.0f}s ({elapsed / 60:.1f} min)")
     print(f"   Directorio: {os.path.abspath(dst_dir)}/")
 
     if fail > 0:

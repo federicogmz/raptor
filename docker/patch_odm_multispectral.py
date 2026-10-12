@@ -75,11 +75,13 @@ def main():
         return
 
     if ANCLA_INICIO not in content or ANCLA_FIN not in content:
-        print(f"  ⚠ {PATH} no tiene las líneas ancla esperadas — la imagen base "
-              f"cambió este archivo (¿ya lo arreglaron upstream?). Se sigue "
-              f"SIN aplicar el parche local; revisar a mano si multiespectral "
-              f"vuelve a fallar con 'NoneType' object has no attribute 'get' "
-              f"en align_to_primary_band.")
+        print(
+            f"  ⚠ {PATH} no tiene las líneas ancla esperadas — la imagen base "
+            f"cambió este archivo (¿ya lo arreglaron upstream?). Se sigue "
+            f"SIN aplicar el parche local; revisar a mano si multiespectral "
+            f"vuelve a fallar con 'NoneType' object has no attribute 'get' "
+            f"en align_to_primary_band."
+        )
         return
 
     ini = content.index(ANCLA_INICIO)

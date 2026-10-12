@@ -38,13 +38,14 @@ outputs/logs/odm_<label>_substages.json. Sin eso, "ODM multiespectral: 8.5 h"
 es un número sin accionar: hubo que reconstruir a mano, con timestamps de un
 log de MB, que las 10.4 h de la banda D eran 108 min de features + 56 de
 matching + 267 de SfM incremental + 107 de undistort — y que features y
-undistort estaban corriendo con 2 hilos sobre 20 núcleos. Se mide con el
+undistort estaban corriendo con 2 hilos sobre 16 disponibles. Se mide con el
 reloj de pared del propio filtro (las líneas llegan en streaming), no
 parseando los timestamps del texto: no todas las líneas de ODM traen uno.
 
 El exit code de ODM (no el de este filtro) hay que propagarlo con
 PIPESTATUS en el bash que invoca esto.
 """
+
 import json, sys, os, re, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -85,9 +86,9 @@ DEPTHMAP_RE = re.compile(r"Estimated depth-maps \d+ \(([\d.]+)%.*?ETA\s+([^)]*)\
 # así que su lapso medido colapsa a ~0. En la corrida de verificación eso se
 # vio claro: las sub-etapas sumaban 6:40 de los 34:11 que tardó ODM.
 SUBSTAGES = (
-    ("features",  "Extracting ROOT_"),      # ROOT_DSPSIFT / ROOT_SIFT según config
-    ("matching",  "Matching "),
-    ("sfm",       "Adding "),               # "Adding <img> to the reconstruction"
+    ("features", "Extracting ROOT_"),  # ROOT_DSPSIFT / ROOT_SIFT según config
+    ("matching", "Matching "),
+    ("sfm", "Adding "),  # "Adding <img> to the reconstruction"
     ("undistort", "Undistorting image"),
 )
 # Cada cuántas líneas se vacía el buffer del log al disco. Antes era CADA
@@ -109,8 +110,7 @@ def _escribir_substages(logfile, label, marcas, etapas=None):
     """
     if not marcas and not etapas:
         return
-    destino = os.path.join(os.path.dirname(logfile) or ".",
-                           f"odm_{label}_substages.json")
+    destino = os.path.join(os.path.dirname(logfile) or ".", f"odm_{label}_substages.json")
     datos = {}
     if os.path.exists(destino):
         # Las DOS fases de run_odm() escriben acá (SfM en la primera, MVS en
@@ -130,8 +130,7 @@ def _escribir_substages(logfile, label, marcas, etapas=None):
     for nombre, (t0, t1, n) in marcas.items():
         previo = datos.get(nombre)
         if previo:
-            datos[nombre] = {"segundos": round(previo["segundos"] + (t1 - t0), 1),
-                             "n": previo["n"] + n}
+            datos[nombre] = {"segundos": round(previo["segundos"] + (t1 - t0), 1), "n": previo["n"] + n}
         else:
             datos[nombre] = {"segundos": round(t1 - t0, 1), "n": n}
     try:
@@ -150,8 +149,8 @@ def main():
     os.makedirs(os.path.dirname(logfile) or ".", exist_ok=True)
 
     current_stage = None
-    marcas = {}          # sub-etapa -> [t_primera, t_última, nº de líneas]
-    etapas = {}          # etapa de ODM -> segundos acumulados
+    marcas = {}  # sub-etapa -> [t_primera, t_última, nº de líneas]
+    etapas = {}  # etapa de ODM -> segundos acumulados
     etapa_abierta = None  # (nombre, t_inicio)
     desde_flush = 0
 
@@ -213,8 +212,12 @@ def main():
             if m:
                 pct = float(m.group(1))
                 eta = m.group(2).strip()
-                print_progress(int(pct), 100, label=f"ETA {eta}",
-                                stage_info=f"{label}: {STAGE_NAMES.get(current_stage, current_stage or '')}")
+                print_progress(
+                    int(pct),
+                    100,
+                    label=f"ETA {eta}",
+                    stage_info=f"{label}: {STAGE_NAMES.get(current_stage, current_stage or '')}",
+                )
                 continue
 
             m = FINISHED_RE.search(line)
@@ -225,9 +228,7 @@ def main():
                 print_done(stage_info=f"{label}: {STAGE_NAMES.get(name, name)}")
                 continue
 
-    _escribir_substages(logfile, label_corto,
-                        {k: tuple(v) for k, v in marcas.items()},
-                        etapas=etapas)
+    _escribir_substages(logfile, label_corto, {k: tuple(v) for k, v in marcas.items()}, etapas=etapas)
 
 
 if __name__ == "__main__":

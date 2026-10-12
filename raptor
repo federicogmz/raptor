@@ -104,6 +104,116 @@ asegurar_docker() {
   echo "✅ Docker iniciado." >&2
 }
 
+# ── Instalación de dependencias del host (solo desde `install`) ──
+# Todo lo de acá toca el sistema (paquetes, servicios, grupos), así que
+# pregunta antes y usa sudo cuando no se corre como root.
+confirmar() {  # confirmar "pregunta" → 0 si sí (Enter = sí)
+  local r
+  read -rp "$1 [S/n]: " r
+  [[ -z "$r" || "$r" =~ ^[sSyY] ]]
+}
+
+_sudo() {
+  if [[ $EUID -eq 0 ]]; then "$@"
+  elif command -v sudo >/dev/null 2>&1; then sudo "$@"
+  else morir "hace falta sudo (o correr como root) para: $*"
+  fi
+}
+
+_descargar() {  # _descargar URL → stdout
+  if command -v curl >/dev/null 2>&1; then curl -fsSL "$1"
+  elif command -v wget >/dev/null 2>&1; then wget -qO- "$1"
+  else morir "hace falta curl o wget para descargar $1"
+  fi
+}
+
+_arrancar_servicio_docker() {
+  # WSL sin systemd no tiene systemctl utilizable: ahí el paquete deja el
+  # script de init clásico.
+  if [[ -d /run/systemd/system ]]; then
+    _sudo systemctl enable --now docker
+  else
+    _sudo service docker start
+  fi
+}
+
+# Docker Engine con el script oficial (get.docker.com: Ubuntu, Debian,
+# Fedora, RHEL/CentOS, Raspbian…). En macOS/Windows nativo lo único que
+# existe es Docker Desktop, que no se instala desde una terminal.
+instalar_docker() {
+  [[ "$(uname -s)" == Linux ]] \
+    || morir "Docker no está instalado. En $(uname -s) instalá Docker Desktop (https://docs.docker.com/get-docker/) y volvé a correr «./raptor install»."
+  confirmar "🐳 Docker no está instalado. ¿Instalarlo ahora? (usa sudo)" \
+    || morir "Docker es obligatorio. Instalalo y volvé a correr «./raptor install»."
+
+  local script
+  script="$(mktemp)"
+  _descargar https://get.docker.com > "$script" || { rm -f "$script"; morir "no se pudo descargar el instalador de Docker."; }
+  _sudo sh "$script" || { rm -f "$script"; morir "falló la instalación de Docker (ver la salida de arriba)."; }
+  rm -f "$script"
+
+  _arrancar_servicio_docker || morir "Docker quedó instalado pero no arrancó el servicio."
+  echo "✅ Docker instalado."
+}
+
+# Docker instalado pero el usuario no puede hablar con el daemon (socket de
+# root sin pertenecer al grupo docker — el caso típico recién instalado).
+# Lo suma al grupo y re-ejecuta `install` bajo ese grupo con `sg`, porque un
+# grupo nuevo no aplica a la sesión actual hasta volver a loguearse.
+asegurar_permiso_docker() {
+  [[ $EUID -eq 0 ]] && return 0
+  local salida yo
+  salida="$(docker info 2>&1)" && return 0
+  [[ "$salida" == *"permission denied"* ]] || return 0
+  [[ -z "${RAPTOR_SG_REEXEC:-}" ]] \
+    || morir "sigue sin haber permiso sobre Docker aun con el grupo «docker». Cerrá sesión, volvé a entrar y repetí «./raptor install»."
+  yo="$(id -un)"
+  if [[ " $(id -nG "$yo") " != *" docker "* ]]; then
+    confirmar "Tu usuario no tiene permiso para usar Docker. ¿Agregarlo al grupo «docker»?" \
+      || morir "sin permiso sobre Docker. Corré «sudo usermod -aG docker $yo», volvé a loguearte y repetí «./raptor install»."
+    _sudo usermod -aG docker "$yo"
+  fi
+  echo "ℹ  Continuando con el grupo «docker» activo. En terminales nuevas va a funcionar después de cerrar sesión y volver a entrar."
+  RAPTOR_SG_REEXEC=1 exec sg docker -c "$(printf '%q ' "$AQUI/raptor" install)"
+}
+
+# GPU NVIDIA presente pero sin nvidia-container-toolkit: `--gpus all`
+# falla en vez de caer a CPU, así que se ofrece instalarlo. Docker Desktop
+# trae su propio soporte de GPU y no se toca.
+asegurar_gpu_docker() {
+  command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1 || return 0
+  command -v nvidia-container-runtime-hook >/dev/null 2>&1 && return 0
+  local info
+  info="$(docker info --format '{{.OperatingSystem}} {{json .Runtimes}}' 2>/dev/null || true)"
+  [[ "$info" == *"Docker Desktop"* || "$info" == *'"nvidia"'* ]] && return 0
+
+  if ! confirmar "🎮 Hay GPU NVIDIA pero Docker no puede usarla (falta nvidia-container-toolkit). ¿Instalarlo?"; then
+    echo "⚠  Sin el toolkit, los comandos fallan con --gpus; usá NO_GPU=1 para forzar CPU." >&2
+    return 0
+  fi
+  local repo=https://nvidia.github.io/libnvidia-container
+  if command -v apt-get >/dev/null 2>&1; then
+    _descargar "$repo/gpgkey" | _sudo gpg --dearmor --yes -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+    _descargar "$repo/stable/deb/nvidia-container-toolkit.list" \
+      | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
+      | _sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list >/dev/null
+    _sudo apt-get update
+    _sudo apt-get install -y nvidia-container-toolkit
+  elif command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; then
+    _descargar "$repo/stable/rpm/nvidia-container-toolkit.repo" \
+      | _sudo tee /etc/yum.repos.d/nvidia-container-toolkit.repo >/dev/null
+    if command -v dnf >/dev/null 2>&1; then _sudo dnf install -y nvidia-container-toolkit
+    else _sudo yum install -y nvidia-container-toolkit; fi
+  else
+    echo "⚠  Distribución no soportada para instalar el toolkit automáticamente — ver https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html" >&2
+    return 0
+  fi
+  _sudo nvidia-ctk runtime configure --runtime=docker
+  if [[ -d /run/systemd/system ]]; then _sudo systemctl restart docker
+  else _sudo service docker restart; fi
+  echo "✅ nvidia-container-toolkit instalado."
+}
+
 uso_run() {
   cat <<'EOF'
 Uso: ./raptor run [opciones]
@@ -476,8 +586,10 @@ EOF
 }
 
 cmd_install() {
-  command -v docker >/dev/null 2>&1 || morir "Docker no está instalado. Instalalo y volvé a correr «./raptor install»."
+  command -v docker >/dev/null 2>&1 || instalar_docker
+  asegurar_permiso_docker
   asegurar_docker
+  asegurar_gpu_docker
 
   echo "🔨 Construyendo la imagen…"
   cmd_build

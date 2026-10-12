@@ -240,7 +240,7 @@ const I18N={
     'channel.waiting':'Waiting…',
     'channel.failed':'Failed',
     'channel.prep':'Preparation',
-    'channel.recon3d':'3D reconstruction',
+    'channel.recon3d':'Photogrammetry (ODM)',
     'channel.trimExport':'Trim + export',
     'channel.trimIndices':'Trim + indices',
     'progress.cancel':'Cancel',
@@ -498,7 +498,7 @@ const I18N={
     'channel.waiting':'Esperando…',
     'channel.failed':'Falló',
     'channel.prep':'Preparación',
-    'channel.recon3d':'Reconstrucción 3D',
+    'channel.recon3d':'Fotogrametría (ODM)',
     'channel.trimExport':'Recorte + exportación',
     'channel.trimIndices':'Recorte + índices',
     'progress.cancel':'Cancelar',
@@ -4004,4 +4004,37 @@ document.getElementById('panel-toggle').onclick=toggleSidebar;
   await renderSummaryCards();
   renderCapasPanel();   // refresca la tarjeta Hotspot con los focos ya identificados
   await checkRelatedMissions();
+  try {
+    const params = new URLSearchParams(location.search);
+    const paramSolo = params.get('solo');
+    const paramBase = params.get('base');
+    const paramZoom = params.get('zoom');
+    const paramLegend = params.get('legend');
+    const paramOpacity = params.get('opacity');
+    if (paramBase === 'sat' && currentBase !== 'sat') {
+      map.removeLayer(osmBase);
+      satBase.addTo(map);
+      satLabels.addTo(map);
+      currentBase = 'sat';
+      const satBtn = document.querySelector('button[data-base="sat"]');
+      if (satBtn) {
+        document.querySelectorAll('.base-picker button').forEach(b => b.classList.remove('active'));
+        satBtn.classList.add('active');
+      }
+    }
+    if (paramSolo && LAYER_REGISTRY[paramSolo]) {
+      soloLayer(paramSolo);
+      if (paramOpacity && LAYER_REGISTRY[paramSolo].layer.setOpacity) {
+        LAYER_REGISTRY[paramSolo].layer.setOpacity(parseFloat(paramOpacity));
+      }
+    }
+    if (paramZoom) {
+      const z = parseInt(paramZoom, 10);
+      if (!isNaN(z)) map.setZoom(z);
+    }
+    if (paramLegend) {
+      const toggle = document.querySelector(`.layer-legend-toggle[data-id="${paramLegend}"]`);
+      if (toggle) toggle.click();
+    }
+  } catch (e) {}
 })();

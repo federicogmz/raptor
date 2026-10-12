@@ -13,18 +13,19 @@ OSFMContext.setup() en opendm/osfm.py, llamada desde la etapa **opensfm**
 image_list.txt todavía no existe. Con `--end-with dataset` la fase 1 no llegaba
 nunca a crear image_list.txt, así que el config lo terminaba escribiendo la
 FASE 2 con la concurrencia PESADA: el split hacía exactamente lo contrario de
-lo que buscaba. Medido en vivo sobre 20 núcleos: `processes: 2` en RGB y
+lo que buscaba. Medido en vivo sobre 16 hilos: `processes: 2` en RGB y
 `processes: 6` en multiespectral.
 
 Estos tests EXTRAEN el bloque real (mismo patrón que el resto de
 tests/test_*.py que tocan entrypoint.sh), así que no pueden quedar
 desincronizados de la fuente.
 """
+
 import os
 import subprocess
+import pytest
 
-ENTRYPOINT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                           "docker", "entrypoint.sh")
+ENTRYPOINT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docker", "entrypoint.sh")
 
 
 def _bloque_run_odm():
@@ -49,13 +50,18 @@ def _correr(guion_extra, args_extra="--feature-quality high", cwd=None):
     `outputs` es un symlink a la misión activa del contenedor. Sin un cwd
     aparte, el test escribiría sobre los logs de una misión real.
     """
-    guion = STUBS + _bloque_run_odm() + f"""
+    guion = (
+        STUBS
+        + _bloque_run_odm()
+        + f"""
 {guion_extra}
 run_odm rgb rgb_odm 3 7 {args_extra}
 echo "EXIT=$?"
 """
-    return subprocess.run(["bash", "-c", guion], capture_output=True, text=True,
-                          timeout=15, cwd=str(cwd) if cwd else None)
+    )
+    return subprocess.run(
+        ["bash", "-c", guion], capture_output=True, text=True, timeout=15, cwd=str(cwd) if cwd else None
+    )
 
 
 def _stub_registra(registro, exit_code="0"):
@@ -70,6 +76,7 @@ python3() {{
 """
 
 
+@pytest.mark.docker
 class TestDosFasesDeODM:
     def test_corre_dos_invocaciones_con_concurrencias_distintas(self, tmp_path):
         registro = tmp_path / "llamadas.txt"
@@ -96,7 +103,7 @@ class TestDosFasesDeODM:
         concurrencia que termina en `processes:` es la de la invocación que
         LLEGA a esa etapa por primera vez. Esa tiene que ser la liviana; si
         alguna vez vuelve a ser la pesada, features y undistort se arrastran
-        con 2 hilos sobre 20 núcleos y nadie se entera hasta la próxima
+        con 2 hilos sobre 16 y nadie se entera hasta la próxima
         misión de 10 horas.
         """
         registro = tmp_path / "llamadas.txt"
@@ -122,9 +129,7 @@ class TestDosFasesDeODM:
         (stages/odm_app.py: opensfm.connect(filterpoints) directo), así que no
         hay etapa pesada que proteger: partir la corrida ahí es puro costo."""
         registro = tmp_path / "llamadas.txt"
-        r = _correr(_stub_registra(registro),
-                    args_extra="--feature-quality high --fast-orthophoto",
-                    cwd=tmp_path)
+        r = _correr(_stub_registra(registro), args_extra="--feature-quality high --fast-orthophoto", cwd=tmp_path)
         assert r.returncode == 0, r.stdout + r.stderr
         assert "EXIT=0" in r.stdout, r.stdout
 
@@ -136,9 +141,7 @@ class TestDosFasesDeODM:
 
     def test_pasa_los_argumentos_propios_de_odm_a_ambas_fases(self, tmp_path):
         registro = tmp_path / "llamadas.txt"
-        r = _correr(_stub_registra(registro),
-                    args_extra="--feature-quality high --pc-quality medium",
-                    cwd=tmp_path)
+        r = _correr(_stub_registra(registro), args_extra="--feature-quality high --pc-quality medium", cwd=tmp_path)
         assert r.returncode == 0, r.stdout + r.stderr
         fase1, fase2 = registro.read_text().splitlines()
         for fase in (fase1, fase2):
@@ -178,10 +181,13 @@ python3() {{
         escriben al mismo archivo y truncar del lado del filtro borraría la
         fase 1 al arrancar la fase 2."""
         registro = tmp_path / "llamadas.txt"
-        guion_extra = _stub_registra(registro) + """
+        guion_extra = (
+            _stub_registra(registro)
+            + """
 mkdir -p outputs/logs
 echo "RESTO DE LA CORRIDA ANTERIOR" > outputs/logs/odm_rgb.log
 """
+        )
         r = _correr(guion_extra, cwd=tmp_path)
         assert r.returncode == 0, r.stdout + r.stderr
         contenido = (tmp_path / "outputs/logs/odm_rgb.log").read_text(encoding="utf-8")
