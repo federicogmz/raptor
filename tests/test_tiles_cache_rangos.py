@@ -14,18 +14,20 @@ Dos defensas, que es lo que se verifica acá:
   · el resultado se cachea contra el mtime del ráster fuente, igual que
     up_to_date() hace con los tiles.
 """
+
 import json
 import os
 import sys
 
 import numpy as np
 import pytest
+
+pytest.importorskip("osgeo")
 from osgeo import gdal, osr
 
 gdal.UseExceptions()
 
-REPO_SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                            "scripts")
+REPO_SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts")
 if REPO_SCRIPTS not in sys.path:
     sys.path.insert(0, REPO_SCRIPTS)
 
@@ -51,19 +53,20 @@ def modulo(tmp_path, monkeypatch):
     """generate_tiles.py corre su cuerpo al importarse, así que hay que
     preparar el cwd antes (mismo patrón que tests/test_generate_tiles.py)."""
     monkeypatch.chdir(tmp_path)
-    _raster_float("outputs/dsm.tif")   # sin esto no se escribe bounds.json
+    _raster_float("outputs/dsm.tif")  # sin esto no se escribe bounds.json
 
     def _ejecutar():
         sys.modules.pop("generate_tiles", None)
         import generate_tiles as G
+
         return G
+
     return _ejecutar
 
 
 class TestCacheDeRangos:
     def test_no_recalcula_si_el_raster_no_cambio(self, modulo, tmp_path):
-        _raster_float("outputs/thermal_orthomosaic.tif",
-                      valores=np.linspace(20, 60, 64 * 64).reshape(64, 64))
+        _raster_float("outputs/thermal_orthomosaic.tif", valores=np.linspace(20, 60, 64 * 64).reshape(64, 64))
         G = modulo()
         primero = G.THERMAL_CLIP
 
@@ -80,8 +83,9 @@ class TestCacheDeRangos:
             veces.append(1)
             return (0.0, 1.0)
 
-        assert G.rango_cacheado("thermal", "outputs/thermal_orthomosaic.tif",
-                                _no_deberia_correr) == pytest.approx(primero)
+        assert G.rango_cacheado("thermal", "outputs/thermal_orthomosaic.tif", _no_deberia_correr) == pytest.approx(
+            primero
+        )
         assert veces == [], "recalculó el percentil con el caché al día"
 
     def test_recalcula_si_cambia_el_mtime(self, modulo, tmp_path):
@@ -125,7 +129,7 @@ class TestSubmuestreo:
         datos = (rng.normal(30, 5, 400 * 400)).reshape(400, 400)
         _raster_float("outputs/thermal_orthomosaic.tif", w=400, h=400, valores=datos)
 
-        G.MAX_PX_MUESTRA = 10_000          # fuerza el camino decimado
+        G.MAX_PX_MUESTRA = 10_000  # fuerza el camino decimado
         muestra = G._muestra_valida("outputs/thermal_orthomosaic.tif", 1, alpha_idx=2)
         assert muestra.size < 400 * 400
 
@@ -148,9 +152,9 @@ class TestConversionPorBloques:
         datos = rng.random((300, 120)).astype(np.float32)
         src = _raster_float("outputs/ms.tif", w=120, h=300, valores=datos)
 
-        G.FILAS_POR_BLOQUE = 10_000        # una sola pasada
+        G.FILAS_POR_BLOQUE = 10_000  # una sola pasada
         G._banda_a_8bit(src, str(tmp_path / "entero.tif"), 1, (0.0, 1.0))
-        G.FILAS_POR_BLOQUE = 32            # ~10 bloques
+        G.FILAS_POR_BLOQUE = 32  # ~10 bloques
         G._banda_a_8bit(src, str(tmp_path / "bloques.tif"), 1, (0.0, 1.0))
 
         a = gdal.Open(str(tmp_path / "entero.tif")).ReadAsArray()
@@ -161,18 +165,19 @@ class TestConversionPorBloques:
         """alpha=0 es la única señal confiable de 'fuera de cobertura': el
         relleno de ODM en la banda de dato no siempre es NaN (visto: 2**32)."""
         G = modulo()
-        s = osr.SpatialReference(); s.ImportFromEPSG(32618)
+        s = osr.SpatialReference()
+        s.ImportFromEPSG(32618)
         ruta = str(tmp_path / "conalpha.tif")
         ds = gdal.GetDriverByName("GTiff").Create(ruta, 8, 8, 2, gdal.GDT_Float32)
         ds.SetGeoTransform((466000.0, 0.1, 0.0, 708900.0, 0.0, -0.1))
         ds.SetProjection(s.ExportToWkt())
-        ds.GetRasterBand(1).WriteArray(np.full((8, 8), 2.0 ** 32, np.float32))
+        ds.GetRasterBand(1).WriteArray(np.full((8, 8), 2.0**32, np.float32))
         alpha = np.full((8, 8), 255, np.float32)
         alpha[:4] = 0
         ds.GetRasterBand(2).WriteArray(alpha)
         ds = None
 
-        G.FILAS_POR_BLOQUE = 3   # el corte cae dentro de la zona inválida
+        G.FILAS_POR_BLOQUE = 3  # el corte cae dentro de la zona inválida
         salida = str(tmp_path / "out.tif")
         G._banda_a_8bit(ruta, salida, 1, (0.0, 1.0))
 

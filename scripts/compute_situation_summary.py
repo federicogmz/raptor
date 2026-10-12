@@ -25,6 +25,7 @@ Lee: outputs/termico_hotspot_class.tif, outputs/thermal_orthomosaic.tif,
      outputs/flight_path.geojson
 Escribe: outputs/situation.json (se omite si no hay térmico)
 """
+
 import json
 import os
 import sys
@@ -68,10 +69,14 @@ def _hotspots_desde_clase(hot_path, gt, proj, temp_abs):
         my = gt[3] + cx * gt[4] + cy * gt[5]
         lon, lat, _ = to_wgs84.TransformPoint(mx, my)
         peak_temp = float(temp_abs[ys, xs].max()) if temp_abs is not None else None
-        hotspots.append({
-            "lat": round(lat, 6), "lon": round(lon, 6), "px": int(len(xs)),
-            "temp_c": round(peak_temp, 1) if peak_temp is not None else None,
-        })
+        hotspots.append(
+            {
+                "lat": round(lat, 6),
+                "lon": round(lon, 6),
+                "px": int(len(xs)),
+                "temp_c": round(peak_temp, 1) if peak_temp is not None else None,
+            }
+        )
     hotspots.sort(key=lambda h: -(h["temp_c"] or 0))
     return hotspots
 
@@ -83,8 +88,11 @@ def _captura():
         return None
     with open(FLIGHT_PATH) as f:
         fp = json.load(f)
-    times = [ft["properties"]["time"] for ft in fp.get("features", [])
-             if ft["properties"].get("kind") == "capture" and ft["properties"].get("time")]
+    times = [
+        ft["properties"]["time"]
+        for ft in fp.get("features", [])
+        if ft["properties"].get("kind") == "capture" and ft["properties"].get("time")
+    ]
     return max(times) if times else None
 
 
@@ -150,8 +158,10 @@ def main():
         pass
 
     print(f"✅ {OUT_PATH}")
-    print(f"  focos activos: {situation['hotspots_activos']} | "
-          f"temp. máx: {situation['temp_max']}°C | confianza: {situation['confianza']}")
+    print(
+        f"  focos activos: {situation['hotspots_activos']} | "
+        f"temp. máx: {situation['temp_max']}°C | confianza: {situation['confianza']}"
+    )
     return 0
 
 

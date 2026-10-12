@@ -9,10 +9,13 @@ compute_severity_classes.py) fueron eliminados; compute_thermal_hotspot.py
 es ahora la ÚNICA fuente de clasificación de hotspot, para toda misión con
 térmico, con o sin multiespectral.
 """
+
 import os
 
 import numpy as np
 import pytest
+
+pytest.importorskip("osgeo")
 from osgeo import gdal
 
 import compute_thermal_hotspot as H
@@ -85,15 +88,17 @@ class TestEntrypointSiempreLoLlama:
     existe)."""
 
     def test_se_invoca_incondicionalmente(self):
-        src = open(os.path.join(os.path.dirname(os.path.dirname(
-            os.path.abspath(__file__))), "docker", "entrypoint.sh"), encoding="utf-8").read()
+        src = open(
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docker", "entrypoint.sh"),
+            encoding="utf-8",
+        ).read()
         # Se ancla al comentario de "Calidad del LEVANTAMIENTO", único en el
         # archivo — es el bloque real de flight-quality/hotspot/situation-
         # summary (hoy corre en un subshell de fondo, parte del análisis
         # cruzado en paralelo). El `fi` de cierre buscado es el que arranca
         # en columna 0.
         ini = src.index('if [[ "$DO_THERMAL" -eq 1 ]]; then\n  # Calidad del LEVANTAMIENTO')
-        bloque = src[ini:src.index("\nfi\n", ini) + 4]
+        bloque = src[ini : src.index("\nfi\n", ini) + 4]
         assert "compute-thermal-hotspot" in bloque
         assert "make situation-summary" in bloque
         # El viejo gate interno "solo si no hay multiespectral" ya no existe

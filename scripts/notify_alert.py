@@ -19,6 +19,7 @@ Uso: python3 scripts/notify_alert.py
 Lee: outputs/situation.json
 Escribe: outputs/alert.json (solo si hay algo que alertar)
 """
+
 import json
 import os
 import sys
@@ -45,8 +46,15 @@ def main():
         "mision": os.environ.get("RAPTOR_MISSION", "mision"),
         "captura": s.get("captura"),
     }
-    for k in ("hotspots_activos", "temp_max", "temp_promedio", "confianza",
-              "cobertura_pct", "area_volada_km2", "alerta_cobertura_baja"):
+    for k in (
+        "hotspots_activos",
+        "temp_max",
+        "temp_promedio",
+        "confianza",
+        "cobertura_pct",
+        "area_volada_km2",
+        "alerta_cobertura_baja",
+    ):
         if k in s:
             payload[k] = s[k]
     if s.get("hotspots"):
@@ -61,14 +69,16 @@ def main():
 
     url = os.environ.get("ALERT_WEBHOOK_URL", "").strip()
     if not url:
-        print(f"  📡 alerta guardada en {ALERT} "
-              "(sin ALERT_WEBHOOK_URL para enviarla — arrancá con "
-              "-e ALERT_WEBHOOK_URL=... si querés el aviso por webhook)")
+        print(
+            f"  📡 alerta guardada en {ALERT} "
+            "(sin ALERT_WEBHOOK_URL para enviarla — arrancá con "
+            "-e ALERT_WEBHOOK_URL=... si querés el aviso por webhook)"
+        )
         return 0
 
     req = urllib.request.Request(
-        url, data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"})
+        url, data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"}
+    )
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
             print(f"  📡 alerta enviada a {url} (HTTP {r.status})")

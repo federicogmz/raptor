@@ -29,10 +29,10 @@ from odm_staging import escribir_geo_txt, poblar_images  # noqa: E402
 _override = os.environ.get("MAX_CONCURRENCY")
 NPROCS = safe_concurrency(5, override=int(_override) if _override else None)
 
-D_JPG_DIR  = "data/dband_mosaico"
+D_JPG_DIR = "data/dband_mosaico"
 OUTPUT_DIR = "processing/dband_odm"
 IMAGES_DIR = os.path.join(OUTPUT_DIR, "images")
-GEO_TXT    = os.path.join(OUTPUT_DIR, "geo.txt")
+GEO_TXT = os.path.join(OUTPUT_DIR, "geo.txt")
 
 
 def main():
@@ -45,8 +45,7 @@ def main():
     print("=" * 60)
     print()
 
-    nombres = poblar_images(D_JPG_DIR, IMAGES_DIR, ("_D.JPG",), NPROCS,
-                            etiqueta="imágenes")
+    nombres = poblar_images(D_JPG_DIR, IMAGES_DIR, ("_D.JPG",), NPROCS, etiqueta="imágenes")
     if not nombres:
         print(f"❌ No se encontraron imágenes *_D.JPG en {D_JPG_DIR}")
         sys.exit(1)

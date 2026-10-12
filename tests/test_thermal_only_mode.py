@@ -3,6 +3,7 @@
 Verifica que el nuevo modo 'thermal-convert' permita procesar y descargar imágenes
 térmicas sin requerir fotos RGB ni ejecutar reconstrucción 3D con ODM.
 """
+
 import importlib
 import pytest
 
@@ -16,8 +17,10 @@ def app(tmp_path, monkeypatch):
     monkeypatch.setenv("EXPORT_MOUNT", str(montaje))
     from fastapi.testclient import TestClient
     from core import scan
+
     importlib.reload(scan)
     from webapp import main as M
+
     importlib.reload(M)
     M._state = None
     return TestClient(M.app), M, tmp_path / "runs", str(montaje)
@@ -28,17 +31,14 @@ class TestThermalConvertValidation:
         c, M, runs, montaje = app
         uploads = {
             "rgb_thermal": M.classify_files(["DJI_0001_T.JPG", "DJI_0002_T.JPG"]),
-            "multispectral": M.classify_files([])
+            "multispectral": M.classify_files([]),
         }
         errs = M._validate("thermal-convert", False, uploads)
         assert errs == [], f"Con solo fotos térmicas debe pasar: {errs}"
 
     def test_thermal_convert_falla_sin_termicas(self, app):
         c, M, runs, montaje = app
-        uploads = {
-            "rgb_thermal": M.classify_files(["DJI_0001_V.JPG"]),
-            "multispectral": M.classify_files([])
-        }
+        uploads = {"rgb_thermal": M.classify_files(["DJI_0001_V.JPG"]), "multispectral": M.classify_files([])}
         errs = M._validate("thermal-convert", False, uploads)
         assert len(errs) > 0
         assert "no hay fotos térmicas" in errs[0].lower()

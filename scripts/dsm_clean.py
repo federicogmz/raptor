@@ -17,6 +17,7 @@ el ortorectificador térmico ya descarta correctamente los píxeles sin DSM.
 Sobre lo que queda (terreno real), se aplica el rechazo de outliers
 iterativo por mediana+MAD de siempre (picos puntuales de reconstrucción).
 """
+
 import gc
 import os
 import sys
@@ -45,17 +46,17 @@ gdal.UseExceptions()
 # DSM del proyecto multiespectral, que también corre con --dsm. El algoritmo de
 # limpieza es idéntico (no depende del sensor, solo de la geometría del DSM).
 SRC = os.environ.get("DSM_SRC", "processing/rgb_odm/odm_dem/dsm.tif")
-OUT = "outputs/dsm.tif"                       # producto: DSM limpio
-MIN_COVERAGE = 0.85   # un DSM bueno de este vuelo cubre ~96%; <85% = degradado
-MAX_RES_CM   = 25.0   # ODM nativo da 20cm; >25cm = corrida de baja calidad
+OUT = "outputs/dsm.tif"  # producto: DSM limpio
+MIN_COVERAGE = 0.85  # un DSM bueno de este vuelo cubre ~96%; <85% = degradado
+MAX_RES_CM = 25.0  # ODM nativo da 20cm; >25cm = corrida de baja calidad
 FLAT_VAR_THRESH = 1e-5  # m², ventana 5x5 — terreno real nunca es esto de plano
-PYRAMID_FACTOR = 16     # downsample para estimar tendencia de gran escala
-                        # en huecos reales interiores (agua, sombra, vegetación
-                        # densa) — NO se rellenan con un valor constante, se
-                        # interpola la tendencia del terreno circundante a baja
-                        # resolución (sin pretender recuperar detalle que nunca
-                        # se midió). Solo el hueco EXTERIOR (fuera del polígono
-                        # de vuelo, toca el borde del raster) se deja sin tocar.
+PYRAMID_FACTOR = 16  # downsample para estimar tendencia de gran escala
+# en huecos reales interiores (agua, sombra, vegetación
+# densa) — NO se rellenan con un valor constante, se
+# interpola la tendencia del terreno circundante a baja
+# resolución (sin pretender recuperar detalle que nunca
+# se midió). Solo el hueco EXTERIOR (fuera del polígono
+# de vuelo, toca el borde del raster) se deja sin tocar.
 
 ds = gdal.Open(SRC)
 gt = ds.GetGeoTransform()
@@ -66,17 +67,19 @@ res = gt[1]
 m_raw = np.isfinite(z) & (z > -500)
 nd = ds.GetRasterBand(1).GetNoDataValue()
 if nd is not None and np.isfinite(nd):
-    m_raw &= (z != nd)
+    m_raw &= z != nd
 print(f"DSM fuente: {SRC}")
-print(f"DSM {W}x{H} @ {res*100:.0f}cm, válidos (crudo) {100*m_raw.mean():.1f}%")
+print(f"DSM {W}x{H} @ {res * 100:.0f}cm, válidos (crudo) {100 * m_raw.mean():.1f}%")
 
 # Chequeo de sanidad: alertar si el DSM de entrada parece degradado (la causa
 # raíz del problema fue procesar silenciosamente un DSM malo).
 if m_raw.mean() < MIN_COVERAGE or res * 100 > MAX_RES_CM:
-    print(f"  ⚠ ADVERTENCIA: el DSM de entrada parece DEGRADADO "
-          f"(cobertura {100*m_raw.mean():.1f}% < {100*MIN_COVERAGE:.0f}% o "
-          f"resolución {res*100:.0f}cm > {MAX_RES_CM:.0f}cm). "
-          f"¿Es el DSM nativo de la última corrida de ODM? Revisa {SRC}")
+    print(
+        f"  ⚠ ADVERTENCIA: el DSM de entrada parece DEGRADADO "
+        f"(cobertura {100 * m_raw.mean():.1f}% < {100 * MIN_COVERAGE:.0f}% o "
+        f"resolución {res * 100:.0f}cm > {MAX_RES_CM:.0f}cm). "
+        f"¿Es el DSM nativo de la última corrida de ODM? Revisa {SRC}"
+    )
 
 # Detectar relleno sintético: varianza local ~0 dentro de lo "válido"
 # MEMORIA: este script procesa DSMs de cientos de millones de píxeles (del
@@ -109,12 +112,14 @@ local_var = ndimage.uniform_filter(residual * residual, 5, mode="nearest")
 del residual
 fake_flat = m_raw & (local_var < FLAT_VAR_THRESH)
 del local_var
-print(f"  relleno sintético detectado: {int(fake_flat.sum()):,} px "
-      f"({100*fake_flat.sum()/m_raw.sum():.1f}% de lo 'válido') — se marca como nodata real")
+print(
+    f"  relleno sintético detectado: {int(fake_flat.sum()):,} px "
+    f"({100 * fake_flat.sum() / m_raw.sum():.1f}% de lo 'válido') — se marca como nodata real"
+)
 
 m = m_raw & ~fake_flat
 del fake_flat
-print(f"  válidos reales: {100*m.mean():.1f}%")
+print(f"  válidos reales: {100 * m.mean():.1f}%")
 
 # Para el rechazo de outliers necesitamos números en todo el array (no NaN);
 # se usa el vecino válido más cercano SOLO para esta estadística local — el
@@ -132,8 +137,7 @@ print(f"  válidos reales: {100*m.mean():.1f}%")
 #     todo lo que ya era válido.
 # Son ~12 B/px menos de pico sobre los ~28 B/px que usaba este paso.
 huecos = ~m
-idx = ndimage.distance_transform_edt(huecos, return_distances=False,
-                                     return_indices=True)
+idx = ndimage.distance_transform_edt(huecos, return_distances=False, return_indices=True)
 work = z.copy()
 work[huecos] = z[idx[0][huecos], idx[1][huecos]]
 del idx, huecos
@@ -148,7 +152,7 @@ for it in range(3):
     mad = median_filter_fast(np.abs(work - med), 9) + 1e-3
     outlier = m & (np.abs(work - med) > np.maximum(4.0 * mad, 3.0))
     work[outlier] = med[outlier]
-    print(f"  iter {it+1}: {int(outlier.sum()):,} outliers reemplazados")
+    print(f"  iter {it + 1}: {int(outlier.sum()):,} outliers reemplazados")
 del med, mad, outlier
 gc.collect()
 
@@ -180,8 +184,10 @@ exterior = np.isin(lbl, touches_border[touches_border > 0])
 del lbl, touches_border
 interior_holes = (~m) & ~exterior
 del exterior
-print(f"  huecos reales: {n:,} | exterior (fuera de vuelo): {int(interior_holes.size - m.sum() - interior_holes.sum()):,}px | "
-      f"interiores rellenables: {int(interior_holes.sum()):,}px")
+print(
+    f"  huecos reales: {n:,} | exterior (fuera de vuelo): {int(interior_holes.size - m.sum() - interior_holes.sum()):,}px | "
+    f"interiores rellenables: {int(interior_holes.sum()):,}px"
+)
 gc.collect()
 
 # Esta rama trabaja en la piramide reducida (factor PYRAMID_FACTOR): los
@@ -208,8 +214,10 @@ del interior_holes
 out = np.where(m_final, filled, np.nan).astype(np.float32)
 del filled, m_final
 gc.collect()
-print(f"cobertura final: {100*np.isfinite(out).mean():.1f}% (antes {100*m_raw.mean():.1f}% incluyendo relleno falso de ODM, "
-      f"{100*m.mean():.1f}% real estricto sin relleno)")
+print(
+    f"cobertura final: {100 * np.isfinite(out).mean():.1f}% (antes {100 * m_raw.mean():.1f}% incluyendo relleno falso de ODM, "
+    f"{100 * m.mean():.1f}% real estricto sin relleno)"
+)
 
 drv = gdal.GetDriverByName("GTiff")
 o = drv.Create(OUT, W, H, 1, gdal.GDT_Float32, ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])

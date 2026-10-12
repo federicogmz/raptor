@@ -28,11 +28,11 @@ POR QUÉ ES SEGURO TOCAR `images/` DEL PROYECTO:
 Uso (desde /app, como el resto del pipeline):
   python3 scripts/subsample_photos.py processing/rgb_odm 3
 """
+
 import os
 import sys
 
-USO = "uso: python3 scripts/subsample_photos.py <proyecto_odm> <n>" \
-      "  (n>=2; n=1 o menor no hace nada)"
+USO = "uso: python3 scripts/subsample_photos.py <proyecto_odm> <n>  (n>=2; n=1 o menor no hace nada)"
 
 # Mismo set que BAND_SUFFIXES en prepare_multispectral_odm.py — las 4 bandas
 # de UNA captura M3M tienen que submuestrear SIEMPRE juntas (ver _capture_key).
@@ -56,7 +56,7 @@ def _capture_key(fname):
     cada N cae siempre sobre las 4 bandas juntas."""
     for suf in MS_BAND_SUFFIXES:
         if fname.upper().endswith(suf.upper()):
-            return fname[:-len(suf)]
+            return fname[: -len(suf)]
     return fname
 
 
@@ -102,8 +102,7 @@ def main():
     # Orden alfabético = cronológico en los nombres DJI (DJI_<fecha>_<seq>),
     # así cada línea de vuelo queda espaciada uniformemente: se toma 1 de
     # cada N consecutivas en vez de un muestreo aleatorio que dejaría huecos.
-    files = sorted(f for f in os.listdir(images)
-                   if os.path.isfile(os.path.join(images, f)))
+    files = sorted(f for f in os.listdir(images) if os.path.isfile(os.path.join(images, f)))
     if len(files) < n:
         print(f"  ⚠ solo {len(files)} fotos — menos que el factor {n}, sin submuestreo")
         return 0
@@ -142,16 +141,14 @@ def main():
         # reconstruir. Se preserva sin condición; el filtro por `keep` corre
         # solo sobre las filas de imagen (línea 2 en adelante).
         header, filas = (lines[:1], lines[1:]) if lines else ([], [])
-        kept_lines = header + [ln for ln in filas
-                                if os.path.basename(ln.split()[0].strip()) in keep]
+        kept_lines = header + [ln for ln in filas if os.path.basename(ln.split()[0].strip()) in keep]
         os.replace(geo, os.path.join(full, "geo.txt"))
         with open(geo, "w", encoding="utf-8") as fh:
             fh.write("\n".join(kept_lines) + ("\n" if kept_lines else ""))
 
     with open(os.path.join(proj, ".subsampled_n"), "w", encoding="utf-8") as fh:
         fh.write(str(n))
-    print(f"  Submuestreo x{n}: {len(keep)} imágenes en images/ "
-          f"({moved} movidas a images_full/)")
+    print(f"  Submuestreo x{n}: {len(keep)} imágenes en images/ ({moved} movidas a images_full/)")
     return 0
 
 

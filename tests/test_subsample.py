@@ -7,6 +7,7 @@ tercera parte de las fotos recorta ese costo casi a la tercera parte. El
 conjunto completo queda intacto en data/ y en images_full/; la próxima
 preparación lo restaura solo.
 """
+
 import os
 import subprocess
 
@@ -16,9 +17,13 @@ SCRIPT = os.path.join(REPO, "scripts", "subsample_photos.py")
 
 
 def _correr(proj, n, cwd=None):
-    return subprocess.run(["python3", SCRIPT, str(proj), str(n)],
-                          capture_output=True, text=True, timeout=15,
-                          cwd=str(cwd) if cwd else None)
+    return subprocess.run(
+        ["python3", SCRIPT, str(proj), str(n)],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        cwd=str(cwd) if cwd else None,
+    )
 
 
 def _proyecto(tmp_path, n_archivos=10, con_geo=True):
@@ -48,8 +53,7 @@ class TestSubsample:
         quedan = sorted(p.name for p in (proj / "images").iterdir())
         # files[::3] de 0..9 = índices 0,3,6,9
         assert quedan == [f"DJI_20260615_{i:04d}_V.JPG" for i in (0, 3, 6, 9)], quedan
-        movidos = sorted(p.name for p in (proj / "images_full").iterdir()
-                         if p.suffix == ".JPG")
+        movidos = sorted(p.name for p in (proj / "images_full").iterdir() if p.suffix == ".JPG")
         assert len(movidos) == 6
         # Nada se perdió: juntos suman el conjunto original.
         assert len(quedan) + len(movidos) == 10
@@ -63,9 +67,7 @@ class TestSubsample:
         # reventaba ODM cuando esto se filtraba junto con las imágenes.
         assert lineas[0] == "EPSG:4326", lineas
         nombres = [ln.split()[0] for ln in lineas[1:]]
-        assert nombres == ["DJI_20260615_0000_V.JPG",
-                           "DJI_20260615_0003_V.JPG",
-                           "DJI_20260615_0006_V.JPG"], nombres
+        assert nombres == ["DJI_20260615_0000_V.JPG", "DJI_20260615_0003_V.JPG", "DJI_20260615_0006_V.JPG"], nombres
         # El geo.txt completo queda guardado al lado.
         assert (proj / "images_full" / "geo.txt").exists()
 
@@ -88,8 +90,7 @@ class TestSubsample:
         r = _correr(proj, 1)
         assert r.returncode == 0
         assert len(list((proj / "images").iterdir())) == 5
-        assert not (proj / "images_full").exists() or \
-            len(list((proj / "images_full").iterdir())) == 0
+        assert not (proj / "images_full").exists() or len(list((proj / "images_full").iterdir())) == 0
 
     def test_menos_fotos_que_n_no_submuestrea(self, tmp_path):
         proj = _proyecto(tmp_path, 2)
@@ -131,8 +132,7 @@ class TestSubsample:
         _correr(proj, 3)
         assert len(list((proj / "images").iterdir())) == 3
         # Solo las fotos (el geo.txt original respaldado suma un archivo más).
-        assert len([p for p in (proj / "images_full").iterdir()
-                    if p.suffix == ".JPG"]) == 6
+        assert len([p for p in (proj / "images_full").iterdir() if p.suffix == ".JPG"]) == 6
 
 
 def _proyecto_multiespectral(tmp_path, n_capturas=9):
@@ -161,11 +161,11 @@ class TestSubsampleMultiespectral:
         r = _correr(proj, 3)
         assert r.returncode == 0, r.stdout + r.stderr
         quedan = [p.name for p in (proj / "images").iterdir()]
-        conteos = {b: sum(1 for f in quedan if f.endswith(f"_MS_{b}.TIF"))
-                   for b in bandas}
+        conteos = {b: sum(1 for f in quedan if f.endswith(f"_MS_{b}.TIF")) for b in bandas}
         assert len(set(conteos.values())) == 1, (
             f"las 4 bandas tienen que quedar con el mismo conteo, salió {conteos} "
-            f"— con conteos distintos ODM no puede emparejar bandas por captura")
+            f"— con conteos distintos ODM no puede emparejar bandas por captura"
+        )
         assert conteos["G"] == 3, conteos  # 9 capturas / 3 = 3 capturas → 3 por banda
 
     def test_las_4_bandas_de_cada_captura_kept_quedan_juntas(self, tmp_path):
@@ -175,8 +175,7 @@ class TestSubsampleMultiespectral:
         _correr(proj, 3)
         quedan = [p.name for p in (proj / "images").iterdir()]
         capturas_por_banda = {
-            b: sorted(f.replace(f"_MS_{b}.TIF", "") for f in quedan if f.endswith(f"_MS_{b}.TIF"))
-            for b in bandas
+            b: sorted(f.replace(f"_MS_{b}.TIF", "") for f in quedan if f.endswith(f"_MS_{b}.TIF")) for b in bandas
         }
         todas_iguales = len({tuple(v) for v in capturas_por_banda.values()}) == 1
         assert todas_iguales, capturas_por_banda

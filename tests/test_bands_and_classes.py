@@ -10,8 +10,11 @@ eliminado junto con la funcionalidad de área afectada/severidad); ahora son
 utilidades compartidas en scripts/raster_classify.py, usadas por
 compute_thermal_hotspot.py y classify_vegetation_indices.py.
 """
+
 import numpy as np
 import pytest
+
+pytest.importorskip("osgeo")
 from osgeo import gdal
 
 from raster_classify import classify, write_class_tif
@@ -30,19 +33,22 @@ def _ds_con_bandas(tmp_path, nombres):
 
 
 class TestFindBand:
-    @pytest.mark.parametrize("orden", [
-        ["Red", "Green", "NIR", "RedEdge"],
-        ["NIR", "RedEdge", "Red", "Green"],
-        ["Green", "Red", "RedEdge", "NIR"],
-    ])
+    @pytest.mark.parametrize(
+        "orden",
+        [
+            ["Red", "Green", "NIR", "RedEdge"],
+            ["NIR", "RedEdge", "Red", "Green"],
+            ["Green", "Red", "RedEdge", "NIR"],
+        ],
+    )
     def test_encuentra_cada_banda_en_cualquier_orden(self, tmp_path, orden):
         ds = _ds_con_bandas(tmp_path, orden)
-        for logico, nombre in [("nir", "NIR"), ("red", "Red"),
-                               ("green", "Green"), ("rededge", "RedEdge")]:
+        for logico, nombre in [("nir", "NIR"), ("red", "Red"), ("green", "Green"), ("rededge", "RedEdge")]:
             idx = _find_band(ds, logico)
             assert idx is not None, f"no encontró {logico} en {orden}"
-            assert ds.GetRasterBand(idx).GetDescription() == nombre, \
+            assert ds.GetRasterBand(idx).GetDescription() == nombre, (
                 f"{logico} resolvió a {ds.GetRasterBand(idx).GetDescription()} en {orden}"
+            )
 
     def test_rededge_no_se_confunde_con_red(self, tmp_path):
         """El fallo que invalidaría el NDVI: si 'RedEdge' matchea el alias

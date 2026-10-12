@@ -14,6 +14,7 @@ servía, y 71 y 89 daban exactamente lo mismo. El número se sigue aceptando y
 se mapea al preset equivalente — hay corridas guardadas, scripts y CI que lo
 pasan.
 """
+
 import importlib
 import os
 
@@ -33,11 +34,21 @@ class TestTablaDeCalidad:
         assert t["feature_quality"] in ("lowest", "low", "medium", "high", "ultra")
         assert isinstance(t["res_cm"], (int, float)) and t["res_cm"] > 0
 
-    @pytest.mark.parametrize("q,nombre", [(100, "forense"), (90, "forense"),
-                                          (89, "cartografico"), (70, "cartografico"),
-                                          (69, "cartografico"), (40, "cartografico"),
-                                          (39, "tactico"), (20, "tactico"),
-                                          (19, "tactico"), (0, "tactico")])
+    @pytest.mark.parametrize(
+        "q,nombre",
+        [
+            (100, "forense"),
+            (90, "forense"),
+            (89, "cartografico"),
+            (70, "cartografico"),
+            (69, "cartografico"),
+            (40, "cartografico"),
+            (39, "tactico"),
+            (20, "tactico"),
+            (19, "tactico"),
+            (0, "tactico"),
+        ],
+    )
     def test_el_numero_heredado_mapea_al_preset_equivalente(self, q, nombre):
         assert HW.preset(str(q))["nombre"] == nombre
         assert HW.quality_tier(q)["nombre"] == nombre
@@ -92,17 +103,18 @@ class TestMatcherNeighbors:
 class TestEntrypointUsaMatcherNeighborsDeLaTabla:
     def test_no_queda_hardcodeado_en_0(self):
         entrypoint = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "docker", "entrypoint.sh")
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docker", "entrypoint.sh"
+        )
         src = open(entrypoint, encoding="utf-8").read()
         assert "--matcher-neighbors 0" not in src, (
-            "matcher-neighbors no puede quedar hardcodeado — tiene que "
-            "salir de MATCHER_NEIGHBORS (scripts/hardware.py)")
+            "matcher-neighbors no puede quedar hardcodeado — tiene que salir de MATCHER_NEIGHBORS (scripts/hardware.py)"
+        )
         # Los argumentos de cada sensor viven en _odm_args(), una rama del
         # `case` por proyecto: los cuatro tienen que leer la variable.
         assert src.count("--matcher-neighbors $MATCHER_NEIGHBORS") == 4, (
             "las cuatro ramas de _odm_args (rgb, thermal, multispectral, "
-            "dband) tienen que usar la variable, no un valor fijo")
+            "dband) tienen que usar la variable, no un valor fijo"
+        )
 
 
 class TestConcurrencia:
@@ -118,7 +130,7 @@ class TestConcurrencia:
 
     def test_mas_megapixeles_pide_menos_hilos(self):
         """Fotos más grandes -> más memoria por hilo -> menos hilos seguros."""
-        chico = HW.safe_concurrency(0.33)   # sensor térmico
+        chico = HW.safe_concurrency(0.33)  # sensor térmico
         grande = HW.safe_concurrency(12.3)  # RGB
         assert grande <= chico
 
@@ -162,9 +174,13 @@ class TestEstimacionRecalibrada:
     reconstrucción densa, y el mensaje tiene que guiar a los presets rápidos."""
 
     def _hw(self, gpu=False, vram_mb=None, cores=20, mem=23000):
-        return {"cores": cores, "mem_available_mb": mem, "gpu": gpu,
-                "gpu_name": "NVIDIA RTX A1000 6GB Laptop GPU" if gpu else None,
-                "vram_mb": vram_mb}
+        return {
+            "cores": cores,
+            "mem_available_mb": mem,
+            "gpu": gpu,
+            "gpu_name": "NVIDIA RTX A1000 6GB Laptop GPU" if gpu else None,
+            "vram_mb": vram_mb,
+        }
 
     def test_gpu_de_poca_vram_acelera_menos_que_una_grande(self):
         chica = HW.estimate_minutes(75, 200, self._hw(gpu=True, vram_mb=6 * 1024))
@@ -271,8 +287,7 @@ class TestEstimacionHonesta:
     """El modelo por etapas no debe prometer minutos para 3D incremental."""
 
     def _hw(self):
-        return {"cores": 20, "mem_available_mb": 23000, "gpu": True,
-                "gpu_name": "RTX A1000 6GB", "vram_mb": 6 * 1024}
+        return {"cores": 20, "mem_available_mb": 23000, "gpu": True, "gpu_name": "RTX A1000 6GB", "vram_mb": 6 * 1024}
 
     def test_escarpado_ya_no_promete_minutos(self):
         lo, hi = HW.estimate_minutes("cartografico", 2398, self._hw(), terreno="escarpado")
@@ -283,8 +298,9 @@ class TestEstimacionHonesta:
         assert hi <= 30, (lo, hi)
 
     def test_por_sensor_desglosa_y_termico_es_mas_barato(self):
-        m = HW.estimate_message("cartografico", 2398, self._hw(), terreno="escarpado",
-                                por_sensor={"rgb": 1199, "thermal": 1199})
+        m = HW.estimate_message(
+            "cartografico", 2398, self._hw(), terreno="escarpado", por_sensor={"rgb": 1199, "thermal": 1199}
+        )
         assert "Por sensor" in m["tiempo_texto"]
         rgb_lo, _ = m["por_sensor"]["rgb"]
         th_lo, _ = m["por_sensor"]["thermal"]
@@ -295,8 +311,7 @@ class TestMensajeEnIngles:
     """idioma='en' es la traducción del mismo mensaje."""
 
     def _hw(self):
-        return {"cores": 20, "mem_available_mb": 23000, "gpu": True,
-                "gpu_name": "RTX A1000 6GB", "vram_mb": 6 * 1024}
+        return {"cores": 20, "mem_available_mb": 23000, "gpu": True, "gpu_name": "RTX A1000 6GB", "vram_mb": 6 * 1024}
 
     def test_default_sigue_en_espanol(self):
         m = HW.estimate_message("cartografico", 100, self._hw())
@@ -304,14 +319,20 @@ class TestMensajeEnIngles:
 
     def test_idioma_en_traduce_los_tres_textos(self):
         m = HW.estimate_message("cartografico", 100, self._hw(), idioma="en")
-        assert "Preset \"Cartographic\"" in m["modelo_texto"]
+        assert 'Preset "Cartographic"' in m["modelo_texto"]
         assert "Up to" in m["resolucion_texto"]
         assert "Estimated time" in m["tiempo_texto"]
         assert "núcleos" not in m["tiempo_texto"]
 
     def test_idioma_en_traduce_el_desglose_por_sensor(self):
-        m = HW.estimate_message("cartografico", 2398, self._hw(), terreno="escarpado", idioma="en",
-                                por_sensor={"rgb": 1199, "thermal": 1199})
+        m = HW.estimate_message(
+            "cartografico",
+            2398,
+            self._hw(),
+            terreno="escarpado",
+            idioma="en",
+            por_sensor={"rgb": 1199, "thermal": 1199},
+        )
         assert "By sensor" in m["tiempo_texto"]
         assert "thermal ≈" in m["tiempo_texto"]
 
@@ -330,31 +351,33 @@ class TestMensajeEnIngles:
 class TestPipelineRunPropagaElPreset:
     def test_el_preset_llega_al_entorno_del_subproceso(self):
         from core.runner import PipelineRun
-        run = PipelineRun(mode="rgb", source_dir="/tmp", progress_file="/dev/null",
-                          preset="tactico")
+
+        run = PipelineRun(mode="rgb", source_dir="/tmp", progress_file="/dev/null", preset="tactico")
         assert run._env()["PRESET"] == "tactico"
 
     def test_default_es_cartografico(self):
         from core.runner import PipelineRun
+
         run = PipelineRun(mode="rgb", source_dir="/tmp", progress_file="/dev/null")
         assert run._env()["PRESET"] == "cartografico"
 
     def test_quality_numerico_heredado_sigue_llegando(self):
         from core.runner import PipelineRun
-        run = PipelineRun(mode="rgb", source_dir="/tmp", progress_file="/dev/null",
-                          quality=40)
+
+        run = PipelineRun(mode="rgb", source_dir="/tmp", progress_file="/dev/null", quality=40)
         # Se pasa tal cual: el mapeo a preset lo hace scripts/hardware.py,
         # que es donde vive la tabla.
         assert run._env()["PRESET"] == "40"
 
     def test_el_terreno_llega_al_entorno_del_subproceso(self):
         from core.runner import PipelineRun
-        run = PipelineRun(mode="rgb", source_dir="/tmp", progress_file="/dev/null",
-                          terreno="escarpado")
+
+        run = PipelineRun(mode="rgb", source_dir="/tmp", progress_file="/dev/null", terreno="escarpado")
         assert run._env()["TERRENO"] == "escarpado"
 
     def test_terreno_default_es_plano(self):
         from core.runner import PipelineRun
+
         run = PipelineRun(mode="rgb", source_dir="/tmp", progress_file="/dev/null")
         assert run._env()["TERRENO"] == "plano"
 
@@ -366,8 +389,10 @@ class TestEndpointDeLaWebapp:
         monkeypatch.delenv("EXPORT_HOST_DIR", raising=False)
         from fastapi.testclient import TestClient
         from core import scan
+
         importlib.reload(scan)
         from webapp import main as M
+
         importlib.reload(M)
         M._state = None
         return TestClient(M.app), tmp_path / "runs"
@@ -383,7 +408,7 @@ class TestEndpointDeLaWebapp:
     def test_lang_en_devuelve_el_mensaje_en_ingles(self, app):
         c, runs = app
         j = c.get("/api/missions/m1b/quality-estimate?preset=cartografico&lang=en").json()
-        assert "Preset \"Cartographic\"" in j["modelo_texto"]
+        assert 'Preset "Cartographic"' in j["modelo_texto"]
 
     def test_sin_lang_sigue_en_espanol(self, app):
         c, runs = app
@@ -415,8 +440,7 @@ class TestEndpointDeLaWebapp:
         d.mkdir(parents=True)
         for b in ("G", "R", "RE", "NIR"):
             (d / f"a_MS_{b}.TIF").write_text("x")
-        r = c.get("/api/missions/m4/quality-estimate?quality=75&mode=none"
-                 "&has_multispectral=true").json()
+        r = c.get("/api/missions/m4/quality-estimate?quality=75&mode=none&has_multispectral=true").json()
         assert r["n_photos"] == 4
 
     def test_quality_fuera_de_rango_se_recorta_no_falla(self, app):
@@ -452,9 +476,10 @@ class TestEndpointDeLaWebapp:
         d = runs / "m6" / "raw" / "rgb_thermal"
         d.mkdir(parents=True)
         (d / "a_V.JPG").write_text("x")
-        r = c.post("/api/missions/m6/start", data={
-            "mode": "rgb", "has_multispectral": "false", "reuse_odm": "false",
-            "preset": "turbo"})
+        r = c.post(
+            "/api/missions/m6/start",
+            data={"mode": "rgb", "has_multispectral": "false", "reuse_odm": "false", "preset": "turbo"},
+        )
         assert r.status_code == 400
         # El mensaje tiene que listar las opciones reales, no solo decir "no".
         assert "tactico" in r.text and "forense" in r.text, r.text
@@ -489,8 +514,7 @@ class TestEndpointDeLaWebapp:
     def test_estimate_terreno_escarpado_fuerza_incremental(self, app):
         c, runs = app
         (runs / "m11").mkdir(parents=True)
-        m = c.get("/api/missions/m11/quality-estimate?"
-                 "preset=cartografico&terreno=escarpado&n_photos=100").json()
+        m = c.get("/api/missions/m11/quality-estimate?preset=cartografico&terreno=escarpado&n_photos=100").json()
         assert m["terreno"] == "escarpado"
         assert m["tier"]["sfm_algorithm"] == "incremental"
 
@@ -506,12 +530,23 @@ class TestEndpointDeLaWebapp:
         d.mkdir(parents=True)
         (d / "a_V.JPG").write_text("x")
         from core import runner
+        from webapp import main as M
+
         async def fake_start(self):
             self.proc = None
+
         monkeypatch.setattr(runner.PipelineRun, "start", fake_start)
-        r = c.post("/api/missions/m13/start", data={
-            "mode": "rgb", "has_multispectral": "false", "reuse_odm": "false",
-            "preset": "cartografico", "terreno": "escarpado"})
+        monkeypatch.setattr(M, "activate_mission", lambda d: None)
+        r = c.post(
+            "/api/missions/m13/start",
+            data={
+                "mode": "rgb",
+                "has_multispectral": "false",
+                "reuse_odm": "false",
+                "preset": "cartografico",
+                "terreno": "escarpado",
+            },
+        )
         assert r.status_code == 200, r.text
 
     def test_start_rechaza_un_terreno_inexistente(self, app):
@@ -519,7 +554,14 @@ class TestEndpointDeLaWebapp:
         d = runs / "m14" / "raw" / "rgb_thermal"
         d.mkdir(parents=True)
         (d / "a_V.JPG").write_text("x")
-        r = c.post("/api/missions/m14/start", data={
-            "mode": "rgb", "has_multispectral": "false", "reuse_odm": "false",
-            "preset": "cartografico", "terreno": "montañoso"})
+        r = c.post(
+            "/api/missions/m14/start",
+            data={
+                "mode": "rgb",
+                "has_multispectral": "false",
+                "reuse_odm": "false",
+                "preset": "cartografico",
+                "terreno": "montañoso",
+            },
+        )
         assert r.status_code == 400

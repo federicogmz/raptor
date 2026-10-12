@@ -6,12 +6,15 @@ alcanzó a producir vale tanto como el código de salida— y que las rutas que
 reporta sean las del HOST, no las internas del contenedor, que no le sirven a
 quien lee el resumen desde afuera.
 """
+
 import json
 import os
 import sys
 
 import numpy as np
 import pytest
+
+pytest.importorskip("osgeo")
 from osgeo import gdal, ogr, osr
 
 import run_summary
@@ -36,20 +39,21 @@ def salida(tmp_path, monkeypatch):
     alpha[100:500, 100:500] = 255
     rgb = np.concatenate([np.full((3, n, n), 120, np.uint8), alpha[np.newaxis, ...]])
     ds = gdal.GetDriverByName("GTiff").Create("outputs/rgb_orthomosaic.tif", n, n, 4, gdal.GDT_Byte)
-    ds.SetGeoTransform(GT); ds.SetProjection(_wkt(9377))
+    ds.SetGeoTransform(GT)
+    ds.SetProjection(_wkt(9377))
     ds.GetRasterBand(4).SetColorInterpretation(gdal.GCI_AlphaBand)
     for i in range(4):
         ds.GetRasterBand(i + 1).WriteArray(rgb[i])
     ds = None
 
-    wgs = osr.SpatialReference(); wgs.ImportFromEPSG(4326)
+    wgs = osr.SpatialReference()
+    wgs.ImportFromEPSG(4326)
     wgs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
     v = ogr.GetDriverByName("GeoJSON").CreateDataSource("outputs/flight_path.geojson")
     lyr = v.CreateLayer("a", wgs, ogr.wkbLineString)
     for _ in range(3):
         f = ogr.Feature(lyr.GetLayerDefn())
-        f.SetGeometry(ogr.CreateGeometryFromWkt(
-            "LINESTRING(-75.5 6.4,-75.4 6.4,-75.4 6.5)"))
+        f.SetGeometry(ogr.CreateGeometryFromWkt("LINESTRING(-75.5 6.4,-75.4 6.4,-75.4 6.5)"))
         lyr.CreateFeature(f)
     v = None
 

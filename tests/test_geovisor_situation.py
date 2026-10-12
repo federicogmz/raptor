@@ -17,6 +17,7 @@ runtime de JavaScript (mismo caso que test_form_export.py). Lo que SÍ se
 prueba de punta a punta con GDAL real es la forma real de situation.json
 (ver tests/test_situation_summary.py).
 """
+
 import os
 import re
 
@@ -39,7 +40,7 @@ def _cuerpo_de(js, nombre):
         elif js[i] == "}":
             prof -= 1
         i += 1
-    return js[m.end():i - 1]
+    return js[m.end() : i - 1]
 
 
 class TestResumenSiempreTermico:
@@ -56,8 +57,7 @@ class TestResumenSiempreTermico:
         assert "s.hotspots_activos" in cuerpo
         assert "s.temp_max" in cuerpo and "s.temp_promedio" in cuerpo
         for clave in ("severidad", "solo_termico", "sin_impacto_detectado", "area_ha"):
-            assert clave not in cuerpo, \
-                f"buildRecommendationText ya no debería referenciar '{clave}'"
+            assert clave not in cuerpo, f"buildRecommendationText ya no debería referenciar '{clave}'"
 
     def test_renderSummaryCards_no_ramifica_sobre_solo_termico(self):
         cuerpo = _cuerpo_de(_js(), "renderSummaryCards")
@@ -166,8 +166,7 @@ class TestExportNoAnunciaLoQueFalta:
 
     def test_buildReportCanvas_no_dice_sin_ms(self):
         cuerpo = _cuerpo_de(_js(), "buildReportCanvas")
-        assert "['Sin MS'" not in cuerpo, \
-            "la tarjeta que anunciaba 'Sin MS' en la imagen exportada sigue ahí"
+        assert "['Sin MS'" not in cuerpo, "la tarjeta que anunciaba 'Sin MS' en la imagen exportada sigue ahí"
         assert "s.temp_max" in cuerpo and "s.temp_promedio" in cuerpo
 
     def test_openReport_no_dice_sin_multiespectral(self):

@@ -19,6 +19,7 @@ Uso: python3 scripts/classify_vegetation_indices.py
 Lee: outputs/indices/{ndvi,gndvi,ndre,msavi2}.tif
 Escribe: outputs/indices/{ndvi,gndvi,ndre,msavi2}_class.tif
 """
+
 import os
 import sys
 
@@ -52,6 +53,7 @@ def main():
         vals = idx_ds.GetRasterBand(1).ReadAsArray()
         idx_ds = None
         import numpy as np
+
         idx_valid = np.isfinite(vals)
         idx_cls = classify(vals, breaks, idx_valid)
         for i, lbl in enumerate(labels, 1):

@@ -32,15 +32,16 @@ import time
 
 # ── Colores y formato ──────────────────────────────────────────────
 class Colors:
-    HEADER = '\033[95m'
-    BLUE = '\033[94m'
-    CYAN = '\033[96m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RED = '\033[91m'
-    BOLD = '\033[1m'
-    DIM = '\033[2m'
-    RESET = '\033[0m'
+    HEADER = "\033[95m"
+    BLUE = "\033[94m"
+    CYAN = "\033[96m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    RED = "\033[91m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    RESET = "\033[0m"
+
 
 # ── Canal estructurado opcional para consumidores externos ─────────
 # Las barras normales van a stderr con ANSI/\r (para terminal humana). La
@@ -67,6 +68,7 @@ def _emit_progress(event, **kwargs):
             f.write("\t".join(str(p) for p in parts) + "\n")
     except Exception:
         pass
+
 
 # ── Ancho de terminal ──────────────────────────────────────────────
 def term_width():
@@ -98,7 +100,7 @@ def format_bar(filled, total, width, label="", stage_info=""):
     else:
         lbl = ""
 
-    line = f"{header}{Colors.GREEN}{bar}{Colors.RESET} {pct*100:5.1f}%{lbl}"
+    line = f"{header}{Colors.GREEN}{bar}{Colors.RESET} {pct * 100:5.1f}%{lbl}"
     return line
 
 
@@ -123,9 +125,7 @@ def print_done(label="", stage_info=""):
 
 def print_stage_header(stage_name, stage_n, total_stages):
     """Imprime encabezado de etapa."""
-    header = (f"{Colors.BOLD}{Colors.YELLOW}"
-              f"[{stage_n}/{total_stages}] {stage_name}"
-              f"{Colors.RESET}")
+    header = f"{Colors.BOLD}{Colors.YELLOW}[{stage_n}/{total_stages}] {stage_name}{Colors.RESET}"
     sys.stderr.write(f"\n{header}\n")
     sys.stderr.flush()
     _emit_progress("stage", name=stage_name, n=stage_n, total=total_stages)
@@ -161,7 +161,7 @@ if __name__ == "__main__":
     elif cmd == "pipeline-header":
         mode = sys.argv[2] if len(sys.argv) > 2 else "rgb+thermal"
         w = term_width()
-        sys.stderr.write(f"\n{Colors.BOLD}{'═'*w}{Colors.RESET}\n")
+        sys.stderr.write(f"\n{Colors.BOLD}{'═' * w}{Colors.RESET}\n")
         sys.stderr.write(f"{Colors.BOLD}  RAPTOR — {mode.upper()}{Colors.RESET}\n")
-        sys.stderr.write(f"{Colors.BOLD}{'═'*w}{Colors.RESET}\n\n")
+        sys.stderr.write(f"{Colors.BOLD}{'═' * w}{Colors.RESET}\n\n")
         sys.stderr.flush()

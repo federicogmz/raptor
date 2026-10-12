@@ -43,6 +43,7 @@ debería volver a copiar + re-exiftoolear miles de imágenes que no cambiaron.
 Uso:
   python3 scripts/prepare_rgb_odm.py [data_rgb] [images_dir]
 """
+
 import os
 import sys
 import subprocess
@@ -72,7 +73,8 @@ def main():
     nombres = sorted(f for f in os.listdir(DATA_RGB) if f.upper().endswith(SUFIJOS))
     if not nombres:
         nombres = sorted(
-            f for f in os.listdir(DATA_RGB)
+            f
+            for f in os.listdir(DATA_RGB)
             if f.upper().endswith((".JPG", ".JPEG", ".PNG", ".TIF", ".TIFF"))
             and not f.upper().endswith(("_T.JPG", "_T.JPEG", "_D.JPG", "_D.JPEG"))
             and "_MS_" not in f.upper()
@@ -82,8 +84,11 @@ def main():
         sys.exit(1)
 
     nombres_set = set(nombres)
-    viejos = [f for f in os.listdir(IMAGES_DIR)
-              if f.upper().endswith((".JPG", ".JPEG", ".PNG", ".TIF", ".TIFF")) and f not in nombres_set]
+    viejos = [
+        f
+        for f in os.listdir(IMAGES_DIR)
+        if f.upper().endswith((".JPG", ".JPEG", ".PNG", ".TIF", ".TIFF")) and f not in nombres_set
+    ]
     if viejos:
         print(f"🧹 Limpiando {len(viejos)} de otra misión/corrida …")
         for f in viejos:
@@ -95,8 +100,10 @@ def main():
         print(f"✅ {ya} imágenes RGB ya estaban preparadas, nada que copiar")
         return
 
-    print(f"📋 Copiando {len(pendientes)} imágenes RGB nuevas con {NPROCS} en paralelo"
-          + (f" ({ya} ya existentes, reutilizadas) …" if ya else " …"))
+    print(
+        f"📋 Copiando {len(pendientes)} imágenes RGB nuevas con {NPROCS} en paralelo"
+        + (f" ({ya} ya existentes, reutilizadas) …" if ya else " …")
+    )
 
     def _copiar(f):
         subprocess.run(
@@ -109,24 +116,36 @@ def main():
 
     print(f"🏷️  Limpiando EXIF/XMP del dron en {len(pendientes)} imágenes nuevas …")
     dst_paths = [os.path.join(IMAGES_DIR, f) for f in pendientes]
-    lotes = [dst_paths[i:i + LOTE] for i in range(0, len(dst_paths), LOTE)]
+    lotes = [dst_paths[i : i + LOTE] for i in range(0, len(dst_paths), LOTE)]
 
     def _limpiar_lote(lote):
         # -tagsfromfile @ con -all= antes: no copia de OTRO archivo, es el
         # truco de exiftool para "quedarme solo con estos grupos de tags de
         # MÍ MISMO" (descarta MakerNotes y demás ruido propio del dron).
         subprocess.run(
-            ["exiftool", "-api", "Compact=Shorthand", "-all=",
-             "-tagsfromfile", "@", "-exif:all", "-xmp-drone-dji:all",
-             "-overwrite_original", "-q", "-@", "-"],
-            input="\n".join(lote), capture_output=True, text=True,
+            [
+                "exiftool",
+                "-api",
+                "Compact=Shorthand",
+                "-all=",
+                "-tagsfromfile",
+                "@",
+                "-exif:all",
+                "-xmp-drone-dji:all",
+                "-overwrite_original",
+                "-q",
+                "-@",
+                "-",
+            ],
+            input="\n".join(lote),
+            capture_output=True,
+            text=True,
         )
 
     with ThreadPoolExecutor(max_workers=NPROCS) as pool:
         list(pool.map(_limpiar_lote, lotes))
 
-    print(f"✅ {len(pendientes)} imágenes RGB preparadas"
-          + (f", {ya} reutilizadas" if ya else ""))
+    print(f"✅ {len(pendientes)} imágenes RGB preparadas" + (f", {ya} reutilizadas" if ya else ""))
 
 
 if __name__ == "__main__":

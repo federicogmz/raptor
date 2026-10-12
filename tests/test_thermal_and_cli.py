@@ -5,11 +5,14 @@ arreglo radiométrico (equivocarse produce un raster corrido, no un error), y
 la segunda es la puerta de entrada de CI, donde un argumento mal validado se
 traduce en un contenedor lanzado al pedo o en un cuelgue.
 """
+
 import os
 import subprocess
 
 import numpy as np
 import pytest
+
+pytest.importorskip("osgeo")
 from osgeo import gdal
 
 from convert_thermal_tiff import _jpeg_size, thermal_size
@@ -29,11 +32,14 @@ def _jpeg(path, w, h):
 
 
 class TestResolucionTermica:
-    @pytest.mark.parametrize("w,h", [
-        (640, 512),     # H20T / M3T / M30T
-        (1280, 1024),   # sensores más nuevos
-        (336, 256),     # sensores chicos
-    ])
+    @pytest.mark.parametrize(
+        "w,h",
+        [
+            (640, 512),  # H20T / M3T / M30T
+            (1280, 1024),  # sensores más nuevos
+            (336, 256),  # sensores chicos
+        ],
+    )
     def test_infiere_la_resolucion_de_la_foto(self, tmp_path, w, h):
         """En los R-JPEG de DJI el stream JPEG está a la resolución del sensor
         térmico, así que fijar 640x512 en el código obligaba a tocarlo por cada
@@ -61,11 +67,13 @@ class TestConvertOneToleraTimeout:
 
     def test_timeout_devuelve_false_en_vez_de_propagar(self, tmp_path, monkeypatch):
         import convert_thermal_tiff as C
+
         src = _jpeg(str(tmp_path / "t.jpg"), 640, 512)
         dst = str(tmp_path / "t.tif")
 
         def _timeout(*a, **k):
             raise subprocess.TimeoutExpired(cmd="dji_irp", timeout=30)
+
         monkeypatch.setattr(C.subprocess, "run", _timeout)
 
         assert C.convert_one(src, dst) is False
@@ -76,8 +84,7 @@ class TestCLI:
     un demonio Docker que no hay dentro del contenedor de tests."""
 
     def _run(self, *args):
-        return subprocess.run(["bash", RAPTOR, *args], capture_output=True,
-                              text=True, timeout=30)
+        return subprocess.run(["bash", RAPTOR, *args], capture_output=True, text=True, timeout=30)
 
     def test_sin_entradas_falla(self):
         r = self._run("run", "--export", "/tmp/x")

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Generar tiles XYZ para geovisor Leaflet: RGB, térmico y hillshade del DSM."""
+
 import os, sys, json, math, subprocess, shutil, tempfile, glob, time, numpy as np
 from osgeo import gdal, osr
 
 gdal.UseExceptions()
+
 
 def _first(*paths):
     """Primer archivo que exista. Se usa para que este script pueda correrse
@@ -19,28 +21,25 @@ def _first(*paths):
     return paths[0]
 
 
-RGB_IN      = _first("outputs/rgb_orthomosaic.tif",
-                     "processing/rgb_odm/odm_orthophoto/odm_orthophoto.tif")
+RGB_IN = _first("outputs/rgb_orthomosaic.tif", "processing/rgb_odm/odm_orthophoto/odm_orthophoto.tif")
 # Banda D del M3M (mosaico visible rápido, opt-in — ver DBAND en
 # docker/entrypoint.sh): mismo tratamiento que RGB_IN, ruta y proyecto ODM
 # propios para no pisarse con el RGB real del M3T/H20T si ambos existen.
-DBAND_IN    = _first("outputs/dband_orthomosaic.tif",
-                     "processing/dband_odm/odm_orthophoto/odm_orthophoto.tif")
-DSM_IN      = _first("outputs/dsm.tif",
-                     "processing/rgb_odm/odm_dem/dsm.tif",
-                     "processing/multispectral_odm/odm_dem/dsm.tif")
-MS_IN       = _first("outputs/multispectral_orthomosaic.tif",
-                     "processing/multispectral_odm/odm_orthophoto/odm_orthophoto.tif")
+DBAND_IN = _first("outputs/dband_orthomosaic.tif", "processing/dband_odm/odm_orthophoto/odm_orthophoto.tif")
+DSM_IN = _first("outputs/dsm.tif", "processing/rgb_odm/odm_dem/dsm.tif", "processing/multispectral_odm/odm_dem/dsm.tif")
+MS_IN = _first(
+    "outputs/multispectral_orthomosaic.tif", "processing/multispectral_odm/odm_orthophoto/odm_orthophoto.tif"
+)
 # El térmico NO tiene vista previa desde la ortofoto cruda de ODM a
 # propósito: su leyenda son grados reales y la calibración Kelvin→°C se
 # aplica recién en el recorte. Publicar la cruda mostraría una escala de
 # temperatura falsa — en una herramienta de respuesta a incendios eso es
 # peor que no mostrar nada todavía.
-THERMAL_IN  = "outputs/thermal_orthomosaic.tif"
+THERMAL_IN = "outputs/thermal_orthomosaic.tif"
 INDICES_DIR = "outputs/indices"
 INDEX_NAMES = ["ndvi", "gndvi", "ndre", "msavi2"]
-TILES_DIR   = "geovisor/tiles"
-ZOOM_MIN    = 14
+TILES_DIR = "geovisor/tiles"
+ZOOM_MIN = 14
 # El zoom MÁXIMO se deriva de la resolución real de cada ráster (ver
 # zoom_range): fijarlo desaprovecha el dato. Con un tope fijo de 20, que a 6°N
 # son ~15 cm/px, un ortomosaico de 8 cm/px se veía a la mitad de la resolución
@@ -60,6 +59,7 @@ ZOOM_MAX_HARD = 23
 # esta env y usa la máquina entera.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hardware import cpu_count
+
 NPROCS = cpu_count()
 if os.environ.get("RAPTOR_TILES_PROCESSES"):
     try:
@@ -208,8 +208,7 @@ def rango_cacheado(clave, src_ref, calcular):
     except OSError:
         return calcular()
     guardado = _RANGOS.get(clave)
-    if (guardado and abs(guardado.get("mtime", -1) - mtime) < 1e-6
-            and os.environ.get("FORCE_TILES") != "1"):
+    if guardado and abs(guardado.get("mtime", -1) - mtime) < 1e-6 and os.environ.get("FORCE_TILES") != "1":
         return tuple(guardado["rango"])
     lo, hi = calcular()
     _RANGOS[clave] = {"mtime": mtime, "rango": [lo, hi]}
@@ -222,8 +221,7 @@ def rango_cacheado(clave, src_ref, calcular):
 
 
 THERMAL_CLIP = rango_cacheado("thermal", THERMAL_IN, _thermal_clip_range)
-print(f"Rango de color térmico (percentil 0.5-99.9 del dato real): "
-      f"{THERMAL_CLIP[0]:.1f}-{THERMAL_CLIP[1]:.1f}°C")
+print(f"Rango de color térmico (percentil 0.5-99.9 del dato real): {THERMAL_CLIP[0]:.1f}-{THERMAL_CLIP[1]:.1f}°C")
 
 if shutil.which("gdal2tiles.py") is None:
     print("❌ gdal2tiles.py no encontrado en el PATH.")
@@ -252,14 +250,12 @@ def to_8bit(src, dst, bands=3, clip_range=None):
         # (mismo criterio que el np.stack de la versión original).
         leer = [b + 1 for b in range(nb)] if n >= nb else [1] * nb
         drv = gdal.GetDriverByName("GTiff")
-        out = drv.Create(dst, w, h, nb, gdal.GDT_Byte,
-                         ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_SAFER"])
+        out = drv.Create(dst, w, h, nb, gdal.GDT_Byte, ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_SAFER"])
         out.SetGeoTransform(ds.GetGeoTransform())
         out.SetProjection(ds.GetProjection())
         for y0 in range(0, h, FILAS_POR_BLOQUE):
             alto = min(FILAS_POR_BLOQUE, h - y0)
-            franja = [np.clip(ds.GetRasterBand(b).ReadAsArray(0, y0, w, alto), 0, 255).astype(np.uint8)
-                      for b in leer]
+            franja = [np.clip(ds.GetRasterBand(b).ReadAsArray(0, y0, w, alto), 0, 255).astype(np.uint8) for b in leer]
             for i, arr in enumerate(franja):
                 out.GetRasterBand(i + 1).WriteArray(arr, 0, y0)
         if has_alpha:
@@ -270,7 +266,7 @@ def to_8bit(src, dst, bands=3, clip_range=None):
         _banda_a_8bit(src, dst, 1, clip_range)
         return
     ds = None
-    print(f"  8-bit: {dst} ({os.path.getsize(dst)/(1024*1024):.0f} MB)")
+    print(f"  8-bit: {dst} ({os.path.getsize(dst) / (1024 * 1024):.0f} MB)")
 
 
 # Filas por bloque al convertir a 8 bits. El ortomosaico multiespectral de una
@@ -296,8 +292,7 @@ def _banda_a_8bit(src, dst, band_idx, clip_range):
     alpha = ds.GetRasterBand(ds.RasterCount) if ds.RasterCount >= 2 else None
 
     drv = gdal.GetDriverByName("GTiff")
-    out = drv.Create(dst, w, h, 1, gdal.GDT_Byte,
-                     ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_SAFER"])
+    out = drv.Create(dst, w, h, 1, gdal.GDT_Byte, ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_SAFER"])
     out.SetGeoTransform(ds.GetGeoTransform())
     out.SetProjection(ds.GetProjection())
     out_banda = out.GetRasterBand(1)
@@ -307,7 +302,7 @@ def _banda_a_8bit(src, dst, band_idx, clip_range):
         a = banda.ReadAsArray(0, y0, w, alto)
         invalido = ~np.isfinite(a)
         if alpha is not None:
-            invalido |= (alpha.ReadAsArray(0, y0, w, alto) <= 0)
+            invalido |= alpha.ReadAsArray(0, y0, w, alto) <= 0
         a = np.nan_to_num(a, nan=0.0)
         if clip_range:
             lo, hi = clip_range
@@ -322,7 +317,7 @@ def _banda_a_8bit(src, dst, band_idx, clip_range):
     out_banda = None
     out = None
     ds = None
-    print(f"  8-bit: {dst} ({os.path.getsize(dst)/(1024*1024):.0f} MB)")
+    print(f"  8-bit: {dst} ({os.path.getsize(dst) / (1024 * 1024):.0f} MB)")
 
 
 def band_to_8bit(src, dst, band_idx, clip_range):
@@ -361,7 +356,7 @@ def zoom_range(src):
     ds = None
     z = ZOOM_MIN
     while z < ZOOM_MAX_HARD:
-        res = 156543.03392 * math.cos(math.radians(lat)) / (2 ** z)
+        res = 156543.03392 * math.cos(math.radians(lat)) / (2**z)
         if res <= px_m:
             break
         z += 1
@@ -372,13 +367,25 @@ def generate(src_8bit, out_dir, resampling="average"):
     shutil.rmtree(out_dir, ignore_errors=True)
     os.makedirs(out_dir, exist_ok=True)
     zmax = zoom_range(src_8bit)
-    print(f"  zoom {ZOOM_MIN}-{zmax} (resolución del ráster: "
-          f"{abs(gdal.Open(src_8bit).GetGeoTransform()[1])*100:.1f} cm/px)")
-    subprocess.run([
-        "gdal2tiles.py", "--xyz", "--no-kml", "--resampling", resampling,
-        f"--processes={NPROCS}", "-z", f"{ZOOM_MIN}-{zmax}",
-        src_8bit, out_dir,
-    ], check=True)
+    print(
+        f"  zoom {ZOOM_MIN}-{zmax} (resolución del ráster: "
+        f"{abs(gdal.Open(src_8bit).GetGeoTransform()[1]) * 100:.1f} cm/px)"
+    )
+    subprocess.run(
+        [
+            "gdal2tiles.py",
+            "--xyz",
+            "--no-kml",
+            "--resampling",
+            resampling,
+            f"--processes={NPROCS}",
+            "-z",
+            f"{ZOOM_MIN}-{zmax}",
+            src_8bit,
+            out_dir,
+        ],
+        check=True,
+    )
     # gdal2tiles.py con --processes reparte el trabajo en subprocesos: un OOM
     # kill de UNO de ellos no siempre hace que el proceso padre salga con
     # código de error (`check=True` no lo detecta) — deja carpetas de zoom a
@@ -390,13 +397,13 @@ def generate(src_8bit, out_dir, resampling="average"):
     # no llama a mark_done() si esto revienta, así que la próxima pasada de
     # `make tiles` reintenta desde cero en vez de quedar con el hueco para
     # siempre.
-    faltantes = [z for z in range(ZOOM_MIN, zmax + 1)
-                 if not glob.glob(os.path.join(out_dir, str(z), "*", "*.png"))]
+    faltantes = [z for z in range(ZOOM_MIN, zmax + 1) if not glob.glob(os.path.join(out_dir, str(z), "*", "*.png"))]
     if faltantes:
         raise RuntimeError(
             f"{out_dir}: gdal2tiles.py terminó pero faltan tiles en zoom "
             f"{faltantes} (rango pedido {ZOOM_MIN}-{zmax}) — probable OOM kill "
-            f"de un subproceso de --processes={NPROCS}")
+            f"de un subproceso de --processes={NPROCS}"
+        )
     n = sum(1 for _ in os.walk(out_dir) for f in _[2] if f.endswith(".png"))
     print(f"  {n} tiles PNG")
 
@@ -458,26 +465,40 @@ def tile_layer(src_ref, out_dir, build=None, resampling="average"):
 def make_hillshade(src_dsm, dst_hs):
     """Genera un hillshade 8-bit desde el DSM usando gdaldem."""
     print("  Calculando hillshade...")
-    subprocess.run([
-        "gdaldem", "hillshade", src_dsm, dst_hs,
-        "-z", "2", "-az", "315", "-alt", "45",
-        "-compute_edges", "-co", "COMPRESS=LZW", "-co", "TILED=YES"
-    ], check=True)
+    subprocess.run(
+        [
+            "gdaldem",
+            "hillshade",
+            src_dsm,
+            dst_hs,
+            "-z",
+            "2",
+            "-az",
+            "315",
+            "-alt",
+            "45",
+            "-compute_edges",
+            "-co",
+            "COMPRESS=LZW",
+            "-co",
+            "TILED=YES",
+        ],
+        check=True,
+    )
     # Convertir a 8-bit para tiles
     ds = gdal.Open(dst_hs)
     arr = ds.GetRasterBand(1).ReadAsArray()
     arr = np.nan_to_num(arr, nan=0)
     arr = np.clip(arr, 0, 255).astype(np.uint8)
     drv = gdal.GetDriverByName("GTiff")
-    out = drv.Create(dst_hs, ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Byte,
-                     ["COMPRESS=LZW", "TILED=YES"])
+    out = drv.Create(dst_hs, ds.RasterXSize, ds.RasterYSize, 1, gdal.GDT_Byte, ["COMPRESS=LZW", "TILED=YES"])
     out.SetGeoTransform(ds.GetGeoTransform())
     out.SetProjection(ds.GetProjection())
     out.GetRasterBand(1).WriteArray(arr)
     out.GetRasterBand(1).SetNoDataValue(0)
     out = None
     ds = None
-    print(f"  Hillshade: {dst_hs} ({os.path.getsize(dst_hs)/(1024*1024):.0f} MB)")
+    print(f"  Hillshade: {dst_hs} ({os.path.getsize(dst_hs) / (1024 * 1024):.0f} MB)")
 
 
 # Capas cuyo LAYER_REGISTRY del geovisor las registra SIN condición propia
@@ -492,8 +513,7 @@ capas_disponibles = []
 # RGB
 print("=== RGB Tiles ===")
 if os.path.exists(RGB_IN):
-    tile_layer(RGB_IN, os.path.join(TILES_DIR, "rgb"),
-               lambda t: to_8bit(RGB_IN, t, bands=3))
+    tile_layer(RGB_IN, os.path.join(TILES_DIR, "rgb"), lambda t: to_8bit(RGB_IN, t, bands=3))
     capas_disponibles.append("rgb")
 else:
     print(f"  ⚠ {RGB_IN} no existe, omitiendo")
@@ -501,8 +521,7 @@ else:
 # Banda D (mosaico visible rápido del M3M, opt-in)
 print("\n=== Banda D Tiles ===")
 if os.path.exists(DBAND_IN):
-    tile_layer(DBAND_IN, os.path.join(TILES_DIR, "dband"),
-               lambda t: to_8bit(DBAND_IN, t, bands=3))
+    tile_layer(DBAND_IN, os.path.join(TILES_DIR, "dband"), lambda t: to_8bit(DBAND_IN, t, bands=3))
     capas_disponibles.append("dband")
 else:
     print(f"  ⚠ {DBAND_IN} no existe, omitiendo")
@@ -510,8 +529,11 @@ else:
 # Thermal
 print("\n=== Thermal Tiles ===")
 if os.path.exists(THERMAL_IN):
-    tile_layer(THERMAL_IN, os.path.join(TILES_DIR, "thermal"),
-               lambda t: to_8bit(THERMAL_IN, t, bands=1, clip_range=THERMAL_CLIP))
+    tile_layer(
+        THERMAL_IN,
+        os.path.join(TILES_DIR, "thermal"),
+        lambda t: to_8bit(THERMAL_IN, t, bands=1, clip_range=THERMAL_CLIP),
+    )
     capas_disponibles.append("thermal")
 else:
     print(f"  ⚠ {THERMAL_IN} no existe, omitiendo")
@@ -519,8 +541,7 @@ else:
 # Hillshade (DSM)
 print("\n=== Hillshade Tiles (DSM) ===")
 if os.path.exists(DSM_IN):
-    tile_layer(DSM_IN, os.path.join(TILES_DIR, "hillshade"),
-               lambda t: make_hillshade(DSM_IN, t))
+    tile_layer(DSM_IN, os.path.join(TILES_DIR, "hillshade"), lambda t: make_hillshade(DSM_IN, t))
     capas_disponibles.append("hillshade")
 else:
     print(f"  ⚠ {DSM_IN} no existe, omitiendo")
@@ -533,12 +554,10 @@ for name in INDEX_NAMES:
     if not os.path.exists(idx_in):
         print(f"  ⚠ {idx_in} no existe, omitiendo")
         continue
-    clip = rango_cacheado(f"index:{name}", idx_in,
-                          lambda p=idx_in: _index_clip_range(p))
+    clip = rango_cacheado(f"index:{name}", idx_in, lambda p=idx_in: _index_clip_range(p))
     index_ranges[name] = clip
     print(f"  {name.upper()} rango de color: {clip[0]:.2f}..{clip[1]:.2f}")
-    tile_layer(idx_in, os.path.join(TILES_DIR, name),
-               lambda t, p=idx_in, c=clip: to_8bit(p, t, bands=1, clip_range=c))
+    tile_layer(idx_in, os.path.join(TILES_DIR, name), lambda t, p=idx_in, c=clip: to_8bit(p, t, bands=1, clip_range=c))
     capas_disponibles.append(name)
 
 # Bandas espectrales individuales del multiespectral (Red/Green/NIR/RedEdge)
@@ -552,16 +571,14 @@ if os.path.exists(MS_IN):
     n_bands = ds.RasterCount
     has_alpha = n_bands >= 2 and ds.GetRasterBand(n_bands).GetColorInterpretation() == gdal.GCI_AlphaBand
     n_spectral = n_bands - 1 if has_alpha else n_bands
-    band_desc = {i + 1: (ds.GetRasterBand(i + 1).GetDescription() or f"band{i+1}") for i in range(n_spectral)}
+    band_desc = {i + 1: (ds.GetRasterBand(i + 1).GetDescription() or f"band{i + 1}") for i in range(n_spectral)}
     ds = None
     for band_idx, desc in band_desc.items():
         layer_id = MS_BAND_LAYER_IDS.get(desc, f"ms_band{band_idx}")
-        clip = rango_cacheado(f"ms:{layer_id}", MS_IN,
-                              lambda b=band_idx: _band_clip_range(MS_IN, b))
+        clip = rango_cacheado(f"ms:{layer_id}", MS_IN, lambda b=band_idx: _band_clip_range(MS_IN, b))
         ms_band_ranges[layer_id] = clip
         print(f"  {desc} ({layer_id}) rango: {clip[0]:.3f}..{clip[1]:.3f}")
-        tile_layer(MS_IN, os.path.join(TILES_DIR, layer_id),
-                   lambda t, b=band_idx, c=clip: band_to_8bit(MS_IN, t, b, c))
+        tile_layer(MS_IN, os.path.join(TILES_DIR, layer_id), lambda t, b=band_idx, c=clip: band_to_8bit(MS_IN, t, b, c))
         capas_disponibles.append(layer_id)
 else:
     print(f"  ⚠ {MS_IN} no existe, omitiendo")
@@ -572,11 +589,13 @@ else:
 # promediar valores vecinos inventaría una clase intermedia que no existe
 # (p.ej. 2.5 entre "elevado" y "caliente" no significa nada).
 print("\n=== Hotspot térmico / Índices clasificados (Tiles) ===")
-for name, path in [("hotspot_termico", "outputs/termico_hotspot_class.tif"),
-                    ("ndvi_class", "outputs/indices/ndvi_class.tif"),
-                    ("gndvi_class", "outputs/indices/gndvi_class.tif"),
-                    ("ndre_class", "outputs/indices/ndre_class.tif"),
-                    ("msavi2_class", "outputs/indices/msavi2_class.tif")]:
+for name, path in [
+    ("hotspot_termico", "outputs/termico_hotspot_class.tif"),
+    ("ndvi_class", "outputs/indices/ndvi_class.tif"),
+    ("gndvi_class", "outputs/indices/gndvi_class.tif"),
+    ("ndre_class", "outputs/indices/ndre_class.tif"),
+    ("msavi2_class", "outputs/indices/msavi2_class.tif"),
+]:
     if not os.path.exists(path):
         print(f"  ⚠ {path} no existe, omitiendo")
         continue
@@ -589,17 +608,18 @@ for name, path in [("hotspot_termico", "outputs/termico_hotspot_class.tif"),
 # La cadena de respaldo importa: una misión puede NO tener vuelo RGB/térmico
 # (solo multiespectral M3M) — sin bounds.json el geovisor no abre en ningún
 # lado, así que se toma el centro del primer producto que exista.
-src_for_center = next((p for p in (RGB_IN, THERMAL_IN, MS_IN, DBAND_IN, DSM_IN)
-                        if os.path.exists(p)), RGB_IN)
+src_for_center = next((p for p in (RGB_IN, THERMAL_IN, MS_IN, DBAND_IN, DSM_IN) if os.path.exists(p)), RGB_IN)
 if os.path.exists(src_for_center):
     ds = gdal.Open(src_for_center)
     gt = ds.GetGeoTransform()
     w, h = ds.RasterXSize, ds.RasterYSize
     cx = gt[0] + gt[1] * w / 2
     cy = gt[3] + gt[5] * h / 2
-    srs = osr.SpatialReference(); srs.ImportFromWkt(ds.GetProjection())
+    srs = osr.SpatialReference()
+    srs.ImportFromWkt(ds.GetProjection())
     srs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-    tgt = osr.SpatialReference(); tgt.ImportFromEPSG(4326)
+    tgt = osr.SpatialReference()
+    tgt.ImportFromEPSG(4326)
     tgt.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
     lon, lat, _ = osr.CoordinateTransformation(srs, tgt).TransformPoint(cx, cy)
     # Resolución REAL de cada producto, para que el geovisor la muestre medida
@@ -607,39 +627,49 @@ if os.path.exists(src_for_center):
     # una constante: las leyendas tenían números fijos que no correspondían a
     # ninguna misión concreta.
     resoluciones = {}
-    for clave, ruta in (("rgb", RGB_IN), ("thermal", THERMAL_IN),
-                        ("dsm", DSM_IN), ("multispectral", MS_IN),
-                        ("dband", DBAND_IN)):
+    for clave, ruta in (
+        ("rgb", RGB_IN),
+        ("thermal", THERMAL_IN),
+        ("dsm", DSM_IN),
+        ("multispectral", MS_IN),
+        ("dband", DBAND_IN),
+    ):
         if os.path.exists(ruta):
             d = gdal.Open(ruta)
             resoluciones[clave] = round(abs(d.GetGeoTransform()[1]) * 100, 1)
             d = None
     with open(os.path.join(TILES_DIR, "bounds.json"), "w") as f:
-        json.dump({"center": [lat, lon], "zoom": 17,
-                    "thermal_range": [THERMAL_CLIP[0], THERMAL_CLIP[1]],
-                    "resolucion_cm": resoluciones,
-                    # Qué capas se tesela DE VERDAD en esta misión — de acá lee
-                    # el geovisor para no ofrecer en el panel "Hotspot" o los
-                    # índices clasificados cuando no hay multiespectral (o
-                    # "Térmico" cuando no hubo vuelo H20T): antes esas
-                    # entradas del panel eran incondicionales y prometían una
-                    # capa sin tiles detrás.
-                    "capas_disponibles": capas_disponibles,
-                    "index_ranges": {k: [v[0], v[1]] for k, v in index_ranges.items()},
-                    "ms_band_ranges": {k: [v[0], v[1]] for k, v in ms_band_ranges.items()},
-                    # Token de caché para las URLs de tile del geovisor
-                    # (?v=<esto>, ver app.js): un "Corregir y reintentar" sobre
-                    # la MISMA misión regenera los tiles en el MISMO path, y
-                    # cualquier navegador que ya los haya pedido antes (aunque
-                    # el header Cache-Control ya no sea "immutable") puede
-                    # tener esa respuesta guardada de una corrida anterior —
-                    # cambiar la URL entera es la única forma de garantizar
-                    # que se vuelva a pedir, sin depender de que el caché
-                    # revalide bien. Cambia en CADA corrida de generate_tiles.py
-                    # (se llama varias veces por corrida, publish_partial
-                    # incluido), no solo al reintentar — así una misión en
-                    # curso también ve los tiles parciales más nuevos.
-                    "tiles_v": int(time.time())}, f)
+        json.dump(
+            {
+                "center": [lat, lon],
+                "zoom": 17,
+                "thermal_range": [THERMAL_CLIP[0], THERMAL_CLIP[1]],
+                "resolucion_cm": resoluciones,
+                # Qué capas se tesela DE VERDAD en esta misión — de acá lee
+                # el geovisor para no ofrecer en el panel "Hotspot" o los
+                # índices clasificados cuando no hay multiespectral (o
+                # "Térmico" cuando no hubo vuelo H20T): antes esas
+                # entradas del panel eran incondicionales y prometían una
+                # capa sin tiles detrás.
+                "capas_disponibles": capas_disponibles,
+                "index_ranges": {k: [v[0], v[1]] for k, v in index_ranges.items()},
+                "ms_band_ranges": {k: [v[0], v[1]] for k, v in ms_band_ranges.items()},
+                # Token de caché para las URLs de tile del geovisor
+                # (?v=<esto>, ver app.js): un "Corregir y reintentar" sobre
+                # la MISMA misión regenera los tiles en el MISMO path, y
+                # cualquier navegador que ya los haya pedido antes (aunque
+                # el header Cache-Control ya no sea "immutable") puede
+                # tener esa respuesta guardada de una corrida anterior —
+                # cambiar la URL entera es la única forma de garantizar
+                # que se vuelva a pedir, sin depender de que el caché
+                # revalide bien. Cambia en CADA corrida de generate_tiles.py
+                # (se llama varias veces por corrida, publish_partial
+                # incluido), no solo al reintentar — así una misión en
+                # curso también ve los tiles parciales más nuevos.
+                "tiles_v": int(time.time()),
+            },
+            f,
+        )
     print(f"  centro: [{lat:.5f}, {lon:.5f}] -> {TILES_DIR}/bounds.json")
     ds = None
 

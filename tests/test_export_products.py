@@ -8,11 +8,14 @@ archivo abre bien y está en cualquier parte del planeta menos donde
 corresponde: exactamente el fallo que nadie nota hasta que el producto ya se
 entregó.
 """
+
 import json
 import os
 
 import numpy as np
 import pytest
+
+pytest.importorskip("osgeo")
 from osgeo import gdal, ogr, osr
 
 import export_products
@@ -58,23 +61,25 @@ def mision(tmp_path, monkeypatch):
     # 1200 px: por encima del tamaño de bloque del COG, para que genere
     # overviews reales en vez de saltearlos por ráster chico.
     n = 1200
-    _raster("outputs/dsm.tif", rng.uniform(1900, 2100, (n, n)).astype(np.float32),
-            gdal.GDT_Float32, nodata=float("nan"))
-    _raster("outputs/termico_hotspot_class.tif",
-            rng.integers(0, 5, (n, n)).astype(np.uint8), gdal.GDT_Byte, nodata=0)
-    _raster("outputs/rgb_orthomosaic.tif",
-            np.concatenate([rng.integers(0, 255, (3, n, n), dtype=np.uint8),
-                            np.full((1, n, n), 255, np.uint8)]),
-            gdal.GDT_Byte, alpha=True)
+    _raster(
+        "outputs/dsm.tif", rng.uniform(1900, 2100, (n, n)).astype(np.float32), gdal.GDT_Float32, nodata=float("nan")
+    )
+    _raster("outputs/termico_hotspot_class.tif", rng.integers(0, 5, (n, n)).astype(np.uint8), gdal.GDT_Byte, nodata=0)
+    _raster(
+        "outputs/rgb_orthomosaic.tif",
+        np.concatenate([rng.integers(0, 255, (3, n, n), dtype=np.uint8), np.full((1, n, n), 255, np.uint8)]),
+        gdal.GDT_Byte,
+        alpha=True,
+    )
 
-    wgs = osr.SpatialReference(); wgs.ImportFromEPSG(4326)
+    wgs = osr.SpatialReference()
+    wgs.ImportFromEPSG(4326)
     wgs.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
     ds = ogr.GetDriverByName("GeoJSON").CreateDataSource("outputs/flight_path.geojson")
     lyr = ds.CreateLayer("flight_path", wgs, ogr.wkbLineString)
     lyr.CreateField(ogr.FieldDefn("velocidad_kmh", ogr.OFTReal))
     f = ogr.Feature(lyr.GetLayerDefn())
-    f.SetGeometry(ogr.CreateGeometryFromWkt(
-        "LINESTRING(-75.5 6.4,-75.499 6.4,-75.499 6.401)"))
+    f.SetGeometry(ogr.CreateGeometryFromWkt("LINESTRING(-75.5 6.4,-75.499 6.4,-75.499 6.401)"))
     f.SetField("velocidad_kmh", 12345.0)
     lyr.CreateFeature(f)
     ds = None
@@ -99,13 +104,13 @@ class TestGeorreferenciacion:
         temporal + Translate). Con gdal.Warp(format="COG") el geotransform
         salía en (0,0) con píxel 1.0, sin error de por medio."""
         _, destino = mision
-        assert _exportar(destino, monkeypatch, EXPORT_PRODUCTS="dsm",
-                         EXPORT_EPSG=str(MAGNA)) == 0
+        assert _exportar(destino, monkeypatch, EXPORT_PRODUCTS="dsm", EXPORT_EPSG=str(MAGNA)) == 0
         ds = gdal.Open(f"{destino}/dsm.tif")
         gt = ds.GetGeoTransform()
         ds = None
-        assert abs(gt[0] - ORIGEN_9377[0]) < 500 and abs(gt[3] - ORIGEN_9377[1]) < 500, \
+        assert abs(gt[0] - ORIGEN_9377[0]) < 500 and abs(gt[3] - ORIGEN_9377[1]) < 500, (
             f"el ráster quedó en ({gt[0]:.0f}, {gt[3]:.0f}), no en {ORIGEN_9377}"
+        )
         assert abs(abs(gt[1]) - 0.2) < 0.05, f"tamaño de píxel corrupto: {gt[1]}"
 
     def test_reproyecta_al_epsg_pedido(self, mision, monkeypatch):
@@ -149,13 +154,55 @@ class TestClases:
         assert vals >= {1, 2, 3, 4}, f"se perdieron clases: {sorted(vals)}"
 
 
+class TestTermico:
+    def test_reproyectar_no_altera_las_temperaturas(self, mision, monkeypatch):
+        """El térmico es una medición por píxel y los focos se definen por
+        temperatura absoluta. Con remuestreo cúbico la exportación a
+        EPSG:9377 aplanaba los picos y su sobreoscilación inventaba
+        temperaturas que ningún píxel midió (-11.5 °C en Envigado)."""
+        _, destino = mision
+        rng = np.random.default_rng(7)
+        n = 400
+        temp = rng.integers(20, 31, (n, n)).astype(np.float32)
+        temp[200:205, 200:205] = 121.4
+        _raster("outputs/thermal_orthomosaic.tif", temp, gdal.GDT_Float32, nodata=float("nan"))
+        _exportar(destino, monkeypatch, EXPORT_PRODUCTS="thermal", EXPORT_EPSG=str(MAGNA))
+        ds = gdal.Open(f"{destino}/thermal_orthomosaic.tif")
+        out = ds.GetRasterBand(1).ReadAsArray()
+        ds = None
+        vals = out[np.isfinite(out)]
+        assert np.isclose(vals.max(), 121.4), f"el pico quedó en {vals.max():.1f} °C"
+        assert vals.min() >= 20.0, f"apareció una temperatura inventada: {vals.min():.1f} °C"
+        medidas = np.unique(temp)
+        assert np.isin(np.unique(vals), medidas).all(), (
+            "la exportación produjo temperaturas que no estaban en el original"
+        )
+
+    @pytest.mark.parametrize(
+        "archivo,discreto,esperado",
+        [
+            ("outputs/thermal_orthomosaic.tif", False, "near"),
+            ("outputs/termico_hotspot_class.tif", True, "near"),
+            ("outputs/dsm.tif", False, "bilinear"),
+            ("outputs/indices/ndvi.tif", False, "bilinear"),
+            ("outputs/multispectral_orthomosaic.tif", False, "bilinear"),
+            ("outputs/rgb_orthomosaic.tif", False, "cubic"),
+        ],
+    )
+    def test_remuestreo_por_tipo_de_raster(self, archivo, discreto, esperado):
+        assert export_products._resample_alg(archivo, discreto) == esperado
+
+
 class TestFormatos:
-    @pytest.mark.parametrize("fmt,ext", [("geojson", ".geojson"), ("gpkg", ".gpkg"),
-                                         ("shp", ".shp"), ("kml", ".kml")])
+    @pytest.mark.parametrize("fmt,ext", [("geojson", ".geojson"), ("gpkg", ".gpkg"), ("shp", ".shp"), ("kml", ".kml")])
     def test_formatos_vectoriales(self, mision, monkeypatch, fmt, ext):
         _, destino = mision
-        assert _exportar(destino, monkeypatch, EXPORT_PRODUCTS="flight_path",
-                         EXPORT_VECTOR_FORMAT=fmt, EXPORT_EPSG=str(MAGNA)) == 0
+        assert (
+            _exportar(
+                destino, monkeypatch, EXPORT_PRODUCTS="flight_path", EXPORT_VECTOR_FORMAT=fmt, EXPORT_EPSG=str(MAGNA)
+            )
+            == 0
+        )
         salida = f"{destino}/flight_path{ext}"
         assert os.path.isfile(salida)
         ds = ogr.Open(salida)
@@ -168,8 +215,7 @@ class TestFormatos:
 
     def test_gtiff_tambien_sale_georreferenciado(self, mision, monkeypatch):
         _, destino = mision
-        _exportar(destino, monkeypatch, EXPORT_PRODUCTS="dsm",
-                  EXPORT_RASTER_FORMAT="gtiff", EXPORT_EPSG=str(MAGNA))
+        _exportar(destino, monkeypatch, EXPORT_PRODUCTS="dsm", EXPORT_RASTER_FORMAT="gtiff", EXPORT_EPSG=str(MAGNA))
         ds = gdal.Open(f"{destino}/dsm.tif")
         gt = ds.GetGeoTransform()
         ds = None
@@ -177,8 +223,9 @@ class TestFormatos:
 
     def test_los_atributos_sobreviven(self, mision, monkeypatch):
         _, destino = mision
-        _exportar(destino, monkeypatch, EXPORT_PRODUCTS="flight_path",
-                  EXPORT_VECTOR_FORMAT="gpkg", EXPORT_EPSG=str(MAGNA))
+        _exportar(
+            destino, monkeypatch, EXPORT_PRODUCTS="flight_path", EXPORT_VECTOR_FORMAT="gpkg", EXPORT_EPSG=str(MAGNA)
+        )
         ds = ogr.Open(f"{destino}/flight_path.gpkg")
         feat = ds.GetLayer().GetNextFeature()
         val = feat.GetField("velocidad_kmh")
@@ -200,15 +247,17 @@ class TestComportamiento:
 
     def test_epsg_invalido_falla_con_mensaje(self, mision, monkeypatch, capsys):
         _, destino = mision
-        assert _exportar(destino, monkeypatch, EXPORT_PRODUCTS="dsm",
-                         EXPORT_EPSG="999999") == 1
+        assert _exportar(destino, monkeypatch, EXPORT_PRODUCTS="dsm", EXPORT_EPSG="999999") == 1
         assert "inválido" in capsys.readouterr().out
 
-    @pytest.mark.parametrize("clave,valor", [
-        ("EXPORT_PRODUCTS", "rgb,inventado"),
-        ("EXPORT_RASTER_FORMAT", "jpeg2000"),
-        ("EXPORT_VECTOR_FORMAT", "dxf"),
-    ])
+    @pytest.mark.parametrize(
+        "clave,valor",
+        [
+            ("EXPORT_PRODUCTS", "rgb,inventado"),
+            ("EXPORT_RASTER_FORMAT", "jpeg2000"),
+            ("EXPORT_VECTOR_FORMAT", "dxf"),
+        ],
+    )
     def test_configuracion_invalida_falla(self, mision, monkeypatch, clave, valor):
         _, destino = mision
         assert _exportar(destino, monkeypatch, **{clave: valor}) == 1

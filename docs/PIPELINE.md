@@ -174,7 +174,7 @@ hardware" in the README for why each lever exists.
 
 - **`--fast-orthophoto` on RGB** (`tactico`): skips
   `DensifyPointCloud` (MVS), the dense reconstruction stage, which on a
-  ~1200-photo flight with a laptop GPU measured ~11h of the ~15h total for
+  ~1200-photo flight on an RTX 2080 measured ~11h of the ~15h total for
   that reconstruction. The DSM then comes from the SPARSE SfM cloud
   instead of the dense one (poorer, more gaps). `cartografico` and `forense` keep
   the full dense cloud because RGB is the source of the mission's DSM. D
