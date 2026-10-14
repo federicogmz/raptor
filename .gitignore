@@ -58,3 +58,13 @@ projects/
 *.tmp
 .DS_Store
 Thumbs.db
+
+# Motor fotogramétrico independiente (subproyecto con git propio)
+/argus/
+/argos/
+/lynx/
+/zenith/
+/axis/
+/kuntur/
+/engine/
+
