@@ -80,7 +80,8 @@ PRESET="${PRESET:-${QUALITY:-estandar}}"
 # fuerte, la reconstrucción planar puede descartar la mayoría de las fotos
 # en silencio — confirmado en vivo, ver el comentario de TERRENOS.
 TERRENO="${TERRENO:-plano}"
-export MODE VERBOSE
+EXTERNAL_DEM="${EXTERNAL_DEM:-}"
+export MODE VERBOSE EXTERNAL_DEM
 
 # ── Perfil de calidad ───────────────────────────────────────────────
 # La tabla completa (qué significa cada campo y por qué su valor) vive en
@@ -397,6 +398,9 @@ if [[ "$MODE" == "thermal-convert" ]]; then
 
   # Ejecutar conversión usando DJI Thermal SDK
   make sdk-convert
+
+  # Triage Térmico Nivel 0 (< 2 min): geolocalización inmediata de hotspots
+  ( make triage-thermal-level0 || true )
 
   # Copiar TIFFs convertidos a outputs/thermal_converted
   cp -a preprocessing/thermal_dji_sdk/*.tif outputs/thermal_converted/ 2>/dev/null || true
@@ -765,7 +769,7 @@ _odm_proyecto() {
 _odm_prep() {
   case "$1" in
     rgb)           make prepare-rgb ;;
-    thermal)       make sdk-convert && make denoise-thermal && make prepare-thermal-native ;;
+    thermal)       make sdk-convert && ( make triage-thermal-level0 || true ) && make denoise-thermal && make prepare-thermal-native ;;
     multispectral) MAX_CONCURRENCY=$PREP_SPLIT make prepare-multispectral ;;
     dband)         MAX_CONCURRENCY=$PREP_SPLIT make prepare-dband ;;
   esac
