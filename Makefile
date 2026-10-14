@@ -14,7 +14,7 @@
 # ═══════════════════════════════════════════════════════════════════
 
 .PHONY: prepare-rgb prepare-multispectral prepare-thermal-native \
-        sdk-convert denoise-thermal clean-dsm \
+        sdk-convert triage-thermal-level0 denoise-thermal clean-dsm \
         trim-edges trim-edges-rgb trim-edges-dsm trim-edges-thermal trim-edges-multispectral \
         compute-indices confidence-mask classify-vegetation-indices \
         compute-thermal-hotspot \
@@ -120,6 +120,14 @@ sdk-convert:
 	@mkdir -p $(TIFF_DIR)
 	$(call run_quiet,python3 scripts/convert_thermal_tiff.py $(DATA_THERMAL) $(TIFF_DIR),sdk-convert)
 	@python3 scripts/progress.py done "Conversión radiométrica completada"
+
+EXTERNAL_DEM ?= $(or $(RAPTOR_EXTERNAL_DEM),)
+
+triage-thermal-level0:
+	@python3 scripts/progress.py stage-header "Triage Térmico Nivel 0 (< 2 min)" 1 1
+	@mkdir -p $(OUTPUTS)
+	$(call run_quiet,timeout --kill-after=5s 120s python3 scripts/thermal_triage_level0.py --input-dir $(TIFF_DIR) --output-geojson $(OUTPUTS)/triage_thermal_level0.geojson --output-json $(OUTPUTS)/situation_level0.json $(if $(strip $(EXTERNAL_DEM)),--external-dem $(EXTERNAL_DEM),),triage-thermal-level0)
+	@python3 scripts/progress.py done "Triage Térmico Nivel 0 completado"
 
 denoise-thermal:
 	@python3 scripts/progress.py stage-header "Filtro bilateral (denoise)" 1 1
