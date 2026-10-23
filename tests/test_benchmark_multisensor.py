@@ -4,11 +4,13 @@ Verifica ResourceMonitor, métricas colorimétricas y radiométricas, y evaluaci
 """
 
 from pathlib import Path
+import shutil
 import subprocess
 import time
 
 import numpy as np
 from PIL import Image
+import pytest
 
 from scripts.benchmark_multisensor_validation import (
     ResourceMonitor,
@@ -71,6 +73,7 @@ class TestColorAndMetrics:
         assert np.max(grad_step[:, 9:12]) > 100.0
 
 
+@pytest.mark.skipif(shutil.which("gdal_translate") is None, reason="Requiere herramientas CLI de GDAL")
 class TestEvaluationPipelines:
     def _create_mock_geotiff(self, path: Path, arr: np.ndarray, is_thermal: bool = False):
         img = Image.fromarray(arr)

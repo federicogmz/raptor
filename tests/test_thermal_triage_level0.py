@@ -167,7 +167,9 @@ def test_intersect_ray_dem_synthetic():
         assert impact[1] == pytest.approx(c_xyz[1], abs=0.1)
 
         # Ahora probamos con ondulación geoidal de -24.0 m
-        reader_geoid = DEMReaderInMemory(dem_path, srs.ExportToWkt(), bbox_utm=bbox, buffer_m=50.0, geoid_undulation_m=-24.0)
+        reader_geoid = DEMReaderInMemory(
+            dem_path, srs.ExportToWkt(), bbox_utm=bbox, buffer_m=50.0, geoid_undulation_m=-24.0
+        )
         impact_g, method_g, s_g = intersect_ray_dem(c_xyz, ray_dir, reader_geoid)
         assert method_g == "external_dem"
         # La elevación ajustada debe ser 105.0 m

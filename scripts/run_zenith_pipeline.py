@@ -12,8 +12,17 @@ from core.zenith_runner import run_zenith_25d
 
 def main():
     parser = argparse.ArgumentParser(description="RAPTOR 2.5D Zenith Photogrammetry Pipeline")
-    parser.add_argument("--input", "-i", "--source-dir", required=True, dest="input", help="Directorio con imágenes del vuelo (RGB y/o Térmicas)")
-    parser.add_argument("--output", "-o", "--output-dir", default="outputs", dest="output", help="Directorio de salida para productos")
+    parser.add_argument(
+        "--input",
+        "-i",
+        "--source-dir",
+        required=True,
+        dest="input",
+        help="Directorio con imágenes del vuelo (RGB y/o Térmicas)",
+    )
+    parser.add_argument(
+        "--output", "-o", "--output-dir", default="outputs", dest="output", help="Directorio de salida para productos"
+    )
     parser.add_argument("--progress-file", help="Ruta al archivo progress.ndjson")
     parser.add_argument("--dem-source", default="auto", choices=["auto", "copernicus", "flat"], help="Fuente de DEM")
     parser.add_argument("--dem", help="Ruta a DEM local explícito")
@@ -29,14 +38,36 @@ def main():
     # Si vienen variables de entorno del contenedor
     source_dir = Path(os.environ.get("SOURCE_DIR", args.input))
     output_dir = Path(os.environ.get("OUTPUT_DIR", args.output))
-    progress_file = Path(os.environ["PROGRESS_FILE"]) if "PROGRESS_FILE" in os.environ else (Path(args.progress_file) if args.progress_file else None)
-    external_dem = Path(os.environ["EXTERNAL_DEM"]) if os.environ.get("EXTERNAL_DEM") else (Path(args.dem) if args.dem else None)
+    progress_file = (
+        Path(os.environ["PROGRESS_FILE"])
+        if "PROGRESS_FILE" in os.environ
+        else (Path(args.progress_file) if args.progress_file else None)
+    )
+    external_dem = (
+        Path(os.environ["EXTERNAL_DEM"]) if os.environ.get("EXTERNAL_DEM") else (Path(args.dem) if args.dem else None)
+    )
     flat_elevation = float(os.environ["FLAT_ELEVATION"]) if os.environ.get("FLAT_ELEVATION") else args.flat_elevation
 
-    emissivity = float(os.environ["THERMAL_EMISSIVITY"]) if "THERMAL_EMISSIVITY" in os.environ and os.environ["THERMAL_EMISSIVITY"].strip() else args.emissivity
-    humidity = float(os.environ["THERMAL_HUMIDITY"]) if "THERMAL_HUMIDITY" in os.environ and os.environ["THERMAL_HUMIDITY"].strip() else args.humidity
-    distance = float(os.environ["THERMAL_DISTANCE"]) if "THERMAL_DISTANCE" in os.environ and os.environ["THERMAL_DISTANCE"].strip() else args.distance
-    reflection = float(os.environ["THERMAL_REFLECTION"]) if "THERMAL_REFLECTION" in os.environ and os.environ["THERMAL_REFLECTION"].strip() else args.reflection
+    emissivity = (
+        float(os.environ["THERMAL_EMISSIVITY"])
+        if "THERMAL_EMISSIVITY" in os.environ and os.environ["THERMAL_EMISSIVITY"].strip()
+        else args.emissivity
+    )
+    humidity = (
+        float(os.environ["THERMAL_HUMIDITY"])
+        if "THERMAL_HUMIDITY" in os.environ and os.environ["THERMAL_HUMIDITY"].strip()
+        else args.humidity
+    )
+    distance = (
+        float(os.environ["THERMAL_DISTANCE"])
+        if "THERMAL_DISTANCE" in os.environ and os.environ["THERMAL_DISTANCE"].strip()
+        else args.distance
+    )
+    reflection = (
+        float(os.environ["THERMAL_REFLECTION"])
+        if "THERMAL_REFLECTION" in os.environ and os.environ["THERMAL_REFLECTION"].strip()
+        else args.reflection
+    )
     crs = os.environ.get("EXPORT_EPSG", args.crs)
     if crs and crs.lower() == "source":
         crs = None

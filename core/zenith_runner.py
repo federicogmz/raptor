@@ -536,45 +536,59 @@ def run_zenith_25d(
         thermal_manifest = output_dir / "manifest_thermal_zenith.json"
         feather_args = []
         try:
-            help_check = subprocess.run([zenith_bin, "ortho-thermal", "--help"], capture_output=True, text=True, timeout=5)
+            help_check = subprocess.run(
+                [zenith_bin, "ortho-thermal", "--help"], capture_output=True, text=True, timeout=5
+            )
             if "--feather-px" in help_check.stdout:
                 feather_args = ["--feather-px", "10.0", "--max-blend-temp-diff", "3.5"]
         except Exception as exc:
             print(f"  ⚠ Aviso: {exc}")
 
-        cmd_thermal = [
-            zenith_bin,
-            "ortho-thermal",
-            "--images",
-            str(source_dir),
-            "--raw-dir",
-            str(raw_dir),
-            "--output",
-            str(thermal_raw_out),
-            "--manifest",
-            str(thermal_manifest),
-        ] + feather_args + dem_args
+        cmd_thermal = (
+            [
+                zenith_bin,
+                "ortho-thermal",
+                "--images",
+                str(source_dir),
+                "--raw-dir",
+                str(raw_dir),
+                "--output",
+                str(thermal_raw_out),
+                "--manifest",
+                str(thermal_manifest),
+            ]
+            + feather_args
+            + dem_args
+        )
 
         print(f"  Invocando: {' '.join(cmd_thermal)}")
         try:
-            ret = _run_zenith_streaming(cmd_thermal, zenith_log, progress_file, ZENITH_THERMAL_STAGE, timeout=zenith_timeout)
+            ret = _run_zenith_streaming(
+                cmd_thermal, zenith_log, progress_file, ZENITH_THERMAL_STAGE, timeout=zenith_timeout
+            )
             if ret != 0 and used_local_va:
                 print("  ⚠ Falló la ejecución con DEM regional local. Reintentando con DEM Copernicus GLO-30 auto...")
-                cmd_thermal_fb = [
-                    zenith_bin,
-                    "ortho-thermal",
-                    "--images",
-                    str(source_dir),
-                    "--raw-dir",
-                    str(raw_dir),
-                    "--output",
-                    str(thermal_raw_out),
-                    "--manifest",
-                    str(thermal_manifest),
-                ] + feather_args + ["--dem-source", "auto"]
+                cmd_thermal_fb = (
+                    [
+                        zenith_bin,
+                        "ortho-thermal",
+                        "--images",
+                        str(source_dir),
+                        "--raw-dir",
+                        str(raw_dir),
+                        "--output",
+                        str(thermal_raw_out),
+                        "--manifest",
+                        str(thermal_manifest),
+                    ]
+                    + feather_args
+                    + ["--dem-source", "auto"]
+                )
                 if crs:
                     cmd_thermal_fb.extend(["--crs", str(crs)])
-                ret = _run_zenith_streaming(cmd_thermal_fb, zenith_log, progress_file, ZENITH_THERMAL_STAGE, timeout=zenith_timeout)
+                ret = _run_zenith_streaming(
+                    cmd_thermal_fb, zenith_log, progress_file, ZENITH_THERMAL_STAGE, timeout=zenith_timeout
+                )
 
             if ret == 0:
                 thermal_tif = output_dir / "thermal_orthomosaic.tif"
@@ -641,7 +655,9 @@ def run_zenith_25d(
 
         rgb_blend_args = []
         try:
-            help_check_rgb = subprocess.run([zenith_bin, "ortho-rgb", "--help"], capture_output=True, text=True, timeout=5)
+            help_check_rgb = subprocess.run(
+                [zenith_bin, "ortho-rgb", "--help"], capture_output=True, text=True, timeout=5
+            )
             if "--blend-mode" in help_check_rgb.stdout:
                 blend_mode = os.environ.get("ZENITH_BLEND_MODE", "micro-feather")
                 feather_px = os.environ.get("ZENITH_FEATHER_PX", "25.0")
@@ -649,35 +665,47 @@ def run_zenith_25d(
         except Exception as exc:
             print(f"  ⚠ Aviso: {exc}")
 
-        cmd_rgb = [
-            zenith_bin,
-            "ortho-rgb",
-            "--images",
-            str(rgb_input_dir),
-            "--output",
-            str(rgb_raw_out),
-            "--manifest",
-            str(rgb_manifest),
-        ] + rgb_blend_args + dem_args
+        cmd_rgb = (
+            [
+                zenith_bin,
+                "ortho-rgb",
+                "--images",
+                str(rgb_input_dir),
+                "--output",
+                str(rgb_raw_out),
+                "--manifest",
+                str(rgb_manifest),
+            ]
+            + rgb_blend_args
+            + dem_args
+        )
 
         print(f"  Invocando: {' '.join(cmd_rgb)}")
         try:
             ret = _run_zenith_streaming(cmd_rgb, zenith_log, progress_file, ZENITH_RGB_STAGE, timeout=zenith_timeout)
             if ret != 0 and used_local_va:
-                print("  ⚠ Falló la ejecución RGB con DEM regional local. Reintentando con DEM Copernicus GLO-30 auto...")
-                cmd_rgb_fb = [
-                    zenith_bin,
-                    "ortho-rgb",
-                    "--images",
-                    str(rgb_input_dir),
-                    "--output",
-                    str(rgb_raw_out),
-                    "--manifest",
-                    str(rgb_manifest),
-                ] + rgb_blend_args + ["--dem-source", "auto"]
+                print(
+                    "  ⚠ Falló la ejecución RGB con DEM regional local. Reintentando con DEM Copernicus GLO-30 auto..."
+                )
+                cmd_rgb_fb = (
+                    [
+                        zenith_bin,
+                        "ortho-rgb",
+                        "--images",
+                        str(rgb_input_dir),
+                        "--output",
+                        str(rgb_raw_out),
+                        "--manifest",
+                        str(rgb_manifest),
+                    ]
+                    + rgb_blend_args
+                    + ["--dem-source", "auto"]
+                )
                 if crs:
                     cmd_rgb_fb.extend(["--crs", str(crs)])
-                ret = _run_zenith_streaming(cmd_rgb_fb, zenith_log, progress_file, ZENITH_RGB_STAGE, timeout=zenith_timeout)
+                ret = _run_zenith_streaming(
+                    cmd_rgb_fb, zenith_log, progress_file, ZENITH_RGB_STAGE, timeout=zenith_timeout
+                )
 
             if ret == 0:
                 rgb_tif = output_dir / "rgb_orthomosaic.tif"
@@ -713,10 +741,14 @@ def run_zenith_25d(
                 and os.path.realpath(rgb_filtered_dir).startswith(str(prep_dir.resolve()))
             ):
                 try:
-                    freed_bytes = sum(f.stat().st_size for f in rgb_filtered_dir.glob("*") if f.is_file() and not f.is_symlink())
+                    freed_bytes = sum(
+                        f.stat().st_size for f in rgb_filtered_dir.glob("*") if f.is_file() and not f.is_symlink()
+                    )
                     shutil.rmtree(rgb_filtered_dir, ignore_errors=True)
                     with open(zenith_log, "a", encoding="utf-8") as lf:
-                        lf.write(f"  ✓ Limpieza segura de imágenes RGB intermedias (prep_dir/rgb_images, {freed_bytes / (1024*1024):.1f} MB liberados)\n")
+                        lf.write(
+                            f"  ✓ Limpieza segura de imágenes RGB intermedias (prep_dir/rgb_images, {freed_bytes / (1024 * 1024):.1f} MB liberados)\n"
+                        )
                 except Exception as exc:
                     print(f"  ⚠ Aviso al limpiar rgb_images: {exc}")
         elif keep_prep_rgb:

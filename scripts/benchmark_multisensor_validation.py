@@ -454,7 +454,9 @@ def _load_rgb_raster(tif_path: Path, work_dir: Path, tag: str) -> np.ndarray:
         raw_p = work_dir / f"{tag}_rgb.bin"
         b_args = ["-b", "1", "-b", "2", "-b", "3"] if bands >= 3 else ["-b", "1"]
         subprocess.run(
-            ["gdal_translate", "-of", "ENVI", "-ot", "Byte", "-co", "INTERLEAVE=BIP"] + b_args + [str(tif_path), str(raw_p)],
+            ["gdal_translate", "-of", "ENVI", "-ot", "Byte", "-co", "INTERLEAVE=BIP"]
+            + b_args
+            + [str(tif_path), str(raw_p)],
             capture_output=True,
             check=True,
         )
@@ -620,7 +622,9 @@ def evaluate_orthomosaic_pair(
     vor_diff_h = (voronoi_id[:, :-4] != voronoi_id[:, 4:]) & common_mask[:, :-4] & common_mask[:, 4:]
     vor_same_h = (voronoi_id[:, :-4] == voronoi_id[:, 4:]) & common_mask[:, :-4] & common_mask[:, 4:]
     seam_cross_de = float(np.mean(cross_step_h[vor_diff_h])) if np.count_nonzero(vor_diff_h) > 10 else seam_delta_e
-    int_cross_de = float(np.mean(cross_step_h[vor_same_h])) if np.count_nonzero(vor_same_h) > 10 else max(1.0, seam_cross_de)
+    int_cross_de = (
+        float(np.mean(cross_step_h[vor_same_h])) if np.count_nonzero(vor_same_h) > 10 else max(1.0, seam_cross_de)
+    )
     seam_cross_de_ratio = seam_cross_de / max(1e-3, int_cross_de)
 
     # 6. Nitidez Espacial (Tenengrad y Varianza del Laplaciano en región interior común)
@@ -875,21 +879,18 @@ def run_synthetic_gain_test(
     print("  Ejecutando mosaico de control (sin perturbar)...")
     local_dem = Path("/home/fdgmz/raptor/DEM_VA/dem_VA.tif")
     dem_args = ["--dem", str(local_dem)] if local_dem.exists() else ["--dem-source", "auto"]
-    cmd_ctrl = (
-        [
-            zenith_bin,
-            "ortho-rgb",
-            "--images",
-            str(clean_dir),
-            "--output",
-            str(control_out / "ortho.raw"),
-            "--manifest",
-            str(control_out / "manifest.json"),
-            "--blend-mode",
-            "micro-feather",
-        ]
-        + dem_args
-    )
+    cmd_ctrl = [
+        zenith_bin,
+        "ortho-rgb",
+        "--images",
+        str(clean_dir),
+        "--output",
+        str(control_out / "ortho.raw"),
+        "--manifest",
+        str(control_out / "manifest.json"),
+        "--blend-mode",
+        "micro-feather",
+    ] + dem_args
     subprocess.run(cmd_ctrl, check=True)
     ctrl_tif = control_out / "ortho.tif"
 
