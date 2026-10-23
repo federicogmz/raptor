@@ -10,6 +10,8 @@ import os
 import tempfile
 import numpy as np
 import pytest
+
+pytest.importorskip("osgeo")
 from osgeo import gdal, osr
 
 from scripts.thermal_triage_level0 import (

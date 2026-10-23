@@ -127,8 +127,32 @@ resumen_al_salir() {
 }
 trap resumen_al_salir EXIT
 
-if [[ "$MODE" != "rgb" && "$MODE" != "rgb+thermal" && "$MODE" != "thermal" && "$MODE" != "thermal-convert" && "$MODE" != "none" ]]; then
-  echo "❌ ERROR: MODE debe ser 'rgb', 'rgb+thermal', 'thermal', 'thermal-convert' o 'none' (recibido: $MODE)"; exit 1
+if [[ "$MODE" == "2.5d" || "$MODE" == "zenith" ]]; then
+  MODE="2.5d"
+elif [[ "$MODE" == "3d" ]]; then
+  # Modo 3D ODM: autodetección de sensores
+  RUN_RGB=0
+  RUN_THERMAL=0
+  if compgen -G "${SOURCE_DIR}/*_T.JPG" >/dev/null 2>&1 || compgen -G "${SOURCE_DIR}/*_T.jpg" >/dev/null 2>&1; then
+    RUN_THERMAL=1
+  fi
+  for f in "${SOURCE_DIR}"/*.jpg "${SOURCE_DIR}"/*.JPG; do
+    if [[ -f "$f" && "$f" != *"_T.jpg"* && "$f" != *"_T.JPG"* ]]; then
+      RUN_RGB=1
+      break
+    fi
+  done
+  if [[ "$RUN_RGB" -eq 1 && "$RUN_THERMAL" -eq 1 ]]; then
+    MODE="rgb+thermal"
+  elif [[ "$RUN_RGB" -eq 1 ]]; then
+    MODE="rgb"
+  elif [[ "$RUN_THERMAL" -eq 1 ]]; then
+    MODE="thermal"
+  else
+    MODE="none"
+  fi
+elif [[ "$MODE" != "rgb" && "$MODE" != "rgb+thermal" && "$MODE" != "thermal" && "$MODE" != "thermal-convert" && "$MODE" != "none" ]]; then
+  echo "❌ ERROR: MODE debe ser '2.5d' o '3d' (recibido: $MODE)"; exit 1
 fi
 
 RUN_MULTISPECTRAL=0
@@ -229,6 +253,16 @@ print('⏱️  ' + m['tiempo_texto'])
     ;;
 esac
 
+if [[ "$MODE" == "2.5d" ]]; then
+  source scripts/progress.sh
+  echo "═══════════════════════════════════════════════════"
+  echo "  Pipeline Mosaico — MODO 2.5D (ZENITH DIRECT ORTHO)"
+  echo "  Fuente: ${SOURCE_DIR}"
+  echo "═══════════════════════════════════════════════════"
+  python3 scripts/run_zenith_pipeline.py --input "$SOURCE_DIR" --output outputs
+  exit $?
+fi
+
 # ── Chequeo del runtime de CUDA, ANTES de tocar nada ────────────────
 # El binario de reconstrucción densa de la imagen base está enlazado contra
 # libcuda.so.1. Si el `docker run` externo no pasó `--gpus all` (o el runtime
@@ -272,6 +306,8 @@ if [[ ( "$RUN_RGB" -eq 1 || "$RUN_THERMAL" -eq 1 ) && ! -d "$SOURCE_DIR" ]]; the
 fi
 
 source scripts/progress.sh
+
+
 
 echo "═══════════════════════════════════════════════════"
 echo "  Pipeline Mosaico — MODE=${MODE}"
@@ -719,29 +755,61 @@ stage_begin() {
 
 [[ "$DO_TRIM" -eq 1 ]] && stage_begin "Preparación + reconstrucción + recorte, por sensor"
 
+_detect_rgb_mp() {
+  if [[ -n "${RGB_SENSOR_MP:-}" ]]; then
+    echo "$RGB_SENSOR_MP"
+    return
+  fi
+  if [[ -d "${SOURCE_DIR:-}" ]]; then
+    local primera_foto
+    primera_foto="$(find "${SOURCE_DIR}" -maxdepth 2 -type f \( -iname "*.jpg" -o -iname "*.jpeg" \) ! -iname "*_T.*" ! -iname "*_T_*" 2>/dev/null | head -n 1)"
+    if [[ -n "$primera_foto" && -f "$primera_foto" ]]; then
+      local mp
+      mp="$(python3 -c '
+import sys
+try:
+    from PIL import Image
+    with Image.open(sys.argv[1]) as img:
+        w, h = img.size
+        print(f"{(w * h) / 1e6:.1f}")
+except Exception:
+    print("12.3")
+' "$primera_foto" 2>/dev/null || echo "12.3")"
+      if [[ -n "$mp" ]]; then
+        echo "$mp"
+        return
+      fi
+    fi
+  fi
+  echo "12.3"
+}
+
 # Megapíxeles del sensor de cada proyecto — lo que decide su footprint de
 # memoria por hilo en la fase pesada (MVS / band alignment), y por lo tanto
 # cuántos proyectos entran a la vez en odm_slots() (scripts/hardware.py).
 _odm_mp() {
   case "$1" in
     rgb)
-      # 12.3 (4056x3040, H20T/M3T wide) es el costo de DensifyPointCloud:
-      # mapas de profundidad a resolución nativa, simultáneos por hilo — es
-      # la etapa que de verdad justifica reservar la máquina entera para RGB
-      # solo (ver el comentario de odm_slots()). Con FAST_ORTHOPHOTO_RGB=1
-      # (vistazo/rápido) esa etapa NUNCA corre — confirmado en run_odm(): sin
-      # --fast-orthophoto en los args no hay fase "pesada" separada, todo
-      # corre con la concurrencia liviana en una sola invocación. Sin este
-      # caso, odm_slots() seguía negando el solapamiento con otro sensor
-      # (p.ej. térmico) basado en un costo que esta corrida no paga —
-      # confirmado en vivo: 10% CPU y >15 GB libres durante la reconstrucción
-      # de RGB en modo escarpado, con térmico ya terminado y ocioso.
-      # La mitad del perfil nativo es una estimación razonada (lo más caro
-      # que queda sin MVS es texturizar sobre las imágenes "undistorted", que
-      # SÍ están cerca de la resolución nativa — no tan liviano como
-      # LIGHT_MP), no una medición — PENDIENTE de calibrar con una corrida
-      # real que solape RGB con otro sensor bajo este modo.
-      if [[ "$FAST_ORTHOPHOTO_RGB" == "1" ]]; then echo 6.15; else echo 12.3; fi ;;
+      local sensor_mp
+      sensor_mp="$(_detect_rgb_mp)"
+      local is_high_mp=0
+      is_high_mp="$(python3 -c '
+import sys
+try:
+    val = float(sys.argv[1])
+    print("1" if val >= 30.0 else "0")
+except Exception:
+    print("0")
+' "$sensor_mp" 2>/dev/null || echo 0)"
+
+      if [[ "$is_high_mp" == "1" ]]; then
+        # Sensor de alta resolución (ej. Zenmuse P1 45 MP, 8192x5460)
+        # En MVS cada hilo requiere ~3.5x más RAM que en sensores de 12 MP
+        if [[ "$FAST_ORTHOPHOTO_RGB" == "1" ]]; then echo 22.0; else echo 45.0; fi
+      else
+        if [[ "$FAST_ORTHOPHOTO_RGB" == "1" ]]; then echo 6.15; else echo 12.3; fi
+      fi
+      ;;
     thermal)       echo 0.33 ;;   # 640x512
     # Mismo criterio que RGB: sin etapa densa el pico de memoria por hilo cae
     # (ya no hay depthmaps a resolución nativa simultáneos).

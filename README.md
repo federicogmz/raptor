@@ -22,6 +22,45 @@ sensors reconstruct at once" below).
 
 ---
 
+## Dual Processing Architecture: 2.5D Zenith vs 3D ODM
+
+RAPTOR implements a dual photogrammetry engine to address both immediate tactical incident command and detailed post-incident cartographic analysis:
+
+| Feature / Metric | Modo 2.5D — Zenith Direct Ortho | Modo 3D — ODM Dense Reconstruction |
+| :--- | :--- | :--- |
+| **Engine Core** | Native Rust (`zenith` CLI / crates) | OpenDroneMap (C++ / OpenSfM / MVS) |
+| **Execution Time** | **20–40 seconds** | 15–45 minutes |
+| **Photogrammetry Approach** | Direct ray-projection over DEM | Feature matching, bundle adjustment & dense point cloud |
+| **Elevation Model (DEM)** | 3-tier cascade: Local DEM → Copernicus GLO-30 (30m) → Barometric plane | Dense DSM generated from photogrammetric stereo matching |
+| **Supported Sensors** | RGB Visual and Radiometric Thermal (°C) | RGB Visual, Radiometric Thermal, and 4-band Multispectral (M3M) |
+| **Multispectral (NDVI)** | Not supported (requires 3D band alignment) | Full radiometric calibration & canopy vegetation indices |
+| **Key Output** | Tactical orthomosaic, hotspots & instant situation report | Full dense point cloud (COPC), DSM, COG orthomosaics |
+| **Ideal Operational Use** | Wildfire attack, rapid containment, immediate triage | Post-fire damage assessment, volume estimation, legal deliverable |
+
+---
+
+## Thermal Radiometric Calibration & Parameters
+
+RAPTOR integrates the official DJI Thermal SDK v1.8 (`dji_irp`) to convert raw R-JPEG drone frames into calibrated GeoTIFF Float32 rasters representing true apparent surface temperature in degrees Celsius (°C).
+
+### Atmospheric & Surface Parameters
+Calibration parameters are fully customizable via CLI, environment variables, or Web UI, backed by strict physical boundary validation:
+* **Emissivity (`emissivity`):** Surface emissivity factor. Valid range `[0.10, 1.00]`. SIATA default: `0.96`.
+* **Relative Humidity (`humidity`):** Atmospheric relative humidity percentage. Valid range `[1.0, 100.0]%`. SIATA default: `15.0%`.
+* **Target Distance (`distance`):** Distance from sensor to ground/canopy in meters. Valid range `[1.0, 25.0]m`. SIATA default: `25.0m` (avoids dynamic range compression of factory 5m default).
+* **Reflected Temperature (`reflection`):** Background reflected temperature in °C. Valid range `[-40.0, 500.0]°C`. SIATA default: `19.0°C`.
+
+### Parameter Resolution & Precedence
+1. **Explicit parameter** (CLI `--emissivity` or Web UI form).
+2. **Environment variable** (`THERMAL_EMISSIVITY`, `THERMAL_HUMIDITY`, `THERMAL_DISTANCE`, `THERMAL_REFLECTION`).
+3. **SIATA Emergency Baseline** (`0.96, 15.0, 25.0, 19.0`).
+
+### Compatibility & Traceability
+* **R-JPEG v1 Compatibility (Zenmuse H20T):** Automatically detects DIRP firmware constraints requiring humidity $\ge 20\%$ (returncode 253) and performs an immediate clamped fallback to guarantee 100% conversion success without manual intervention.
+* **Sidecar Metadata:** Every thermal conversion batch outputs a sidecar `thermal_params.json` documenting exact parameters applied and marking `"parameter_source": "custom" | "default_siata"`.
+
+---
+
 ## Geovisor & Sensor Outputs
 
 RAPTOR includes an interactive Leaflet-based web geovisor accessible at `http://localhost:8080`, supporting real-time layer switching, radiometric temperature measurements, and vegetation index analysis:
@@ -834,8 +873,13 @@ See `docs/PIPELINE.md` for:
 
 ---
 
-## Contributing & License
+## Contributing & Third-Party Licenses
 
 * **Contributing:** Please read [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, containerized test runner instructions, and coding standards.
 * **Scripts Catalog:** See [scripts/README.md](scripts/README.md) for a breakdown of every pipeline step.
-* **License:** RAPTOR's own code is released under the [MIT License](LICENSE). The bundled DJI Thermal SDK in `dji_thermal_sdk/` keeps its own terms (see `dji_thermal_sdk/License.txt`).
+* **License & Intellectual Property:**
+  * **RAPTOR Platform & Scripts:** Released under the [MIT License](LICENSE).
+  * **Zenith Engine:** High-performance Rust 2.5D direct photogrammetry engine.
+  * **OpenDroneMap (ODM):** Traditional dense SfM engine (GPLv3).
+  * **DJI Thermal SDK (v1.8):** Proprietary library and utilities (`dji_irp`) copyright © SZ DJI Technology Co., Ltd. Provided for radiometric thermal conversion under DJI SDK terms (see `dji_thermal_sdk/License.txt`). Not redistributable without agreement; must be obtained from official DJI developer portal for external distributions.
+

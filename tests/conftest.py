@@ -10,9 +10,23 @@ Ninguno tiene efectos al importarse (todo el trabajo está detrás de
 
 import os
 import sys
+import pytest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPTS = os.path.join(REPO, "scripts")
 for p in (REPO, SCRIPTS):
     if p not in sys.path:
         sys.path.insert(0, p)
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "docker: tests que requieren entorno de contenedor Docker (/code/run.py)")
+
+
+def pytest_collection_modifyitems(config, items):
+    if not os.path.exists("/code/run.py"):
+        skip_docker = pytest.mark.skip(reason="Requiere entorno Docker con /code/run.py")
+        for item in items:
+            if "docker" in item.keywords:
+                item.add_marker(skip_docker)
+
