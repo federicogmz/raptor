@@ -433,7 +433,15 @@ class TestFlightQualityAndParity:
     def test_emit_progress_dual_stage_format(self, tmp_path):
         """_emit_progress genera la línea estándar y la línea de canal 'stage\\tt=...'."""
         pf = tmp_path / "progress.tsv"
-        _emit_progress(pf, "start", "thermal_ortho", "Ortorrectificación térmica 2.5D", channel_stage=ZENITH_THERMAL_STAGE, step_n=10, step_total=100)
+        _emit_progress(
+            pf,
+            "start",
+            "thermal_ortho",
+            "Ortorrectificación térmica 2.5D",
+            channel_stage=ZENITH_THERMAL_STAGE,
+            step_n=10,
+            step_total=100,
+        )
         content = pf.read_text()
         lines = content.strip().splitlines()
         assert len(lines) == 2
@@ -450,4 +458,3 @@ class TestFlightQualityAndParity:
         js_text = app_js.read_text(encoding="utf-8")
         assert f"'{ZENITH_RGB_STAGE}'" in js_text or f'"{ZENITH_RGB_STAGE}"' in js_text
         assert f"'{ZENITH_THERMAL_STAGE}'" in js_text or f'"{ZENITH_THERMAL_STAGE}"' in js_text
-

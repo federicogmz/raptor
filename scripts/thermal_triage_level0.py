@@ -495,7 +495,7 @@ def deduplicate_hotspots(
     """
     Agrupa detecciones del mismo foco observadas desde diferentes fotogramas
     (overlap) basadas en distancia espacial normalizada.
-    
+
     Política de Incertidumbre:
     El sesgo GNSS, de yaw y del DEM son comunes al vuelo.
     Por tanto, NO se reduce sigma como 1/sqrt(n) por debajo del piso sistémico.
@@ -544,7 +544,9 @@ def deduplicate_hotspots(
         # Cota de incertidumbre sistémica: preserva el mejor error individual
         # con una leve ganancia estadística acotada al 85%, nunca colapsando a cero
         min_individual_unc = min(c["uncertainty_radius_m"] for c in cl)
-        cl_sigma = max(min_individual_unc * 0.85, 3.5 if any(c["geometry_source"] == "external_dem" for c in cl) else 20.0)
+        cl_sigma = max(
+            min_individual_unc * 0.85, 3.5 if any(c["geometry_source"] == "external_dem" for c in cl) else 20.0
+        )
 
         sources = [c["image_file"] for c in cl]
         sources_unique = sorted(list(set(sources)))
