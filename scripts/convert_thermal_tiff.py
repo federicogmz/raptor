@@ -6,8 +6,15 @@ Usa el binario dji_irp del DJI Thermal SDK v1.8 para extraer los datos
 radiométricos en formato float32 crudo, y los envuelve en GeoTIFF.
 """
 
-import os, sys, subprocess, glob, tempfile, time
+import glob
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional
 import numpy as np
 from osgeo import gdal
 
@@ -15,6 +22,17 @@ gdal.UseExceptions()
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hardware import safe_concurrency  # noqa: E402
+
+_REPO_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_DIR not in sys.path:
+    sys.path.insert(0, _REPO_DIR)
+from core.thermal_params import (  # noqa: E402
+    SIATA_DISTANCE,
+    SIATA_EMISSIVITY,
+    SIATA_HUMIDITY,
+    SIATA_REFLECTION,
+    resolve_thermal_params,
+)
 
 # Cada imagen es una llamada a dji_irp + exiftool sobre su propio archivo
 # temporal (tempfile.NamedTemporaryFile ya genera un nombre único por
@@ -36,6 +54,46 @@ _BASE = os.path.dirname(os.path.abspath(__file__))
 SDK_LIB_DIR = os.path.join(_BASE, "..", "dji_thermal_sdk/tsdk-core/lib/linux/release_x64")
 DJI_IRP = os.path.join(_BASE, "..", "dji_thermal_sdk/utility/bin/linux/release_x64/dji_irp")
 
+# Parámetros ambientales (estándar operativo SIATA para calibración con dji_irp).
+EMISSIVITY = SIATA_EMISSIVITY
+HUMIDITY = SIATA_HUMIDITY
+DISTANCE = SIATA_DISTANCE
+REFLECTION = SIATA_REFLECTION
+
+
+# Dimensiones nominales de imagen (512x640 estándar; 1024x1280 si se usa super-resolución)
+IMAGE_HEIGHT = 512
+IMAGE_WIDTH = 640
+
+
+def _build_dji_irp_cmd(
+    src_jpg: str,
+    raw_path: str,
+    emissivity: float,
+    humidity: float,
+    distance: float,
+    reflection: float,
+):
+    return [
+        DJI_IRP,
+        "-s",
+        src_jpg,
+        "-a",
+        "measure",
+        "-o",
+        raw_path,
+        "--measurefmt",
+        "float32",
+        "--emissivity",
+        str(emissivity),
+        "--humidity",
+        str(humidity),
+        "--distance",
+        str(distance),
+        "--reflection",
+        str(reflection),
+    ]
+
 
 def _jpeg_size(path):
     """(ancho, alto) del R-JPEG leyendo solo la cabecera."""
@@ -49,8 +107,8 @@ def _jpeg_size(path):
 def thermal_size(src_jpg, n_floats):
     """Resolución del arreglo radiométrico de un R-JPEG.
 
-    En los R-JPEG de DJI el stream JPEG está a la misma resolución que el
-    sensor térmico, así que las dimensiones de la imagen son las del arreglo.
+    En los R-JPEG de DJI el stream JPEG suele estar a la misma resolución que
+    el sensor térmico (640x512 estándar, o 1280x1024 en super-resolución).
     Se comprueba contra la cantidad real de floats que devolvió dji_irp antes
     de usarlas: si no cuadran, el reshape produciría un raster corrido o
     fallaría con un error incomprensible.
@@ -60,11 +118,28 @@ def thermal_size(src_jpg, n_floats):
     w, h = _jpeg_size(src_jpg)
     if w * h == n_floats:
         return w, h
+    if n_floats == IMAGE_WIDTH * IMAGE_HEIGHT:
+        return IMAGE_WIDTH, IMAGE_HEIGHT
+    if n_floats == 1280 * 1024:
+        return 1280, 1024
     return None
 
 
-def convert_one(src_jpg: str, dst_tif: str) -> bool:
+def convert_one(
+    src_jpg: str,
+    dst_tif: str,
+    emissivity: Optional[float] = None,
+    humidity: Optional[float] = None,
+    distance: Optional[float] = None,
+    reflection: Optional[float] = None,
+) -> bool:
     """Convierte un R-JPEG a GeoTIFF Float32 usando dji_irp."""
+    cfg = resolve_thermal_params(emissivity, humidity, distance, reflection)
+    emissivity = cfg["emissivity"]
+    humidity = cfg["humidity"]
+    distance = cfg["distance"]
+    reflection = cfg["reflection"]
+
     env = os.environ.copy()
     env["LD_LIBRARY_PATH"] = SDK_LIB_DIR + ":" + env.get("LD_LIBRARY_PATH", "")
 
@@ -72,32 +147,28 @@ def convert_one(src_jpg: str, dst_tif: str) -> bool:
         raw_path = tmp.name
 
     try:
-        # 1. Extraer raw float32 con dji_irp
-        # distance=25 (máximo permitido por el SDK para M3T): el R-JPEG trae
-        # distance=5m de fábrica (nunca configurado para vuelo a ~500m AGL),
-        # lo que comprime el rango dinámico (subestima extremos calientes/fríos).
-        # 25m sigue siendo la cota dura del sensor, pero es lo mismo que se usó
-        # para la entrega a Agisoft → comparación justa.
+        # 1. Extraer raw float32 con dji_irp homologado con parámetros SIATA:
+        # EMISSIVITY=0.96, HUMIDITY=15, DISTANCE=25, REFLECTION=19.
         try:
             result = subprocess.run(
-                [
-                    DJI_IRP,
-                    "-s",
-                    src_jpg,
-                    "-a",
-                    "measure",
-                    "-o",
-                    raw_path,
-                    "--measurefmt",
-                    "float32",
-                    "--distance",
-                    "25",
-                ],
+                _build_dji_irp_cmd(src_jpg, raw_path, emissivity, humidity, distance, reflection),
                 env=env,
                 capture_output=True,
                 text=True,
                 timeout=30,
             )
+            if (
+                result.returncode != 0
+                and float(humidity) < 20.0
+                and (result.returncode == 253 or "dirp_set_measurement_params" in (result.stdout + result.stderr))
+            ):
+                result = subprocess.run(
+                    _build_dji_irp_cmd(src_jpg, raw_path, emissivity, 20.0, distance, reflection),
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
         except subprocess.TimeoutExpired:
             # Bug real, reportado en vivo: sin este catch, un solo dji_irp
             # colgado (SDK externo, no algo que este script controle)
@@ -197,6 +268,22 @@ def main():
 
     os.makedirs(dst_dir, exist_ok=True)
 
+    cfg = resolve_thermal_params()
+    sidecar = {
+        "sdk": "DJI Thermal SDK v1.8 dji_irp (DIRP API 0x13)",
+        "format": "Float32 apparent temperature (°C)",
+        "emissivity": cfg["emissivity"],
+        "humidity_requested_pct": cfg["humidity"],
+        "distance_m": cfg["distance"],
+        "reflection_c": cfg["reflection"],
+        "parameter_source": cfg["source"],
+    }
+    try:
+        with open(os.path.join(dst_dir, "thermal_params.json"), "w", encoding="utf-8") as f:
+            json.dump(sidecar, f, indent=2)
+    except Exception as exc:
+        print(f"  ⚠ Aviso al escribir thermal_params.json: {exc}")
+
     # Pre-flight: check dji_irp exists
     if not os.path.isfile(DJI_IRP):
         print(f"❌ dji_irp no encontrado en {DJI_IRP}")
@@ -237,7 +324,18 @@ def main():
         pendientes.append((jpg, dst))
 
     with ThreadPoolExecutor(max_workers=NPROCS) as pool:
-        futuros = {pool.submit(convert_one, jpg, dst): jpg for jpg, dst in pendientes}
+        futuros = {
+            pool.submit(
+                convert_one,
+                jpg,
+                dst,
+                cfg["emissivity"],
+                cfg["humidity"],
+                cfg["distance"],
+                cfg["reflection"],
+            ): jpg
+            for jpg, dst in pendientes
+        }
         for fut in as_completed(futuros):
             done += 1
             if fut.result():

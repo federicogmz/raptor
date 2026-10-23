@@ -33,6 +33,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import Optional
 
 from fastapi import Body, FastAPI, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
@@ -51,8 +52,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from core.runner import PipelineRun, activate_mission, deactivate_mission, parse_progress_events
+from core.runner import PipelineRun, activate_mission, deactivate_mission, normalize_mode, parse_progress_events
 from core.scan import RUNS_ROOT, sanitize_mission_name, scan_existing_runs
+from core.thermal_params import resolve_thermal_params
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from hardware import estimate_message  # noqa: E402 — mensaje de calidad del formulario
@@ -65,7 +67,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 GEOVISOR_DIR = APP_DIR / "geovisor"
 
 UPLOAD_KINDS = ("rgb_thermal", "multispectral")
-VALID_MODES = ("rgb", "rgb+thermal", "thermal", "none", "thermal-convert")
+VALID_MODES = ("2.5d", "3d", "thermal-convert")
 
 # ── Exportación de la entrega ───────────────────────────────────────────
 # Catálogo y formatos los define scripts/export_products.py; acá solo se
@@ -372,13 +374,15 @@ class RunState:
     # el log son miles de redibujos: se guarda una ventana, no todo.
     MAX_LOG = 4000
 
-    def __init__(self, mission_name, mission_dir, run_obj, mode, has_ms, dband=False):
+    def __init__(self, mission_name, mission_dir, run_obj, mode, has_ms, dband=False, has_rgb=True, has_thermal=True):
         self.mission_name = mission_name
         self.mission_dir = mission_dir
         self.run = run_obj
         self.mode = mode
         self.has_ms = has_ms
         self.dband = dband
+        self.has_rgb = has_rgb
+        self.has_thermal = has_thermal
         self.log_lines = []
         self.log_dropped = 0  # cuántas se descartaron por la ventana
         self.done = False
@@ -924,12 +928,14 @@ def clear_uploads(mission: str, kind: str = Form(...)):
 # ANTES de lanzarlo, para poder devolver un mensaje corregible en el
 # formulario en vez de un fallo a mitad de una corrida larga. ──
 def _validate(mode, has_ms, uploads):
+    norm_mode = normalize_mode(mode)
     rt, ms = uploads["rgb_thermal"], uploads["multispectral"]
     errors = []
-    if mode not in VALID_MODES:
+    if norm_mode not in VALID_MODES:
         errors.append(f"Modo inválido: {mode}")
         return errors
-    if mode == "thermal-convert":
+
+    if norm_mode == "thermal-convert":
         if rt["thermal"] == 0:
             errors.append(
                 "Elegiste «Solo conversión térmica» pero no hay fotos térmicas "
@@ -937,21 +943,25 @@ def _validate(mode, has_ms, uploads):
                 "las fotos térmicas del vuelo M3T/H20T."
             )
         return errors
-    if mode != "none":
-        if rt["rgb"] == 0:
-            errors.append(
-                "Elegiste procesar el vuelo RGB/térmico pero no hay fotos RGB "
-                "entre los archivos subidos"
-                + (f" ({rt['total']} archivos)" if rt["total"] else "")
-                + ". Sube las fotos del vuelo, o desactiva ese sensor "
-                "si solo vas a procesar el multiespectral."
-            )
-        if mode in ("rgb+thermal", "thermal") and rt["thermal"] == 0:
-            errors.append(
-                "Elegiste un producto con térmico pero no hay fotos térmicas "
-                f"(*_T.JPG) entre los {rt['total']} archivos subidos. Agrega "
-                "las fotos térmicas del vuelo, o cambia el producto a «Solo RGB»."
-            )
+
+    if norm_mode == "2.5d":
+        if rt["rgb"] == 0 and rt["thermal"] == 0:
+            if has_ms and ms["ms"] > 0:
+                errors.append(
+                    "El sensor Multiespectral (DJI M3M) no está soportado en Modo 2.5D rápido. "
+                    "Para procesar este vuelo multiespectral, selecciona 'Modo 3D — Reconstrucción SfM (ODM)'."
+                )
+            else:
+                errors.append(
+                    "Elegiste Modo 2.5D (Zenith) pero no se detectaron fotos RGB ni térmicas entre los archivos subidos. "
+                    "Agrega las fotos del vuelo (DJI M3T/H20T). Si es un vuelo multiespectral (M3M), selecciona Modo 3D."
+                )
+        return errors
+
+    # Modo 3D (ODM)
+    if rt["rgb"] == 0 and rt["thermal"] == 0 and not (has_ms and ms["ms"] > 0):
+        errors.append("No seleccionaste ningún sensor para procesar en 3D.")
+        return errors
     if has_ms and ms["ms"] == 0:
         errors.append(
             "Activaste el multiespectral pero no hay bandas (*_MS_*.TIF) entre "
@@ -1265,9 +1275,9 @@ def quality_estimate(
         # costos por foto muy distintos). Solo cuando contamos desde disco;
         # con n_photos explícito del navegador no hay desglose confiable
         # todavía (subida en curso) y se cae al número único.
-        por_sensor = {"rgb": rgb, "thermal": th, "multispectral": ms}
+    norm_mode = normalize_mode(mode)
     idioma = "en" if lang.strip().lower() == "en" else "es"
-    if mode == "thermal-convert":
+    if norm_mode == "thermal-convert":
         en = idioma == "en"
         return {
             "tiempo_texto": "Estimated time: ~1 minute (SDK conversion to GeoTIFF with EXIF tags)"
@@ -1279,6 +1289,21 @@ def quality_estimate(
             "modelo_texto": "Thermal conversion only (no 3D reconstruction)"
             if en
             else "Solo conversión térmica (sin reconstrucción 3D)",
+            "hardware": {"cores": 8, "mem_available_mb": 16384, "gpu": False, "gpu_name": None},
+            "opciones": [],
+        }
+    if norm_mode == "2.5d":
+        en = idioma == "en"
+        return {
+            "tiempo_texto": "Estimated time: ~20-40 seconds (Zenith Direct 2.5D Ortho)"
+            if en
+            else "Tiempo estimado: ~20-40 segundos (Ortorrectificación directa Zenith 2.5D)",
+            "resolucion_texto": "Native sensor GSD (~10-18 cm/px) with elevation ray-casting"
+            if en
+            else "GSD nativo del sensor (~10-18 cm/px) corregido por elevación",
+            "modelo_texto": "Direct ray projection on DEM (Copernicus 30m / DEM Local / Telemetry)"
+            if en
+            else "Proyección directa sobre DEM (Copernicus 30m / DEM Local / Telemetría)",
             "hardware": {"cores": 8, "mem_available_mb": 16384, "gpu": False, "gpu_name": None},
             "opciones": [],
         }
@@ -1311,19 +1336,34 @@ async def start_mission(
     preset: str = Form("cartografico"),
     terreno: str = Form("escarpado"),
     subsample: int = Form(0),
+    thermal_emissivity: Optional[str] = Form(None),
+    thermal_humidity: Optional[str] = Form(None),
+    thermal_distance: Optional[str] = Form(None),
+    thermal_reflection: Optional[str] = Form(None),
 ):
     global _state
     if _state is not None and not _state.done:
         raise HTTPException(409, f"Ya hay una misión procesándose: {_state.mission_name}")
 
+    try:
+        resolved_thermal = resolve_thermal_params(
+            thermal_emissivity,
+            thermal_humidity,
+            thermal_distance,
+            thermal_reflection,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, f"Parámetros térmicos inválidos: {exc}")
+
     safe, mission_dir = _mission_dir(mission, create=True)
     uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k)) for k in UPLOAD_KINDS}
-    errors = _validate(mode, has_multispectral, uploads)
-    if mode != "thermal-convert":
+    has_rgb = uploads["rgb_thermal"]["rgb"] > 0
+    has_thermal = uploads["rgb_thermal"]["thermal"] > 0
+    norm_mode = normalize_mode(mode)
+    errors = _validate(norm_mode, has_multispectral, uploads)
+    if norm_mode == "3d":
         try:
             # Valida preset Y terreno contra la tabla real (scripts/hardware.py)
-            # en vez de repetir la lista acá, que sería una segunda copia para
-            # desincronizar.
             hw_preset(preset, terreno=terreno)
         except ValueError as exc:
             errors.append(str(exc))
@@ -1333,8 +1373,7 @@ async def start_mission(
     if errors:
         raise HTTPException(400, " ".join(errors))
 
-    # MODE=none no toca SOURCE_DIR (ver entrypoint.sh), pero igual se pasa un
-    # directorio existente para no depender de ese detalle.
+    # Directorios de entrada
     source_dir = mission_dir / "raw" / "rgb_thermal"
     source_dir.mkdir(parents=True, exist_ok=True)
     ms_source_dir = mission_dir / "raw" / "multispectral" if has_multispectral else None
@@ -1342,7 +1381,7 @@ async def start_mission(
     activate_mission(mission_dir)
     progress_file = mission_dir / "progress.ndjson"
     run_obj = PipelineRun(
-        mode=mode,
+        mode=norm_mode,
         source_dir=source_dir,
         ms_source_dir=ms_source_dir,
         port=8080,
@@ -1353,9 +1392,19 @@ async def start_mission(
         terreno=terreno,
         subsample=subsample,
         mission_name=safe,
+        thermal_params=resolved_thermal,
     )
     await run_obj.start()
-    _state = RunState(safe, mission_dir, run_obj, mode, has_multispectral, dband)
+    _state = RunState(
+        safe,
+        mission_dir,
+        run_obj,
+        norm_mode,
+        has_multispectral,
+        dband,
+        has_rgb=has_rgb,
+        has_thermal=has_thermal,
+    )
     asyncio.create_task(_state.consume())
     return {"ok": True, "mission": safe}
 
@@ -1376,6 +1425,15 @@ async def events(mission: str):
         # Primer evento: el reloj del servidor y el plan real de la corrida,
         # para que una pestaña que se reengancha reconstruya la vista completa
         # (cronómetro incluido) sin depender de lo que tenía en memoria.
+        has_rgb = getattr(state, "has_rgb", True)
+        has_thermal = getattr(state, "has_thermal", True)
+        if hasattr(state, "mission_dir") and state.mission_dir:
+            rt_dir = state.mission_dir / "raw" / "rgb_thermal"
+            if rt_dir.exists():
+                c = classify_files(_listdir_names(rt_dir))
+                if c["total"] > 0:
+                    has_rgb = c["rgb"] > 0
+                    has_thermal = c["thermal"] > 0
         yield (
             "data: "
             + json.dumps(
@@ -1385,6 +1443,8 @@ async def events(mission: str):
                     "mode": state.mode,
                     "has_multispectral": state.has_ms,
                     "dband": state.dband,
+                    "has_rgb": has_rgb,
+                    "has_thermal": has_thermal,
                     "done": state.done,
                 }
             )
@@ -1600,7 +1660,7 @@ async def save_mission_area(mission: str, data: dict = Body(...)):
         pass
 
     # Si está en el benchmark, actualizarlo también
-    bench_dir = Path("/mnt/f/raptor_benchmark_runs")
+    bench_dir = Path(os.environ.get("RAPTOR_BENCHMARK_DIR", "/mnt/f/raptor_benchmark_runs"))
     for bd in bench_dir.iterdir() if bench_dir.exists() else []:
         if bd.is_dir() and (bd.name.lower().startswith(safe.lower()) or safe.lower().startswith(bd.name.lower())):
             try:

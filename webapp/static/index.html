@@ -321,6 +321,13 @@ select.in{cursor:pointer}
 .chip.rgb .dot{background:var(--rgb)} .chip.ther .dot{background:var(--ther)}
 .chip.ms .dot{background:var(--ms)}   .chip.other .dot{background:var(--tx3)}
 .chip.warn{border-color:var(--note-warn-bd);background:var(--note-warn-bg);color:var(--note-warn-tx)}
+.chip-folder{display:inline-flex;align-items:center;gap:6px;background:var(--bg3);border:1px solid var(--bd);
+  border-radius:var(--r-sm);padding:5px 10px;font-size:.76rem;animation:chip-in .2s ease backwards}
+.chip-folder .nm{font-weight:600;color:var(--tx1);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip-folder .cnt{color:var(--tx3);font-size:.72rem}
+.chip-folder .rm{background:none;border:none;cursor:pointer;color:var(--tx3);display:grid;place-items:center;
+  width:18px;height:18px;border-radius:4px;font-size:13px;line-height:1;transition:all .15s}
+.chip-folder .rm:hover{color:var(--err);background:var(--note-err-bg)}
 .stored{font-size:.78rem;color:var(--tx2);margin-top:10px;text-align:center;line-height:1.7}
 .stored b{color:var(--ok);font-weight:700}
 .stored a{color:var(--tx2);text-decoration:underline;text-underline-offset:2px}
@@ -391,8 +398,7 @@ select.in{cursor:pointer}
 .opt input{margin-top:3px;accent-color:var(--ac);flex-shrink:0}
 .opt .ot{font-size:.9rem;font-weight:700;padding-right:26px}
 .opt .od{font-size:.78rem;color:var(--tx2);margin-top:3px;line-height:1.5;padding-right:26px}
-#o-rt-thermal-convert.on{border-color:#f59e0b;background:rgba(245,158,11,0.08)}
-#o-rt-thermal-convert.on::after{background:#f59e0b}
+#o-mode-25d.on{border-color:var(--ac);background:var(--sel-bg)}
 .checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:9px}
 .chk{display:flex;gap:10px;align-items:flex-start;background:var(--bg2);
   border:1.5px solid var(--bd);border-radius:12px;padding:11px 13px;cursor:pointer;
@@ -617,7 +623,6 @@ select.in{cursor:pointer}
           <span class="wiz-dot" data-dot="2"></span>
           <span class="wiz-dot" data-dot="3"></span>
           <span class="wiz-dot" data-dot="4"></span>
-          <span class="wiz-dot" data-dot="5"></span>
         </div>
         <div class="wiz-step-label" id="wiz-step-label"></div>
 
@@ -653,20 +658,41 @@ select.in{cursor:pointer}
                los dos vuelos: se arrastra o se elige, y se clasifica cada archivo
                por su nombre (mismo criterio que classify()) — no hace falta
                declarar antes qué sensor es. -->
-          <div class="dz" id="dz-add" onclick="if(event.target.closest('button'))return; document.getElementById('in-add-files').click()">
+          <div class="dz" id="dz-add" onclick="if(event.target.closest('button')||event.target.closest('a'))return; document.getElementById('in-add').click()">
             <input type="file" id="in-add-files" multiple accept="image/*,.tif,.tiff,.jpg,.jpeg,.png" style="display:none">
             <input type="file" id="in-add" webkitdirectory multiple style="display:none">
-            <svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg>
-            <div class="t" data-i18n="setup.dz.title">Drag photos or folder here, or click to choose</div>
+            <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg>
+            <div class="t" data-i18n="setup.dz.title">Drag folders or photos here, or click to choose</div>
             <div class="h" data-i18n-html="setup.dz.hint">Standard RGB (JPG/PNG), thermal (<code>*_T.JPG</code>) or multispectral (<code>*_MS_*.TIF</code>). Choose individual files or entire folders.</div>
-            <div style="display:flex;gap:10px;margin-top:12px;justify-content:center;position:relative;z-index:2">
+            <div style="display:flex;gap:10px;margin-top:12px;justify-content:center;position:relative;z-index:2;flex-wrap:wrap">
+              <button type="button" class="btn sm" id="btn-pick-dir" style="background:var(--ac);color:#fff;border-color:var(--ac);font-weight:600" onclick="event.stopPropagation();document.getElementById('in-add').click()">
+                <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg> <span data-i18n="btn.chooseFolder">Choose folder(s)…</span>
+              </button>
               <button type="button" class="btn sm" id="btn-pick-files" onclick="event.stopPropagation();document.getElementById('in-add-files').click()">
                 <svg class="ic" aria-hidden="true"><use href="#i-drone"/></svg> <span data-i18n="btn.chooseFiles">Choose photos…</span>
               </button>
-              <button type="button" class="btn sm" id="btn-pick-dir" onclick="event.stopPropagation();document.getElementById('in-add').click()">
-                <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg> <span data-i18n="btn.chooseFolder">Choose folder…</span>
-              </button>
             </div>
+            <div style="font-size:11px;color:var(--tx3);margin-top:10px;line-height:1.4" data-i18n-html="setup.dz.folderTip">
+              💡 <b>Tip para varias carpetas:</b> Arrastra varias carpetas juntas a este recuadro, o elige una carpeta principal que contenga tus subcarpetas (RGB, térmica, etc.).
+            </div>
+          </div>
+          <!-- Panel de carpetas agregadas -->
+          <div id="sources-add" class="hidden" style="margin-top:10px;background:var(--bg2);border:1px solid var(--bd);border-radius:var(--r-sm);padding:10px 12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">
+              <span style="font-size:11px;font-weight:700;color:var(--tx2);text-transform:uppercase;letter-spacing:0.5px" data-i18n="setup.folders.title">Selected folders:</span>
+              <div style="display:flex;gap:6px">
+                <button type="button" class="btn xs" onclick="document.getElementById('in-add').click()" title="Sumar otra carpeta">
+                  <svg class="ic" style="width:12px;height:12px" aria-hidden="true"><use href="#i-folder"/></svg> <span data-i18n="btn.addAnotherFolder">+ Folder</span>
+                </button>
+                <button type="button" class="btn xs" onclick="document.getElementById('in-add-files').click()" title="Sumar fotos sueltas">
+                  <svg class="ic" style="width:12px;height:12px" aria-hidden="true"><use href="#i-drone"/></svg> <span data-i18n="btn.addAnotherFiles">+ Photos</span>
+                </button>
+                <button type="button" class="btn xs" style="color:var(--err)" onclick="clearAddedFiles()" title="Limpiar selección">
+                  <svg class="ic" style="width:12px;height:12px" aria-hidden="true"><use href="#i-trash"/></svg> <span data-i18n="btn.clearAll">Clear</span>
+                </button>
+              </div>
+            </div>
+            <div id="folder-chips" style="display:flex;flex-wrap:wrap;gap:6px"></div>
           </div>
           <div class="chips" id="ch-add"></div>
           <div class="stored hidden" id="st-add"></div>
@@ -681,69 +707,96 @@ select.in{cursor:pointer}
              recortado muy por debajo del área real volada). "Escarpado"
              fuerza reconstrucción incremental incluso en los presets
              rápidos — más lenta que planar, pero no pierde cobertura. -->
+        <!-- Modo: 2.5D (Zenith) o 3D (ODM) -->
         <div class="form-section" data-step="3">
           <div class="section-label">
-            <svg class="ic" aria-hidden="true"><use href="#i-mountain"/></svg> <span data-i18n="setup.terrain.label">Terrain</span>
+            <svg class="ic" aria-hidden="true"><use href="#i-layers"/></svg> <span data-i18n="setup.mode.label">Modo de procesamiento</span>
           </div>
-          <div class="opts">
-            <label class="opt" id="o-terr-plano">
-              <input type="radio" name="terreno" value="plano" onchange="refreshUI()">
-              <div><div class="ot" data-i18n="setup.terrain.flat.t">Flat</div>
-                <div class="od" data-i18n="setup.terrain.flat.d">Flat terrain or gentle relief. Glance/fast reconstruct by homography, much faster</div></div>
+          <p class="panel-sub" style="margin-bottom:12px" data-i18n="setup.mode.sub">RAPTOR opera en 2 modos según la urgencia y el tipo de análisis requerido.</p>
+          <div class="opts" id="mode-choice">
+            <label class="opt on" id="o-mode-25d">
+              <input type="radio" name="proc_mode" value="2.5d" checked onchange="onModeChange()">
+              <div>
+                <div class="ot" style="display:flex;align-items:center;gap:8px">
+                  <span data-i18n="setup.mode.25d.t">⚡ 2.5D — Mosaico Rápido (Zenith)</span>
+                  <span style="background:var(--sel-bg);color:var(--ac);font-size:11px;padding:2px 7px;border-radius:10px;font-weight:700;border:1px solid var(--ac)" data-i18n="setup.mode.25d.badge">Recomendado</span>
+                </div>
+                <div class="od" data-i18n="setup.mode.25d.d">Motor nativo Rust Zenith. Proyección ortográfica directa sobre DEM en ~20–30 segundos con calibración térmica °C, detección de focos y resumen de situación.</div>
+              </div>
             </label>
-            <!-- Default: la mayoría de las misiones de emergencia real (incendio,
-                 montaña, terreno rocoso) NO son planas — "plano" por defecto venía
-                 perdiendo cobertura en silencio (ver el comentario grande de arriba)
-                 salvo que el operador supiera tildar "escarpado" a mano. -->
-            <label class="opt on" id="o-terr-escarpado">
-              <input type="radio" name="terreno" value="escarpado" checked onchange="refreshUI()">
-              <div><div class="ot" data-i18n="setup.terrain.steep.t">Steep</div>
-                <div class="od" data-i18n="setup.terrain.steep.d">Mountain, canyon, rocky terrain. Forces full reconstruction on every preset, avoiding silent photo loss</div></div>
+            <label class="opt" id="o-mode-3d">
+              <input type="radio" name="proc_mode" value="3d" onchange="onModeChange()">
+              <div>
+                <div class="ot" data-i18n="setup.mode.3d.t">🌐 3D — Reconstrucción SfM (ODM)</div>
+                <div class="od" data-i18n="setup.mode.3d.d">Fotogrametría 3D densa tradicional (Structure-from-Motion y MVS). Genera modelo digital de superficie (DSM), nube de puntos 3D y ortomosaico denso (~15–45 min).</div>
+              </div>
             </label>
           </div>
         </div>
 
+        <!-- Paso 4: Parámetros según el modo seleccionado -->
         <div data-step="4">
-          <!-- Bloque RGB/térmico — aparece solo cuando se detectan fotos de ese
-               vuelo. Con los dos sensores presentes, refreshUI() muestra un
-               enunciado ("Vamos a generar: ...") en vez de una pregunta — ver
-               #rt-statement/#rt-choice más abajo — y solo se ofrece elegir un
-               único sensor detrás de un link secundario, no como tres opciones
-               igual de prominentes cuando en la gran mayoría de los casos la
-               respuesta obvia es "los dos". -->
-          <div id="blk-rt" class="hidden">
-            <div class="form-section">
-              <div class="section-label">
-                <svg class="ic" aria-hidden="true"><use href="#i-layers"/></svg> <span data-i18n="setup.rt.label">Products to generate (RGB / thermal)</span>
-              </div>
-              <div class="note info" id="rt-statement">
-                <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg></span>
-                <div>
-                  <div id="rt-statement-t"></div>
-                  <a href="#" id="rt-choice-link" onclick="toggleRtChoice();return false" data-i18n="setup.rt.chooseOne">Only need one sensor?</a>
+          <!-- Opciones exclusivas de 2.5D (Zenith) -->
+          <div class="form-section" id="blk-25d-opts">
+            <div class="section-label">
+              <svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg> <span data-i18n="setup.zenith.label">Configuración Zenith 2.5D</span>
+            </div>
+            <div class="note info">
+              <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg></span>
+              <div>
+                <div style="font-weight:700;margin-bottom:6px" data-i18n="setup.zenith.title">Procesamiento táctico ultrarrápido</div>
+                <div style="font-size:13px;color:var(--tx2);line-height:1.6" data-i18n-html="setup.zenith.desc">
+                  • <b>Modelo de elevación (DEM):</b> Cascada automática (1. DEM local si existe → 2. Copernicus GLO-30 30m → 3. Plano barométrico de vuelo).<br>
+                  • <b>Sensores:</b> RGB y Térmico radiométrico (°C).<br>
+                  • <b>Tiempo estimado:</b> ~20–40 segundos.<br>
+                  • <b>Salidas automáticas:</b> Ortomosaico georreferenciado (Float32 °C o RGBA), detección de focos de calor, resumen de situación y teselas Leaflet.
                 </div>
               </div>
-              <div class="opts hidden" id="rt-choice">
-                <label class="opt" id="o-rt-both">
-                  <input type="radio" name="prod" value="rgb+thermal" checked onchange="refreshUI()">
-                  <div><div class="ot" data-i18n="setup.rt.both.t">RGB + thermal orthomosaic</div>
-                    <div class="od" data-i18n="setup.rt.both.d">Both mosaics, plus confidence mask and hotspot detection</div></div>
+            </div>
+            <div id="warn-25d-ms" class="note warn hidden" style="margin-top:10px">
+              <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-alert"/></svg></span>
+              <div>
+                <div style="font-weight:700" data-i18n="setup.zenith.msWarn.t">Sensor Multiespectral detectado</div>
+                <div style="font-size:12px;color:var(--tx2);margin-top:2px" data-i18n="setup.zenith.msWarn.d">
+                  Las bandas multiespectrales y los índices de vegetación (NDVI, NDRE) requieren reconstrucción 3D (ODM). Selecciona Modo 3D para procesar este sensor.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Opciones exclusivas de 3D (ODM) -->
+          <div id="blk-3d-opts" class="hidden">
+            <div class="form-section">
+              <div class="section-label">
+                <svg class="ic" aria-hidden="true"><use href="#i-mountain"/></svg> <span data-i18n="setup.terrain.label">Terrain</span>
+              </div>
+              <div class="opts">
+                <label class="opt" id="o-terr-plano">
+                  <input type="radio" name="terreno" value="plano" onchange="refreshUI()">
+                  <div><div class="ot" data-i18n="setup.terrain.flat.t">Flat</div>
+                    <div class="od" data-i18n="setup.terrain.flat.d">Flat terrain or gentle relief. Glance/fast reconstruct by homography, much faster</div></div>
                 </label>
-                <label class="opt" id="o-rt-rgb">
-                  <input type="radio" name="prod" value="rgb" onchange="refreshUI()">
-                  <div><div class="ot" data-i18n="setup.rt.rgb.t">RGB orthomosaic only</div>
-                    <div class="od" data-i18n="setup.rt.rgb.d">Skips all thermal processing (faster)</div></div>
+                <label class="opt on" id="o-terr-escarpado">
+                  <input type="radio" name="terreno" value="escarpado" checked onchange="refreshUI()">
+                  <div><div class="ot" data-i18n="setup.terrain.steep.t">Steep</div>
+                    <div class="od" data-i18n="setup.terrain.steep.d">Mountain, canyon, rocky terrain. Forces full reconstruction on every preset, avoiding silent photo loss</div></div>
                 </label>
-                <label class="opt" id="o-rt-thermal">
-                  <input type="radio" name="prod" value="thermal" onchange="refreshUI()">
-                  <div><div class="ot" data-i18n="setup.rt.thermal.t">Thermal orthomosaic only</div>
-                    <div class="od" data-i18n="setup.rt.thermal.d">Skips the RGB reconstruction (faster, no surface model)</div></div>
-                </label>
-                <label class="opt" id="o-rt-thermal-convert">
-                  <input type="radio" name="prod" value="thermal-convert" onchange="refreshUI()">
-                  <div><div class="ot" data-i18n="setup.rt.thermalConvert.t">⚡ Convert thermal images only (R-JPEG → Float32 TIFF)</div>
-                    <div class="od" data-i18n="setup.rt.thermalConvert.d">Skips 3D reconstruction. Calibrates temperature (°C) with EXIF/GPS tags in ~1 minute for external photogrammetry (Agisoft Metashape, Pix4D, DJI Terra)</div></div>
-                </label>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <div class="section-label">
+                <svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg> <span data-i18n="setup.quality.label">Quality and time</span>
+              </div>
+              <div class="preset-grid" id="preset-grid" role="radiogroup"
+                   aria-label="Quality preset" data-i18n-aria-label="setup.quality.aria">
+                <div class="preset-cargando" data-i18n="setup.quality.loading">Calculating times for your flight…</div>
+              </div>
+              <div class="note info" style="margin-top:12px" id="quality-note">
+                <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg></span>
+                <div id="quality-note-t" data-i18n="setup.quality.calculating">Calculating…</div>
+                <span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)"
+                      aria-live="polite" id="quality-note-live"></span>
               </div>
             </div>
           </div>
@@ -761,36 +814,36 @@ select.in{cursor:pointer}
               </label>
             </div>
           </div>
-        </div>
 
-        <!-- Calidad: se elige por USO Y TIEMPO, no por un número abstracto.
-             Antes era un slider de 0 a 100 que no respondía ni cuánto iba a
-             tardar ni para qué servía cada tramo (y donde 71 y 89 daban
-             exactamente lo mismo). Las tarjetas se arman desde
-             /quality-estimate (scripts/hardware.py sigue teniendo los CINCO
-             presets — «rápido» y «alta» quedan disponibles por CLI/API, ver
-             ./raptor run --help) pero acá se muestran solo 3, para no
-             obligar a elegir entre cinco tramos en medio de una emergencia:
-             «Urgencia» (preset vistazo + submuestreo 1-de-cada-3 SIEMPRE
-             activado — antes era un checkbox aparte que había que acordarse
-             de tildar), «Estándar» y «Máxima». pintarPresets() filtra la
-             respuesta del servidor a esos tres nombres. -->
-        <div class="form-section" data-step="5">
-          <div class="section-label">
-            <svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg> <span data-i18n="setup.quality.label">Quality and time</span>
-          </div>
-          <div class="preset-grid" id="preset-grid" role="radiogroup"
-               aria-label="Quality preset" data-i18n-aria-label="setup.quality.aria">
-            <div class="preset-cargando" data-i18n="setup.quality.loading">Calculating times for your flight…</div>
-          </div>
-          <div class="note info" style="margin-top:12px" id="quality-note">
-            <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-clock"/></svg></span>
-            <div id="quality-note-t" data-i18n="setup.quality.calculating">Calculating…</div>
-            <!-- Anuncio para lectores de pantalla SOLO del tiempo estimado:
-                 el texto completo (modelo + resolución) se re-renderiza en
-                 cada clic de preset y anunciarlo entero sería ruido. -->
-            <span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)"
-                  aria-live="polite" id="quality-note-live"></span>
+          <!-- Calibración Térmica Radiométrica (DJI Thermal SDK) -->
+          <div class="form-section" id="blk-thermal-cal">
+            <div class="section-label">
+              <svg class="ic" aria-hidden="true"><use href="#i-thermometer"/></svg> <span>Calibración Térmica Radiométrica (DJI SDK)</span>
+            </div>
+            <div class="note info" style="margin-bottom:10px">
+              <span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-sliders"/></svg></span>
+              <div style="font-size:12px;color:var(--tx2);line-height:1.5">
+                Valores por defecto estándar SIATA para combate de incendios. Déjalos vacíos para usar los valores automáticos recomendados.
+              </div>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:10px">
+              <div>
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:4px">Emisividad [0.10–1.00]</label>
+                <input type="number" id="in-emissivity" step="0.01" min="0.10" max="1.00" placeholder="0.96" style="width:100%;padding:6px 8px;font-size:13px;border:1px solid var(--bd);border-radius:var(--r-sm);background:var(--bg2);color:var(--tx)">
+              </div>
+              <div>
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:4px">Humedad % [1–100]</label>
+                <input type="number" id="in-humidity" step="0.1" min="1.0" max="100.0" placeholder="15.0" style="width:100%;padding:6px 8px;font-size:13px;border:1px solid var(--bd);border-radius:var(--r-sm);background:var(--bg2);color:var(--tx)">
+              </div>
+              <div>
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:4px">Distancia m [1–25]</label>
+                <input type="number" id="in-distance" step="0.5" min="1.0" max="25.0" placeholder="25.0" style="width:100%;padding:6px 8px;font-size:13px;border:1px solid var(--bd);border-radius:var(--r-sm);background:var(--bg2);color:var(--tx)">
+              </div>
+              <div>
+                <label style="font-size:11px;font-weight:600;display:block;margin-bottom:4px">Temp. Reflejada °C</label>
+                <input type="number" id="in-reflection" step="0.5" min="-40.0" max="500.0" placeholder="19.0" style="width:100%;padding:6px 8px;font-size:13px;border:1px solid var(--bd);border-radius:var(--r-sm);background:var(--bg2);color:var(--tx)">
+              </div>
+            </div>
           </div>
         </div>
 
@@ -986,7 +1039,7 @@ function goBack(){
 // resumen lateral (#rail) no depende de esto: se rellena de renderRail(),
 // que ya se llama en cada cambio del formulario sin importar qué paso se
 // esté mostrando.
-const SETUP_STEPS = 5;
+const SETUP_STEPS = 4;
 let setupStep = 1;
 function showStep(n){
   setupStep = n;
@@ -998,7 +1051,7 @@ function showStep(n){
     d.classList.toggle('on', dn === n);
     d.classList.toggle('done', dn < n);
   });
-  const labelKey = ['wiz.step.name','wiz.step.photos','wiz.step.terrain','wiz.step.products','wiz.step.quality'][n-1];
+  const labelKey = ['wiz.step.name','wiz.step.photos','wiz.step.mode','wiz.step.options'][n-1];
   $('wiz-step-label').textContent = t('wiz.step.count', {n, total: SETUP_STEPS}) + ' · ' + t(labelKey);
   $('wiz-back-btn').classList.toggle('hidden', n === 1);
   $('wiz-next-btn').classList.toggle('hidden', n === SETUP_STEPS);
@@ -1093,26 +1146,29 @@ const I18N = {
     'setup.name.hint': 'Used as the folder name for photos, reconstruction, and products.',
     'setup.photos.label': 'Mission photos',
     'setup.photos.sub': "Add the flight folder(s): RGB/thermal (M3T/H20T) and/or multispectral (M3M), one or both. Each folder's contents are detected automatically.",
-    'btn.chooseFolder': 'Choose folder…',
-    'btn.chooseFiles': 'Choose photos…',
-    'setup.dz.title': 'Drag photos or folder here, or click to choose',
-    'setup.dz.hint': 'Standard RGB (JPG/PNG), thermal (<code>*_T.JPG</code>) or multispectral (<code>*_MS_*.TIF</code>). Choose individual files or entire folders.',
-    'setup.rt.label': 'Products to generate (RGB / thermal)',
-    'setup.rt.chooseOne': 'Only need one sensor?',
-    'setup.rt.both.t': 'RGB + thermal orthomosaic',
-    'setup.rt.both.d': 'Both mosaics, plus confidence mask and hotspot detection',
-    'setup.rt.rgb.t': 'RGB orthomosaic only',
-    'setup.rt.rgb.d': 'Skips all thermal processing (faster)',
-    'setup.rt.thermal.t': 'Thermal orthomosaic only',
-    'setup.rt.thermal.d': 'Skips the RGB reconstruction (faster, no surface model)',
-    'setup.rt.thermalConvert.t': '⚡ Convert thermal images only (R-JPEG → Float32 TIFF)',
-    'setup.rt.thermalConvert.d': 'Skips 3D reconstruction. Calibrates temperature (°C) with EXIF/GPS tags in ~1 minute for external photogrammetry (Agisoft Metashape, Pix4D, DJI Terra)',
-    'setup.rt.thermalConvert.bannerTitle': '⚡ Fast Thermal Conversion Mode',
-    'setup.rt.thermalConvert.bannerText': 'No 3D reconstruction required. Extracts radiometric temperature matrix (°C) with orientation and geotags in ~1 minute for external photogrammetry software.',
-    'btn.startThermalConvert': 'Start thermal conversion',
-    'rt.statement.both': "<b>We'll generate:</b> RGB + thermal orthomosaic. Both mosaics, plus confidence mask and hotspot detection.",
-    'rt.statement.rgbOnly': "<b>We'll generate:</b> RGB orthomosaic. No thermal photos were found, so there's nothing else to choose.",
-    'rt.statement.thermalOnly': "<b>We'll generate:</b> thermal orthomosaic. No RGB photos were found, so there's nothing else to choose.",
+    'btn.chooseFolder': 'Choose folder(s)…',
+    'btn.chooseFiles': 'Choose loose photos…',
+    'setup.dz.title': 'Drag folders or photos here, or click to choose',
+    'setup.dz.hint': 'Drop multiple folders at once from your file manager, or choose entire folders or loose photos (RGB, Thermal *_T, Multispectral *_MS_).',
+    'setup.dz.folderTip': '💡 <b>Multi-folder tip:</b> Drag multiple folders together into this box, or select a parent folder containing your subfolders. You can also use <b>[+ Folder]</b> to add folders sequentially.',
+    'setup.folders.title': 'Selected folders:',
+    'setup.folders.looseFiles': '{n} loose photos',
+    'setup.folders.remove': 'Remove folder',
+    'btn.addAnotherFolder': '+ Folder',
+    'btn.addAnotherFiles': '+ Photos',
+    'btn.clearAll': 'Clear',
+    'setup.mode.label': 'Processing mode',
+    'setup.mode.sub': 'RAPTOR operates in 2 modes depending on operational urgency and analytical depth.',
+    'setup.mode.25d.t': '⚡ 2.5D — Fast Orthomosaic (Zenith)',
+    'setup.mode.25d.badge': 'Recommended',
+    'setup.mode.25d.d': 'Direct DEM projection with native Zenith engine (~20–30s) for RGB and Thermal sensors. Calibrated Float32 °C orthomosaic, hotspot triage, and situation summary.',
+    'setup.mode.3d.t': '🌐 3D — SfM Reconstruction (ODM)',
+    'setup.mode.3d.d': 'Complete Structure-from-Motion photogrammetry (ODM) supporting all 3 sensors: RGB, Thermal, and Multispectral (M3M 4-band + NDVI/NDRE reflectance indices and DSM).',
+    'setup.zenith.label': 'Zenith 2.5D Configuration',
+    'setup.zenith.title': 'Ultra-fast tactical processing',
+    'setup.zenith.desc': '• <b>Elevation Model (DEM):</b> Automatic 3-level cascade (1. Local DEM if provided → 2. Copernicus GLO-30 30m → 3. Barometric flight plane).<br>• <b>Sensors:</b> RGB and radiometric Thermal (°C).<br>• <b>Estimated time:</b> ~20–40 seconds.<br>• <b>Automatic outputs:</b> Georeferenced orthomosaic (Float32 °C or RGBA), hotspot detection, situation summary, and Leaflet map tiles.',
+    'setup.zenith.msWarn.t': 'Multispectral sensor detected',
+    'setup.zenith.msWarn.d': 'Multispectral bands and reflectance vegetation indices (NDVI, NDRE) require 3D SfM reconstruction (ODM). Please select 3D Mode.',
     'setup.ms.label': 'Multispectral (M3M)',
     'setup.ms.dband.t': 'Also the visible mosaic (D band)',
     'setup.ms.dband.d': "Processed separately from the 4 bands: the M3M's own RGB camera, for a quick visual reference",
@@ -1153,9 +1209,8 @@ const I18N = {
     'wiz.step.count': 'Step {n} of {total}',
     'wiz.step.name': 'Mission name',
     'wiz.step.photos': 'Photos',
-    'wiz.step.terrain': 'Terrain',
-    'wiz.step.products': 'Products',
-    'wiz.step.quality': 'Quality and time',
+    'wiz.step.mode': 'Mode',
+    'wiz.step.options': 'Options & Quality',
     'setup.name.required': 'Enter a name for the mission.',
     'setup.photos.required': 'Add at least one recognized flight folder before continuing.',
     'rail.aria': 'Mission summary',
@@ -1163,10 +1218,8 @@ const I18N = {
     'rail.photosDetected': 'Photos detected',
     'rail.products': 'Products',
     'rail.noName': 'No name yet',
-    'rail.item.rgbThermal': 'RGB + thermal orthomosaic',
-    'rail.item.rgb': 'RGB orthomosaic',
-    'rail.item.thermal': 'Thermal orthomosaic',
-    'rail.item.thermalConvert': '⚡ Thermal conversion only (°C TIFF)',
+    'rail.item.25d': '2.5D Fast Orthomosaic (Zenith)',
+    'rail.item.3d': '3D SfM Reconstruction (ODM)',
     'rail.item.msBands': 'Multispectral (4 bands)',
     'rail.item.plusDband': ' + D band',
     'rail.item.none': 'No sensors detected yet',
@@ -1186,6 +1239,10 @@ const I18N = {
     'picker.added': '✓ added',
     'picker.noFlightContent': 'No flight content recognized here',
     'picker.enterFolder': 'Enter {name}',
+    'picker.selectFolder': 'Click to select {name}',
+    'picker.openFolder': 'Open ➔',
+    'picker.selectAll': 'Select all',
+    'picker.deselectAll': 'Deselect',
     'picker.couldNotAddList': 'Could not add: {list}',
     'picker.selectedOne': '{n} folder selected',
     'picker.selectedMany': '{n} folders selected',
@@ -1309,26 +1366,29 @@ const I18N = {
     'setup.name.hint': 'Se usará como nombre de carpeta para fotos, reconstrucción y productos.',
     'setup.photos.label': 'Fotos de la misión',
     'setup.photos.sub': 'Agrega la(s) carpeta(s) del vuelo: RGB/térmico (M3T/H20T) y/o multiespectral (M3M), una o las dos. Se detecta automáticamente qué trae cada una.',
-    'btn.chooseFolder': 'Elegir carpeta…',
-    'btn.chooseFiles': 'Elegir fotos…',
-    'setup.dz.title': 'Arrastra las fotos o carpeta aquí, o haz clic para elegir',
-    'setup.dz.hint': 'RGB estándar (JPG/PNG), térmicas (<code>*_T.JPG</code>) o multiespectrales (<code>*_MS_*.TIF</code>). Elige fotos individuales o carpetas completas.',
-    'setup.rt.label': 'Productos a generar (RGB / térmico)',
-    'setup.rt.chooseOne': '¿Solo necesitas un sensor?',
-    'setup.rt.both.t': 'Ortomosaico RGB + térmico',
-    'setup.rt.both.d': 'Ambos mosaicos, más máscara de confianza y detección de hotspots',
-    'setup.rt.rgb.t': 'Solo ortomosaico RGB',
-    'setup.rt.rgb.d': 'Salta todo el procesamiento térmico (más rápido)',
-    'setup.rt.thermal.t': 'Solo ortomosaico térmico',
-    'setup.rt.thermal.d': 'Salta la reconstrucción RGB (más rápido, sin modelo de superficie)',
-    'setup.rt.thermalConvert.t': '⚡ Solo conversión térmica (R-JPEG → GeoTIFF Float32)',
-    'setup.rt.thermalConvert.d': 'Sin reconstrucción 3D. Extrae temperatura calibrada (°C) con GPS/orientación para Agisoft Metashape, Pix4D o DJI Terra en ~1 minuto',
-    'setup.rt.thermalConvert.bannerTitle': '⚡ Modo de conversión rápida',
-    'setup.rt.thermalConvert.bannerText': 'Sin reconstrucción 3D. Extrae y calibra la matriz térmica radiométrica en °C con orientación y geotags en ~1 minuto para fotogrametría externa (Agisoft Metashape, Pix4D, DJI Terra).',
-    'btn.startThermalConvert': 'Iniciar conversión térmica',
-    'rt.statement.both': '<b>Vamos a generar:</b> ortomosaico RGB + térmico. Ambos mosaicos, más máscara de confianza y detección de hotspots.',
-    'rt.statement.rgbOnly': '<b>Vamos a generar:</b> ortomosaico RGB. No se encontraron fotos térmicas, así que no hay otra cosa para elegir.',
-    'rt.statement.thermalOnly': '<b>Vamos a generar:</b> ortomosaico térmico. No se encontraron fotos RGB, así que no hay otra cosa para elegir.',
+    'btn.chooseFolder': 'Elegir carpeta(s)…',
+    'btn.chooseFiles': 'Elegir fotos sueltas…',
+    'setup.dz.title': 'Arrastra tus carpetas o fotos aquí, o haz clic para elegir',
+    'setup.dz.hint': 'Puedes arrastrar varias carpetas a la vez desde tu explorador, o seleccionar carpetas completas o fotos sueltas (RGB, Térmico *_T o Multiespectral *_MS_).',
+    'setup.dz.folderTip': '💡 <b>Para varias carpetas:</b> Arrastra varias carpetas juntas a este recuadro, o elige una carpeta principal que contenga tus subcarpetas. También puedes usar <b>[+ Carpeta]</b> para sumar carpetas una tras otra.',
+    'setup.folders.title': 'Carpetas seleccionadas:',
+    'setup.folders.looseFiles': '{n} fotos sueltas',
+    'setup.folders.remove': 'Quitar carpeta',
+    'btn.addAnotherFolder': '+ Carpeta',
+    'btn.addAnotherFiles': '+ Fotos',
+    'btn.clearAll': 'Limpiar',
+    'setup.mode.label': 'Modo de procesamiento',
+    'setup.mode.sub': 'RAPTOR opera en 2 modos según la urgencia y el tipo de análisis requerido.',
+    'setup.mode.25d.t': '⚡ 2.5D — Mosaico Rápido (Zenith)',
+    'setup.mode.25d.badge': 'Recomendado',
+    'setup.mode.25d.d': 'Proyección ortográfica directa sobre DEM con motor Zenith (~20–30s) para sensores RGB y Térmico. Ortomosaico calibrado en °C, detección de focos y resumen táctico.',
+    'setup.mode.3d.t': '🌐 3D — Reconstrucción SfM (ODM)',
+    'setup.mode.3d.d': 'Fotogrametría densa completa (ODM) con soporte integral para los 3 sensores: RGB, Térmico y Multiespectral (M3M 4 bandas + índices NDVI/NDRE y modelo DSM).',
+    'setup.zenith.label': 'Configuración Zenith 2.5D',
+    'setup.zenith.title': 'Procesamiento táctico ultrarrápido',
+    'setup.zenith.desc': '• <b>Modelo de elevación (DEM):</b> Cascada automática (1. DEM local si existe → 2. Copernicus GLO-30 30m → 3. Plano barométrico de vuelo).<br>• <b>Sensores:</b> RGB y Térmico radiométrico (°C).<br>• <b>Tiempo estimado:</b> ~20–40 segundos.<br>• <b>Salidas automáticas:</b> Ortomosaico georreferenciado (Float32 °C o RGBA), detección de focos de calor, resumen de situación y teselas Leaflet.',
+    'setup.zenith.msWarn.t': 'Sensor Multiespectral detectado',
+    'setup.zenith.msWarn.d': 'Las bandas multiespectrales y los índices de vegetación (NDVI, NDRE) requieren reconstrucción 3D (ODM). Selecciona Modo 3D para procesar este sensor.',
     'setup.ms.label': 'Multiespectral (M3M)',
     'setup.ms.dband.t': 'También el mosaico visible (banda D)',
     'setup.ms.dband.d': 'Procesamiento aparte, independiente de las 4 bandas: la cámara RGB propia del M3M, para una vista visual rápida',
@@ -1369,9 +1429,8 @@ const I18N = {
     'wiz.step.count': 'Paso {n} de {total}',
     'wiz.step.name': 'Nombre de la misión',
     'wiz.step.photos': 'Fotos',
-    'wiz.step.terrain': 'Terreno',
-    'wiz.step.products': 'Productos',
-    'wiz.step.quality': 'Calidad y tiempo',
+    'wiz.step.mode': 'Modo',
+    'wiz.step.options': 'Opciones y calidad',
     'setup.name.required': 'Pon un nombre para la misión.',
     'setup.photos.required': 'Agrega al menos una carpeta de vuelo reconocida antes de continuar.',
     'rail.aria': 'Resumen de la misión',
@@ -1379,10 +1438,8 @@ const I18N = {
     'rail.photosDetected': 'Fotos detectadas',
     'rail.products': 'Productos',
     'rail.noName': 'Sin nombre todavía',
-    'rail.item.rgbThermal': 'Ortomosaico RGB + térmico',
-    'rail.item.rgb': 'Ortomosaico RGB',
-    'rail.item.thermal': 'Ortomosaico térmico',
-    'rail.item.thermalConvert': '⚡ Solo conversión térmica (TIFF °C)',
+    'rail.item.25d': '2.5D Mosaico Rápido (Zenith)',
+    'rail.item.3d': '3D Reconstrucción SfM (ODM)',
     'rail.item.msBands': 'Multiespectral (4 bandas)',
     'rail.item.plusDband': ' + banda D',
     'rail.item.none': 'Sin sensores detectados todavía',
@@ -1402,6 +1459,10 @@ const I18N = {
     'picker.added': '✓ agregada',
     'picker.noFlightContent': 'No se reconoce contenido de vuelo acá',
     'picker.enterFolder': 'Entrar a {name}',
+    'picker.selectFolder': 'Clic para seleccionar {name}',
+    'picker.openFolder': 'Abrir ➔',
+    'picker.selectAll': 'Seleccionar todas',
+    'picker.deselectAll': 'Deseleccionar',
     'picker.couldNotAddList': 'No se pudo agregar: {list}',
     'picker.selectedOne': '{n} carpeta seleccionada',
     'picker.selectedMany': '{n} carpetas seleccionadas',
@@ -1585,14 +1646,72 @@ function fileKind(name){
 // arrastrar primero la carpeta RGB/térmico y después la M3M por separado
 // (o varias carpetas del mismo tipo) y ninguna pisa a la anterior.
 let addedFiles = [];
+let sourceCounter = 0;
 
-function addFilesToForm(files){
-  const seen = new Set(addedFiles.map(f=>f.name+'|'+f.size));
-  for(const f of files){
-    const key = f.name+'|'+f.size;
-    if(!seen.has(key)){ addedFiles.push(f); seen.add(key); }
+function addFilesToForm(files, folderLabel = ''){
+  // Filtra archivos no imagen (DS_Store, Thumbs.db, etc.)
+  const imageFiles = files.filter(f => fileKind(f.name) !== null);
+  if(!imageFiles.length) return;
+
+  const batchId = 'src_' + (++sourceCounter);
+  const seen = new Set(addedFiles.map(f => (f.webkitRelativePath || f.folderPath || f.name) + '|' + f.size + '|' + (f.lastModified || 0)));
+
+  for(const f of imageFiles){
+    if(!f.sourceId) f.sourceId = batchId;
+    if(!f.folderName){
+      const rel = f.webkitRelativePath || f.folderPath || '';
+      f.folderName = rel ? rel.split('/')[0] : (folderLabel || '_loose_');
+    }
+    const key = (f.webkitRelativePath || f.folderPath || f.name) + '|' + f.size + '|' + (f.lastModified || 0);
+    if(!seen.has(key)){
+      addedFiles.push(f);
+      seen.add(key);
+    }
   }
   refreshUI();
+}
+
+function removeSource(sourceId){
+  addedFiles = addedFiles.filter(f => (f.sourceId || 'default') !== sourceId);
+  refreshUI();
+}
+
+function clearAddedFiles(){
+  addedFiles = [];
+  $('in-add').value = '';
+  const _inFiles = $('in-add-files'); if(_inFiles) _inFiles.value = '';
+  refreshUI();
+}
+
+function renderFolderChips(){
+  const box = $('sources-add');
+  const chips = $('folder-chips');
+  if(!box || !chips) return;
+  if(!addedFiles.length){
+    box.classList.add('hidden');
+    chips.innerHTML = '';
+    return;
+  }
+  box.classList.remove('hidden');
+  const groups = new Map();
+  for(const f of addedFiles){
+    const sId = f.sourceId || 'default';
+    if(!groups.has(sId)) groups.set(sId, {name: f.folderName || 'Carpeta', count: 0});
+    groups.get(sId).count++;
+  }
+  const html = [];
+  for(const [sId, g] of groups.entries()){
+    const isLoose = g.name === '_loose_';
+    const label = isLoose ? t('setup.folders.looseFiles', {n: g.count}) : `${g.name} (${g.count} fotos)`;
+    const icon = isLoose ? '#i-drone' : '#i-folder';
+    const sIdEscaped = sId.replace(/'/g, "\\'");
+    html.push(`<div class="chip-folder">
+      <svg class="ic" style="width:13px;height:13px;color:var(--ac)" aria-hidden="true"><use href="${icon}"/></svg>
+      <span class="nm">${label}</span>
+      <button type="button" class="rm" onclick="removeSource('${sIdEscaped}')" title="${t('setup.folders.remove')}">&times;</button>
+    </div>`);
+  }
+  chips.innerHTML = html.join('');
 }
 
 function filesForKind(kind){
@@ -1790,11 +1909,7 @@ async function loadStatus(name){
     impEnabled = !!s.import_enabled;
     impHostRoot = s.import_host_root || '';
     imported = s.imported || {rgb_thermal:[], multispectral:[]};
-    // sensors.rt/ms se recalculan solos en refreshUI() (totalFor() ya suma
-    // stored[kind]) — acá solo queda la preselección de "solo RGB" si esta
-    // misión ya tiene fotos pero ninguna térmica.
-    if(s.uploads.rgb_thermal.total && !s.uploads.rgb_thermal.thermal)
-      document.querySelector('input[name=prod][value=rgb]').checked = true;
+
   }catch(e){
     stored={rgb_thermal:null,multispectral:null};
     impEnabled = false; impHostRoot = '';
@@ -1802,44 +1917,39 @@ async function loadStatus(name){
   }
 }
 
+function onModeChange(){
+  const mode = selectedMode();
+  const o25 = $('o-mode-25d'), o3d = $('o-mode-3d');
+  if(o25) o25.classList.toggle('on', mode === '2.5d');
+  if(o3d) o3d.classList.toggle('on', mode === '3d');
+  const b25 = $('blk-25d-opts'), b3d = $('blk-3d-opts');
+  if(b25) b25.classList.toggle('hidden', mode !== '2.5d');
+  if(b3d) b3d.classList.toggle('hidden', mode !== '3d');
+  refreshQualityEstimate();
+  renderRail();
+}
+
 function refreshUI(){
-  // Ya no se declara el sensor de antemano — se DERIVA de lo que trae lo
-  // agregado (subido o importado): apenas hay contenido reconocido de un
-  // tipo, ese bloque aparece solo. sensors.rt/ms se sigue leyendo en un
-  // montón de lugares (selectedMode(), uploadAndStart()...)
-  // así que se recalculan acá en vez de tocar cada uno de esos sitios.
   const cRT = totalFor('rgb_thermal');
   const cMS = totalFor('multispectral');
   sensors.rt = cRT.total > 0;
   sensors.ms = cMS.total > 0;
 
-  $('blk-rt').classList.toggle('hidden', !sensors.rt);
   $('blk-ms').classList.toggle('hidden', !sensors.ms);
 
   renderChips($('ch-add'), {rgb:cRT.rgb, thermal:cRT.thermal, ms:cMS.ms, dband:cMS.dband,
     otros:cRT.otros+cMS.otros, total:cRT.total+cMS.total}, []);
+  renderFolderChips();
 
-  // Banda D: solo se ofrece si de verdad hay *_D.JPG entre lo subido/
-  // importado — sin eso no hay nada que procesar, y dejar el checkbox
-  // tildado de una misión anterior sin banda D en esta enviaría dband=true
-  // sin fotos detrás (docker/entrypoint.sh simplemente lo ignora, pero es
-  // confuso ofrecerlo sin datos).
   const hayDband = cMS.dband > 0;
   $('o-dband').classList.toggle('hidden', !hayDband);
   if(!hayDband) $('in-dband').checked = false;
   $('o-dband').classList.toggle('on', $('in-dband').checked);
 
-  // Elegir carpeta en el servidor (symlink) vs. subir por el navegador:
-  // la primera solo existe si se arrancó con ./raptor webapp --import DIR
-  // (mismo criterio que la exportación) — sin eso no hay ninguna ruta del
-  // host que el contenedor pueda leer, y subir por HTTP es la única forma
-  // que queda. Un solo cuadro, no uno por sensor: ya no hace falta declarar
-  // antes qué se va a agregar.
   $('pick-add').classList.toggle('hidden', !impEnabled);
   $('dz-add').classList.toggle('hidden', impEnabled);
   if(impEnabled) renderImportedList('il-add');
 
-  // "ya guardado en el servidor" — deja claro qué NO hace falta volver a subir
   const guardado = [['rgb_thermal',t('label.rgbThermal')],['multispectral',t('label.multispectral')]]
     .filter(([kind])=>stored[kind] && stored[kind].total);
   if(guardado.length){
@@ -1850,100 +1960,33 @@ function refreshUI(){
     ).join('<br>');
   }else $('st-add').classList.add('hidden');
 
-  // "Ambos"/"Solo térmico" si no hay térmicas, "Ambos"/"Solo RGB" si no hay
-  // RGB: se deshabilita la opción imposible en vez de dejar que el pipeline
-  // falle 40 min después.
-  const both = $('o-rt-both'), noTher = cRT.total>0 && cRT.thermal===0;
-  both.classList.toggle('dis', noTher);
-  both.querySelector('input').disabled = noTher;
-  if(noTher) document.querySelector('input[name=prod][value=rgb]').checked = true;
-  const thOpt = $('o-rt-thermal'), noRgb = cRT.total>0 && cRT.rgb===0;
-  thOpt.classList.toggle('dis', noRgb || noTher);
-  thOpt.querySelector('input').disabled = noRgb || noTher;
-  const thConvOpt = $('o-rt-thermal-convert');
-  if(thConvOpt){
-    thConvOpt.classList.toggle('dis', noTher);
-    thConvOpt.querySelector('input').disabled = noTher;
-  }
-  if(noRgb && !noTher){
-    const curVal = document.querySelector('input[name=prod]:checked')?.value;
-    if(curVal !== 'thermal' && curVal !== 'thermal-convert') {
-      document.querySelector('input[name=prod][value=thermal-convert]').checked = true;
-    }
-  }
-  document.querySelectorAll('.opt input[name=prod]').forEach(i=>
+  document.querySelectorAll('.opt input[name=proc_mode]').forEach(i=>
     i.closest('.opt').classList.toggle('on', i.checked));
 
   document.querySelectorAll('.opt input[name=terreno]').forEach(i=>
     i.closest('.opt').classList.toggle('on', i.checked));
 
-  // Manejo de modo de conversión térmica vs reconstrucción 3D:
-  const isConv = selectedMode() === 'thermal-convert';
-  const secQuality = document.querySelector('div[data-step="5"]');
-  if(secQuality){
-    let banner = $('thermal-convert-banner');
-    if(!banner){
-      banner = document.createElement('div');
-      banner.id = 'thermal-convert-banner';
-      banner.className = 'note info';
-      banner.style.marginTop = '12px';
-      secQuality.appendChild(banner);
+  let mode = selectedMode();
+  // Si la misión solo tiene multiespectral (sin RGB ni térmico), conmutar a 3D de inmediato
+  if(sensors.ms && !sensors.rt && mode === '2.5d'){
+    const in3d = document.querySelector('input[name=proc_mode][value="3d"]');
+    if(in3d){
+      in3d.checked = true;
+      mode = '3d';
+      onModeChange();
     }
-    const pGrid = $('preset-grid');
-    const qNote = $('quality-note');
-    if(isConv){
-      banner.classList.remove('hidden');
-      banner.innerHTML = `<span class="ni"><svg class="ic" aria-hidden="true"><use href="#i-zap"/></svg></span>
-        <div><b>${t('setup.rt.thermalConvert.bannerTitle')}</b><br>
-        ${t('setup.rt.thermalConvert.bannerText')}</div>`;
-      if(pGrid) pGrid.classList.add('hidden');
-      if(qNote) qNote.classList.add('hidden');
-    }else{
-      banner.classList.add('hidden');
-      if(pGrid) pGrid.classList.remove('hidden');
-      if(qNote) qNote.classList.remove('hidden');
-    }
-  }
-  const btnStartTxt = $('btn-start').querySelector('span');
-  if(btnStartTxt){
-    btnStartTxt.textContent = isConv ? t('btn.startThermalConvert') : t('btn.start');
   }
 
-  // Con ambos sensores presentes hay algo que elegir: se muestra un enunciado
-  // ("Vamos a generar...") en vez de la pregunta, con un link para revelar las
-  // tres opciones si de verdad quiere un solo sensor. Con uno solo presente no
-  // hay nada que elegir: se fija el radio correspondiente por JS y no se
-  // muestra ningún choice — mostrarlo sería ofrecer opciones que fallarían.
-  if(sensors.rt){
-    if(cRT.rgb>0 && cRT.thermal>0){
-      $('rt-statement-t').innerHTML = t('rt.statement.both');
-      $('rt-choice-link').classList.remove('hidden');
-    }else if(cRT.rgb>0){
-      document.querySelector('input[name=prod][value=rgb]').checked = true;
-      $('rt-statement-t').innerHTML = t('rt.statement.rgbOnly');
-      $('rt-choice-link').classList.add('hidden');
-      $('rt-choice').classList.add('hidden');
-    }else{
-      const cur = document.querySelector('input[name=prod]:checked')?.value;
-      if(cur !== 'thermal' && cur !== 'thermal-convert') {
-        document.querySelector('input[name=prod][value=thermal]').checked = true;
-      }
-      $('rt-statement-t').innerHTML = t('rt.statement.thermalOnly');
-      $('rt-choice-link').classList.remove('hidden');
-    }
-  }
+  const b25 = $('blk-25d-opts'), b3d = $('blk-3d-opts');
+  if(b25) b25.classList.toggle('hidden', mode !== '2.5d');
+  if(b3d) b3d.classList.toggle('hidden', mode !== '3d');
+
+  const warnMS = $('warn-25d-ms');
+  if(warnMS) warnMS.classList.toggle('hidden', !(mode === '2.5d' && sensors.ms));
 
   $('btn-start').disabled = !sensors.rt && !sensors.ms;
-  // El total de fotos que ve el mensaje de calidad depende del modo y de qué
-  // sensores están activos, así que se recalcula con cualquier cambio del
-  // formulario, no solo cuando se mueve el slider.
   refreshQualityEstimate();
   renderRail();
-}
-
-function toggleRtChoice(){
-  $('rt-choice-link').classList.add('hidden');
-  $('rt-choice').classList.remove('hidden');
 }
 
 // ── Resumen lateral: lo que ya se eligió, de un vistazo ────────────────
@@ -1957,10 +2000,8 @@ function renderRail(){
 
   const items = [];
   const mode = selectedMode();
-  if(mode==='rgb+thermal') items.push(t('rail.item.rgbThermal'));
-  else if(mode==='rgb')    items.push(t('rail.item.rgb'));
-  else if(mode==='thermal')items.push(t('rail.item.thermal'));
-  else if(mode==='thermal-convert') items.push(t('rail.item.thermalConvert'));
+  if(mode==='2.5d') items.push(t('rail.item.25d'));
+  else if(mode==='3d') items.push(t('rail.item.3d'));
   if(sensors.ms) items.push(t('rail.item.msBands') + ($('in-dband').checked ? t('rail.item.plusDband') : ''));
   if(!items.length) items.push(t('rail.item.none'));
   $('rail-products').innerHTML = items.map(i=>
@@ -2050,11 +2091,7 @@ function refreshQualityEstimate(){
       // "0 fotos" mientras la subida seguía en curso, porque el archivo
       // recién llega a raw/ cuando termina de subirse, no cuando se elige.
       const rt = totalFor('rgb_thermal'), ms = totalFor('multispectral');
-      let n_photos = 0;
-      if(mode !== 'none'){
-        if(mode !== 'thermal') n_photos += rt.rgb;
-        if(mode === 'rgb+thermal' || mode === 'thermal') n_photos += rt.thermal;
-      }
+      let n_photos = rt.total;
       if(sensors.ms) n_photos += ms.ms;
       const params = new URLSearchParams({preset:presetElegido, mode,
                                           terreno:selectedTerreno(),
@@ -2074,35 +2111,40 @@ function refreshQualityEstimate(){
 }
 
 $('in-add').addEventListener('change', ()=>{
-  addFilesToForm(Array.from($('in-add').files));
+  const rawFiles = Array.from($('in-add').files);
+  const firstPath = rawFiles[0]?.webkitRelativePath || '';
+  const folderName = firstPath ? firstPath.split('/')[0] : 'Carpeta';
+  addFilesToForm(rawFiles, folderName);
   $('in-add').value = ''; // permite volver a elegir la MISMA carpeta si hace falta sumar algo más
 });
 const _inAddFiles = $('in-add-files');
 if(_inAddFiles){
   _inAddFiles.addEventListener('change', ()=>{
-    addFilesToForm(Array.from(_inAddFiles.files));
+    addFilesToForm(Array.from(_inAddFiles.files), '_loose_');
     _inAddFiles.value = '';
   });
 }
 
-// Recorre recursivamente lo arrastrado (carpetas incluidas). Un <input
-// webkitdirectory> ya da la lista plana de una carpeta entera con un solo
-// clic, pero un DROP de carpeta es distinto: dataTransfer.files viene VACÍO
-// para carpetas — solo DataTransferItemList.webkitGetAsEntry() + su
-// FileSystemDirectoryReader bajan a los archivos de adentro. Sin esto,
-// arrastrar una carpeta entera no traía nada (el motivo real de por qué el
-// drag & drop "no andaba": nunca estuvo roto para archivos sueltos, pero
-// una carpeta de la SD del dron es justo el caso de uso real acá).
-function _leerEntry(entry){
+function _leerEntry(entry, parentPath = '', sId = '', topName = ''){
   return new Promise(resolve=>{
     if(entry.isFile){
-      entry.file(f=>resolve([f]), ()=>resolve([]));
+      entry.file(f=>{
+        try{
+          const rel = (parentPath ? parentPath + '/' : '') + f.name;
+          Object.defineProperty(f, 'folderPath', {value: rel, configurable: true});
+          Object.defineProperty(f, 'folderName', {value: topName || (parentPath || '').split('/')[0] || '_loose_', configurable: true});
+          if(sId) Object.defineProperty(f, 'sourceId', {value: sId, configurable: true});
+        }catch(_){}
+        resolve([f]);
+      }, ()=>resolve([]));
     }else if(entry.isDirectory){
       const reader = entry.createReader();
       const all = [];
+      const dirPath = parentPath ? parentPath + '/' + entry.name : entry.name;
+      const tName = topName || entry.name;
       const leerLote = ()=>reader.readEntries(async lote=>{
         if(!lote.length){ resolve(all); return; }
-        for(const e of lote) all.push(...await _leerEntry(e));
+        for(const e of lote) all.push(...await _leerEntry(e, dirPath, sId, tName));
         leerLote(); // readEntries() no garantiza traer todo en una sola llamada
       }, ()=>resolve(all));
       leerLote();
@@ -2113,7 +2155,10 @@ async function filesFromDataTransfer(dataTransfer){
   const items = dataTransfer.items;
   if(items && items.length && items[0].webkitGetAsEntry){
     const entries = Array.from(items).map(it=>it.webkitGetAsEntry()).filter(Boolean);
-    const grupos = await Promise.all(entries.map(_leerEntry));
+    const grupos = await Promise.all(entries.map((entry)=>{
+      const sId = 'src_drop_' + (++sourceCounter);
+      return _leerEntry(entry, '', sId, entry.name);
+    }));
     return grupos.flat();
   }
   return Array.from(dataTransfer.files || []); // navegador sin soporte de entries
@@ -2139,8 +2184,8 @@ async function clearUploads(kind){
 }
 
 function selectedMode(){
-  if(!sensors.rt) return 'none';
-  return document.querySelector('input[name=prod]:checked').value;
+  const checked = document.querySelector('input[name=proc_mode]:checked');
+  return checked ? checked.value : '2.5d';
 }
 
 function selectedTerreno(){
@@ -2410,6 +2455,26 @@ function updatePickerFooter(){
   $('picker-add-sel').disabled = n === 0;
 }
 
+function togglePickerRow(row, evt){
+  if(evt.target.closest('button') || evt.target.closest('a')) return;
+  const cb = row.querySelector('input.sel:not([disabled])');
+  if(!cb) return;
+  if(evt.target !== cb){
+    cb.checked = !cb.checked;
+    cb.dispatchEvent(new Event('change'));
+  }
+}
+
+function selectAllPickerFolders(selectAll){
+  const cbs = document.querySelectorAll('#picker-list input.sel:not([disabled])');
+  cbs.forEach(cb=>{
+    cb.checked = selectAll;
+    if(selectAll) pickerSelected.set(cb.dataset.hp, cb.dataset.kind);
+    else pickerSelected.delete(cb.dataset.hp);
+  });
+  updatePickerFooter();
+}
+
 function renderPicker(d){
   // Migas de pan: solo raíz → acá (no hace falta la cadena completa para
   // orientarse, y evita rearmar el árbol entero del lado del cliente).
@@ -2427,34 +2492,36 @@ function renderPicker(d){
     ...(imported.rgb_thermal||[]).map(f=>f.host_path),
     ...(imported.multispectral||[]).map(f=>f.host_path),
   ]);
-  list.innerHTML = d.entries.map(e=>{
+
+  const toolbar = `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 4px 8px;font-size:12px;border-bottom:1px solid var(--bd);margin-bottom:8px">
+    <div style="display:flex;gap:8px">
+      <button type="button" class="btn xs" onclick="selectAllPickerFolders(true)">${t('picker.selectAll')}</button>
+      <button type="button" class="btn xs outline" onclick="selectAllPickerFolders(false)">${t('picker.deselectAll')}</button>
+    </div>
+    <span style="color:var(--tx3);font-size:11px">${d.entries.length} carpetas</span>
+  </div>`;
+
+  const rows = d.entries.map(e=>{
     const h = e.hint;
     const hintTxt = h.total ? `${h.rgb?h.rgb+' RGB ':''}${h.thermal?h.thermal+' '+t('picker.thermalShort'):''}${h.ms?h.ms+' MS ':''}${h.dband?h.dband+' '+t('picker.dbandShort'):''}${!h.rgb&&!h.thermal&&!h.ms&&!h.dband?t('picker.filesCount',{n:h.total}):''}`.trim()
                              : t('picker.empty');
     const added = yaAgregadas.has(e.host_path);
     const kind = kindFromHint(h);
     const hp = e.host_path.replace(/'/g,"\\'");
-    // Sin RGB/térmico ni MS reconocibles no hay a qué balde mandarla —
-    // se deja entrar igual (puede ser una carpeta intermedia con
-    // subcarpetas adentro) pero no se puede tildar directamente.
-    // Checkbox en vez de un botón que agrega al toque: así se puede tildar
-    // VARIAS carpetas — hermanas en el mismo listado (p.ej.
-    // 100MEDIA/101MEDIA/102MEDIA de una SD) o de listados distintos
-    // navegando entre medio (pickerSelected sobrevive el salto, ver su
-    // comentario) — y mandarlas todas juntas con "Agregar seleccionadas",
-    // en vez de un viaje al servidor por carpeta. Se pre-tilda si ya estaba
-    // marcada de una navegación anterior.
     const yaTildada = pickerSelected.has(e.host_path);
     const check = added ? `<span class="hint" style="color:var(--ok);flex-shrink:0">${t('picker.added')}</span>`
       : kind ? `<input type="checkbox" class="sel" data-hp="${hp}" data-kind="${kind}"${yaTildada?' checked':''}>`
       : `<input type="checkbox" class="sel" disabled title="${t('picker.noFlightContent')}">`;
-    return `<div class="picker-row ${added?'added':''}">
-      <svg class="ic" onclick="browseTo('${hp}')" aria-hidden="true"><use href="#i-folder"/></svg>
-      <span class="nm" onclick="browseTo('${hp}')" title="${t('picker.enterFolder',{name:e.name})}">${e.name}</span>
+    return `<div class="picker-row ${added?'added':''}" onclick="togglePickerRow(this, event)">
+      <svg class="ic" aria-hidden="true"><use href="#i-folder"/></svg>
+      <span class="nm" title="${t('picker.selectFolder',{name:e.name})}">${e.name}</span>
       <span class="hint">${hintTxt}</span>
       ${check}
+      <button type="button" class="btn xs outline" style="margin-left:6px;flex-shrink:0;padding:2px 7px;font-size:11px" onclick="event.stopPropagation();browseTo('${hp}')" title="${t('picker.enterFolder',{name:e.name})}">${t('picker.openFolder')}</button>
     </div>`;
   }).join('');
+
+  list.innerHTML = toolbar + rows;
   list.querySelectorAll('input.sel:not([disabled])').forEach(cb=>{
     cb.addEventListener('change', ()=>{
       if(cb.checked) pickerSelected.set(cb.dataset.hp, cb.dataset.kind);
@@ -2503,14 +2570,41 @@ async function addSelectedFolders(){
 // ═══════════════════════════════════════════════════════════════════
 // Subida + arranque
 // ═══════════════════════════════════════════════════════════════════
+function getSafeUploadName(f, duplicateBasenames){
+  if(!duplicateBasenames.has(f.name.toUpperCase())) return f.name;
+  // Si coinciden nombres base entre carpetas/vuelos, desambigua sin romper sufijos de fotogrametría (_T, _MS_)
+  const tag = (f.folderName && f.folderName !== '_loose_')
+    ? f.folderName.replace(/[^a-zA-Z0-9_-]/g, '_')
+    : (f.sourceId || 'alt');
+  const u = f.name.toUpperCase();
+  if(u.endsWith('_T.JPG') || u.endsWith('_T.JPEG') || u.endsWith('_T.TIF') || u.endsWith('_T.TIFF')){
+    const dot = f.name.lastIndexOf('.');
+    return f.name.slice(0, dot - 2) + '_' + tag + f.name.slice(dot - 2);
+  }
+  const dot = f.name.lastIndexOf('.');
+  if(dot > 0){
+    return f.name.slice(0, dot) + '_' + tag + f.name.slice(dot);
+  }
+  return f.name + '_' + tag;
+}
+
 async function uploadFiles(mission, kind, fileList, cb){
   const files = Array.from(fileList);
+  // Detecta colisiones de nombre base dentro de este lote
+  const nameCounts = new Map();
+  for(const f of files){
+    const u = f.name.toUpperCase();
+    nameCounts.set(u, (nameCounts.get(u) || 0) + 1);
+  }
+  const duplicates = new Set([...nameCounts.entries()].filter(([_, cnt]) => cnt > 1).map(([n]) => n));
+
   let done = 0, idx = 0;
   const worker = async () => {
     while(idx < files.length){
       const f = files[idx++];
+      const safeName = getSafeUploadName(f, duplicates);
       const fd = new FormData();
-      fd.append('mission', mission); fd.append('kind', kind); fd.append('file', f);
+      fd.append('mission', mission); fd.append('kind', kind); fd.append('file', f, safeName);
       const r = await fetch('/api/upload', {method:'POST', body:fd});
       if(!r.ok) throw new Error(t('error.couldNotUpload', {name: f.name}));
       cb(++done, files.length);
@@ -2544,14 +2638,18 @@ async function uploadAndStart(){
   const fMS = filesForKind('multispectral');
   const cRT = totalFor('rgb_thermal'), cMS = totalFor('multispectral');
   // Chequeos locales (instantáneos, antes de subir un solo byte)
-  if(mode === 'thermal-convert'){
-    if(!cRT.thermal)
-      return setupError(t('error.noThermalPhotos'));
-  }else{
-    if(sensors.rt && !cRT.rgb)
-      return setupError(t('error.noRgbPhotos'));
-    if((mode === 'rgb+thermal' || mode === 'thermal') && !cRT.thermal)
-      return setupError(t('error.noThermalPhotos'));
+  if(!sensors.rt && !sensors.ms)
+    return setupError(t('setup.photos.required'));
+  if(mode === '2.5d'){
+    if(cRT.total === 0){
+      if(sensors.ms && cMS.total > 0){
+        return setupError(t('setup.zenith.msWarn.d'));
+      }
+      return setupError(t('setup.photos.required'));
+    }
+  }else if(mode === '3d'){
+    if(cRT.total === 0 && (!sensors.ms || cMS.total === 0))
+      return setupError(t('setup.photos.required'));
   }
   if(sensors.ms && !cMS.ms)
     return setupError(t('error.noMsBands'));
@@ -2572,6 +2670,14 @@ async function uploadAndStart(){
     // 'vistazo' con submuestreo SIEMPRE activado — ya no es un checkbox
     // aparte que se pudiera dejar destildado por error.
     fd.append('subsample', presetElegido === 'vistazo' ? '3' : '0');
+    const emVal = $('in-emissivity') ? $('in-emissivity').value.trim() : '';
+    const humVal = $('in-humidity') ? $('in-humidity').value.trim() : '';
+    const distVal = $('in-distance') ? $('in-distance').value.trim() : '';
+    const reflVal = $('in-reflection') ? $('in-reflection').value.trim() : '';
+    if(emVal) fd.append('thermal_emissivity', emVal);
+    if(humVal) fd.append('thermal_humidity', humVal);
+    if(distVal) fd.append('thermal_distance', distVal);
+    if(reflVal) fd.append('thermal_reflection', reflVal);
     const r = await fetch(`/api/missions/${encodeURIComponent(mission)}/start`, {method:'POST', body:fd});
     if(!r.ok){
       let d; try{ d = JSON.parse(await r.text()); }catch(_){ d = null; }

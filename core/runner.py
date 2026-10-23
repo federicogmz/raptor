@@ -10,8 +10,9 @@ import re
 import shutil
 import signal
 from pathlib import Path
+from typing import Optional
 
-APP_DIR = Path("/app")
+APP_DIR = Path(os.environ.get("RAPTOR_APP_DIR", "/app"))
 LINKED_DIRS = ["processing", "outputs", "preprocessing", "data"]
 TILES_LINK = APP_DIR / "geovisor" / "tiles"
 
@@ -68,6 +69,29 @@ def deactivate_mission():
             link.unlink()
 
 
+VALID_MODES = ("2.5d", "3d", "thermal-convert")
+STAGE_ORDER = [
+    "preprocessing",
+    "thermal_ortho",
+    "rgb_odm",
+    "hotspots",
+    "tiles",
+    "pipeline",
+]
+
+
+def normalize_mode(mode: str) -> str:
+    """Normaliza cualquier modo legado a los tres modos válidos de RAPTOR: '2.5d', '3d', o 'thermal-convert'."""
+    m = (mode or "").strip().lower()
+    if m in ("2.5d", "zenith"):
+        return "2.5d"
+    if m == "thermal-convert":
+        return "thermal-convert"
+    if m in ("3d", "rgb", "rgb+thermal", "thermal", "none"):
+        return "3d"
+    return m
+
+
 class PipelineRun:
     """Corre docker/entrypoint.sh como subprocess, exponiendo eventos de
     progreso estructurados (ver PROGRESS_FILE en scripts/progress.py)
@@ -89,8 +113,9 @@ class PipelineRun:
         terreno=None,
         subsample=0,
         mission_name=None,
+        thermal_params: Optional[dict] = None,
     ):
-        self.mode = mode
+        self.mode = normalize_mode(mode)
         self.source_dir = str(source_dir)
         self.ms_source_dir = str(ms_source_dir) if ms_source_dir else None
         self.skip_odm = skip_odm
@@ -120,6 +145,7 @@ class PipelineRun:
         self.subsample = int(subsample) if subsample else 0
         # Nombre de la misión para el payload de alerta/informe (opcional).
         self.mission_name = mission_name
+        self.thermal_params = thermal_params
         self.returncode = None
         self.raw_lines = []
         self._proc = None
@@ -152,14 +178,23 @@ class PipelineRun:
         for k in ("EXPORT_DIR", "EXPORT_PRODUCTS", "EXPORT_RASTER_FORMAT", "EXPORT_VECTOR_FORMAT", "EXPORT_EPSG"):
             env.pop(k, None)
         env.update({k: str(v) for k, v in self.export.items() if v})
+
+        # Limpiar y aplicar parámetros radiométricos térmicos validados
+        for k in ("THERMAL_EMISSIVITY", "THERMAL_HUMIDITY", "THERMAL_DISTANCE", "THERMAL_REFLECTION"):
+            env.pop(k, None)
+        if self.thermal_params:
+            for p_key in ("emissivity", "humidity", "distance", "reflection"):
+                if p_key in self.thermal_params and self.thermal_params[p_key] is not None:
+                    env[f"THERMAL_{p_key.upper()}"] = str(self.thermal_params[p_key])
         return env
 
     async def start(self):
         Path(self.progress_file).write_text("")
+        entrypoint = APP_DIR / "docker" / "entrypoint.sh"
         self._proc = await asyncio.create_subprocess_exec(
-            "/app/docker/entrypoint.sh",
+            str(entrypoint),
             "run",
-            cwd="/app",
+            cwd=str(APP_DIR),
             env=self._env(),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
@@ -267,11 +302,40 @@ def parse_progress_events(path: str, since_pos: int):
                 if not line:
                     continue
                 parts = line.split("\t")
-                ev = {"event": parts[0]}
-                for kv in parts[1:]:
-                    if "=" in kv:
-                        k, v = kv.split("=", 1)
-                        ev[k] = v
+                if len(parts) >= 3 and "T" in parts[0] and (parts[0].endswith("Z") or "+00:00" in parts[0]):
+                    ev_type = parts[1]
+                    stage_name = parts[2]
+                    detail = parts[3] if len(parts) > 3 else ""
+                    ev = {
+                        "timestamp": parts[0],
+                        "event": ev_type,
+                        "stage": stage_name,
+                        "detail": detail,
+                    }
+                    if stage_name in STAGE_ORDER:
+                        idx = STAGE_ORDER.index(stage_name)
+                        work_stages = [s for s in STAGE_ORDER if s != "pipeline"]
+                        total_work = len(work_stages)
+                        if stage_name == "pipeline":
+                            ev["pct"] = 100 if ev_type == "done" else 5
+                        else:
+                            w_idx = work_stages.index(stage_name)
+                            if ev_type == "done":
+                                ev["pct"] = int(round(((w_idx + 1) / total_work) * 100))
+                            else:
+                                ev["pct"] = max(5, int(round((w_idx / total_work) * 100)))
+                        ev["stage_n"] = idx + 1
+                        ev["total"] = len(STAGE_ORDER)
+                    for kv in parts[4:]:
+                        if "=" in kv:
+                            k, v = kv.split("=", 1)
+                            ev[k] = v
+                else:
+                    ev = {"event": parts[0]}
+                    for kv in parts[1:]:
+                        if "=" in kv:
+                            k, v = kv.split("=", 1)
+                            ev[k] = v
                 events.append(ev)
             since_pos = f.tell()
     except FileNotFoundError:

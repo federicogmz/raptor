@@ -170,10 +170,15 @@ def safe_concurrency(megapixels, ram_frac=0.8, override=None, gpu_aware=False):
 # entran, se corre de a uno. El comportamiento de siempre queda como PISO,
 # nunca como techo.
 #
-# En una máquina de 23 GB eso deja al RGB (12.3 MP: ~6.3 GB por hilo en MVS)
-# corriendo solo, que es lo correcto — su etapa densa necesita de verdad esa
-# memoria. Multiespectral, banda D y térmico sí comparten.
+# En una máquina de 23 GB eso deja al RGB (12.3 MP: ~6.3 GB por hilo en MVS,
+# o 45 MP P1: ~23 GB por hilo en MVS) corriendo solo, que es lo correcto — su etapa
+# densa necesita de verdad esa memoria. Multiespectral, banda D y térmico sí comparten.
 MIN_HILOS_POR_PROYECTO = 2
+
+SENSOR_MP_DEFAULT_RGB = 12.3
+SENSOR_MP_P1_RGB = 45.0
+SENSOR_MP_THERMAL = 0.33
+SENSOR_MP_MULTISPECTRAL = 5.0
 
 # "Peso" en megapíxeles de la fase LIVIANA (todo el SfM: detect/match features,
 # reconstrucción incremental, undistort). ODM reduce las fotos a

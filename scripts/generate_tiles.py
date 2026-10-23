@@ -106,8 +106,14 @@ def _muestra_valida(path, band_idx, alpha_idx=None):
     SÍ marca alpha=0 ahí. isfinite() sola no alcanza para excluirlo."""
     ds = gdal.Open(path)
     bx, by = _tamano_muestra(ds)
-    a = ds.GetRasterBand(band_idx).ReadAsArray(buf_xsize=bx, buf_ysize=by)
+    band = ds.GetRasterBand(band_idx)
+    a = band.ReadAsArray(buf_xsize=bx, buf_ysize=by)
+    nodata = band.GetNoDataValue()
     mask = np.isfinite(a)
+    if nodata is not None:
+        mask &= ~np.isclose(a, nodata) & (a > -1e30) & (a < 1e30)
+    else:
+        mask &= (a > -1e30) & (a < 1e30)
     if alpha_idx is not None and ds.RasterCount >= alpha_idx:
         alpha = ds.GetRasterBand(alpha_idx).ReadAsArray(buf_xsize=bx, buf_ysize=by)
         mask &= alpha > 0
@@ -171,6 +177,8 @@ def _thermal_clip_range():
     if valid.size == 0:
         return (15.0, 55.0)
     lo, hi = np.percentile(valid, [0.5, 99.9])
+    lo = max(-40.0, float(lo))
+    hi = min(1500.0, float(hi))
     if hi - lo < 5.0:
         mid = (hi + lo) / 2
         lo, hi = mid - 2.5, mid + 2.5
@@ -297,10 +305,15 @@ def _banda_a_8bit(src, dst, band_idx, clip_range):
     out.SetProjection(ds.GetProjection())
     out_banda = out.GetRasterBand(1)
 
+    nodata = banda.GetNoDataValue()
     for y0 in range(0, h, FILAS_POR_BLOQUE):
         alto = min(FILAS_POR_BLOQUE, h - y0)
         a = banda.ReadAsArray(0, y0, w, alto)
         invalido = ~np.isfinite(a)
+        if nodata is not None:
+            invalido |= np.isclose(a, nodata) | (a <= -1e30) | (a >= 1e30)
+        else:
+            invalido |= (a <= -1e30) | (a >= 1e30)
         if alpha is not None:
             invalido |= alpha.ReadAsArray(0, y0, w, alto) <= 0
         a = np.nan_to_num(a, nan=0.0)
