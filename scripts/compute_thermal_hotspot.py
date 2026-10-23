@@ -45,10 +45,16 @@ def main():
 
     ds = gdal.Open(TH_PATH)
     gt, proj = ds.GetGeoTransform(), ds.GetProjection()
-    temp = ds.GetRasterBand(1).ReadAsArray()
+    band = ds.GetRasterBand(1)
+    temp = band.ReadAsArray()
+    nodata = band.GetNoDataValue()
     ds = None
 
     valid = np.isfinite(temp)
+    if nodata is not None:
+        valid &= ~np.isclose(temp, nodata) & (temp > -1e30) & (temp < 1e30)
+    else:
+        valid &= (temp > -1e30) & (temp < 1e30)
     n_valid = int(valid.sum())
     thc = classify(temp, TERM_BREAKS, valid)
 

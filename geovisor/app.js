@@ -2051,7 +2051,7 @@ function channelLabel(ch){ return t('channel.'+ch); }
 const CHANNEL_STEPS={
   rgb:[
     {labelKey:'channel.prep', match:n=>n==='Preparación imágenes RGB'},
-    {labelKey:'channel.recon3d', match:n=>n.startsWith('ODM RGB'), odm:true},
+    {labelKey:'channel.recon3d', match:n=>n.startsWith('ODM RGB')||n==='Zenith RGB', odm:true},
     {labelKey:'channel.trimExport',
      match:n=>n==='Limpieza del DSM'||n==='Recorte de bordes del DSM'||n==='Recorte de bordes RGB'},
   ],
@@ -2059,7 +2059,7 @@ const CHANNEL_STEPS={
     {labelKey:'channel.prep',
      match:n=>n==='Conversión R-JPEG → °C (DJI SDK)'||n==='Filtro bilateral (denoise)'
        ||n==='Preparación térmica nativa (ODM)'},
-    {labelKey:'channel.recon3d', match:n=>n.startsWith('ODM THERMAL'), odm:true},
+    {labelKey:'channel.recon3d', match:n=>n.startsWith('ODM THERMAL')||n==='Zenith THERMAL', odm:true},
     {labelKey:'channel.trimExport', match:n=>n==='Recorte de bordes térmicos'},
   ],
   ms:[
@@ -2182,9 +2182,13 @@ function connectLiveMission(mission){
       if(phTimerInterval)clearInterval(phTimerInterval);
       phTimerInterval=setInterval(phTick,1000); phTick();
       if(d.mode)phSetStage(t('progress.processing'));
-      buildChannels({rgb:d.mode!=='thermal'&&d.mode!=='none',
-        thermal:(d.mode||'').includes('thermal'),ms:!!d.has_multispectral});
+      buildChannels({
+        rgb: (d.has_rgb !== undefined ? d.has_rgb : (d.mode!=='thermal'&&d.mode!=='none')),
+        thermal: (d.has_thermal !== undefined ? d.has_thermal : ((d.mode||'').includes('thermal'))),
+        ms: !!d.has_multispectral
+      });
     }else if(d.kind==='progress'){
+      if(d.detail)phSetStage(d.detail);
       if(d.event==='stage')updateChannel(d.name,d.n?parseInt(d.n,10):null,d.total?parseInt(d.total,10):null);
     }else if(d.kind==='log'){
       phAppendLog(d.line);
