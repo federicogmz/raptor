@@ -59,7 +59,16 @@ abs() {  # ruta absoluta NORMALIZADA (sin ./ ni ..), sin exigir que exista.
 gpu_args() {
   if [[ "${NO_GPU:-0}" -eq 1 ]]; then return; fi
   if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
-    printf '%s' "--gpus all"
+    local info
+    info="$(docker info --format '{{.OperatingSystem}} {{json .Runtimes}}' 2>/dev/null || true)"
+    if command -v nvidia-container-runtime-hook >/dev/null 2>&1 \
+      || [[ "$info" == *"Docker Desktop"* || "$info" == *'"nvidia"'* ]] \
+      || compgen -G "/etc/cdi/*nvidia*" >/dev/null 2>&1 \
+      || compgen -G "/var/run/cdi/*nvidia*" >/dev/null 2>&1; then
+      printf '%s' "--gpus all"
+    else
+      echo "ℹ  GPU NVIDIA detectada pero falta nvidia-container-toolkit — corriendo en CPU." >&2
+    fi
   else
     echo "ℹ  Sin GPU detectada — ODM correrá en CPU (más lento)." >&2
   fi
