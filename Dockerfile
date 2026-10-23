@@ -36,6 +36,7 @@ RUN python3 scripts/check_deps.py
 RUN python3 docker/patch_odm_multispectral.py
 RUN chmod +x dji_thermal_sdk/utility/bin/linux/release_x64/* \
     && chmod +x docker/entrypoint.sh docker/setup-data.sh docker/setup-data-multispectral.sh \
+    && ( if [ -f /app/.zenith-bin ]; then mv /app/.zenith-bin /usr/local/bin/zenith && chmod +x /usr/local/bin/zenith; elif [ -f /app/zenith/target/release/zenith ]; then cp /app/zenith/target/release/zenith /usr/local/bin/zenith && chmod +x /usr/local/bin/zenith; fi || true ) \
     && ln -s ../outputs geovisor/outputs
 # El geovisor se sirve bajo /geovisor/ y pide sus datos con rutas relativas
 # (outputs/area_afectada.geojson, tiles/bounds.json), pero outputs/ es un

@@ -59,12 +59,16 @@ projects/
 .DS_Store
 Thumbs.db
 
-# Motor fotogramétrico independiente (subproyecto con git propio)
+# Motor fotogramétrico independiente (vive como repo hermano en ../zenith)
+/.zenith-bin
 /argus/
 /argos/
 /lynx/
-/zenith/
 /axis/
 /kuntur/
 /engine/
-
+# Modelos de elevación externos
+/DEM_VA/
+*.tif
+*.tfw
+*.ovr

@@ -278,13 +278,22 @@ EOF
 
 cmd_build() {
   asegurar_docker
+  local zenith_host="${ZENITH_BIN:-$(dirname "$AQUI")/zenith/target/release/zenith}"
+  trap 'rm -f "$AQUI/.zenith-bin"' EXIT
+  if [[ -f "$zenith_host" ]]; then
+    cp -f "$zenith_host" "$AQUI/.zenith-bin"
+  fi
   echo "🔨 Construyendo ${IMAGE}…"
-  docker build -t "$IMAGE" "$AQUI" "$@"
+  local rc=0
+  docker build -t "$IMAGE" "$AQUI" "$@" || rc=$?
+  rm -f "$AQUI/.zenith-bin"
+  trap - EXIT
+  return $rc
 }
 
 cmd_run() {
   local input="" input_ms="" export_dir="" runs="$PWD/runs"
-  local mode="rgb+thermal" preset="" quality="" terreno="plano" reuse=0 verbose=0 json=0 serve=0 port=8080 subsample=0
+  local mode="2.5d" preset="" quality="" terreno="plano" reuse=0 verbose=0 json=0 serve=0 port=8080 subsample=0
   local products="all" epsg="source" rfmt="cog" vfmt="geojson" concurrency=""
 
   while [[ $# -gt 0 ]]; do
@@ -315,7 +324,7 @@ cmd_run() {
   done
 
   [[ -z "$input" && -z "$input_ms" ]] && morir "hace falta --input y/o --input-ms  (./raptor run --help)"
-  case "$mode" in rgb|rgb+thermal|none) ;; *) morir "--mode inválido: $mode (rgb, rgb+thermal o none)" ;; esac
+  case "$mode" in 2.5d|3d|zenith|rgb|rgb+thermal|thermal|none) ;; *) morir "--mode inválido: $mode (2.5d, 3d, rgb+thermal, rgb o none)" ;; esac
   [[ -z "$input" && "$mode" != "none" ]] && morir "sin --input, --mode tiene que ser 'none' (solo multiespectral)"
   # --preset gana; --quality N sigue aceptándose (se mapea adentro del
   # contenedor, ver PRESET en docker/entrypoint.sh). El nombre en sí lo valida
