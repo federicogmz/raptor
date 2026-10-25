@@ -1,0 +1,1541 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RAPTOR Documentation // Multi-Sensor UAV Photogrammetry &amp; Wildfire Triage</title>
+  <meta name="description" content="Publication-grade documentation for RAPTOR: Tiered dual-engine UAV photogrammetry (2.5D Zenith &amp; 3D ODM) for thermal triage, multispectral indices, and cartographic deliverables.">
+  <link rel="icon" type="image/svg+xml" href="./assets/icon.svg">
+
+  <!-- OpenGraph Metadata -->
+  <meta property="og:title" content="RAPTOR Photogrammetry &amp; Wildfire Triage Pipeline">
+  <meta property="og:description" content="Tiered photogrammetry pipeline: Level 0 Triage (<2 min), Level 1 Tactical 2.5D Zenith (30s), Level 2 Cartographic 3D ODM (15-45 min).">
+  <meta property="og:image" content="./assets/logo.svg">
+  <meta property="og:type" content="website">
+
+  <!-- Prevent Theme FOUC -->
+  <script>
+    (function() {
+      const savedTheme = localStorage.getItem('raptor-theme');
+      if (savedTheme === 'light' || savedTheme === 'dark') {
+        document.documentElement.setAttribute('data-theme', savedTheme);
+      } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
+
+  <style>
+    /* CSS Variables & Design System */
+    :root[data-theme="dark"] {
+      --bg: #0b1017;
+      --bg-surface: #111827;
+      --bg-surface-elevated: #1a2436;
+      --bg-code: #070c14;
+      --border: #243042;
+      --border-accent: #ff9100;
+      --border-focus: #38bdf8;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+      --accent-orange: #ff9100;
+      --accent-crimson: #ff1744;
+      --accent-cyan: #38bdf8;
+      --accent-green: #10b981;
+      --accent-purple: #c084fc;
+      --badge-bg: #1e293b;
+      --shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+    :root[data-theme="light"] {
+      --bg: #f8fafc;
+      --bg-surface: #ffffff;
+      --bg-surface-elevated: #f1f5f9;
+      --bg-code: #0f172a;
+      --border: #e2e8f0;
+      --border-accent: #ea580c;
+      --border-focus: #0284c7;
+      --text: #0f172a;
+      --text-muted: #475569;
+      --text-dim: #94a3b8;
+      --accent-orange: #ea580c;
+      --accent-crimson: #dc2626;
+      --accent-cyan: #0284c7;
+      --accent-green: #059669;
+      --accent-purple: #9333ea;
+      --badge-bg: #e2e8f0;
+      --shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; font-size: 15px; }
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      display: flex;
+      min-height: 100vh;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+
+    /* Layout */
+    .sidebar {
+      width: 290px;
+      flex-shrink: 0;
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+    }
+    .sidebar-header {
+      padding: 1.25rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .sidebar-logo { width: 36px; height: 36px; border-radius: 6px; }
+    .sidebar-title { font-weight: 800; font-size: 1.15rem; letter-spacing: 0.5px; }
+    .sidebar-subtitle { font-size: 0.75rem; color: var(--text-muted); font-family: monospace; }
+    
+    .nav-links { list-style: none; padding: 1rem 0.75rem; flex-grow: 1; }
+    .nav-item { margin-bottom: 0.25rem; }
+    .nav-link {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.55rem 0.75rem;
+      color: var(--text-muted);
+      text-decoration: none;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      transition: all 0.15s ease;
+    }
+    .nav-link:hover { color: var(--text); background: var(--bg-surface-elevated); }
+    .nav-link.active {
+      color: var(--accent-orange);
+      background: rgba(255, 145, 0, 0.1);
+      font-weight: 600;
+      border-left: 3px solid var(--accent-orange);
+    }
+    .nav-badge {
+      margin-left: auto;
+      font-size: 0.7rem;
+      font-family: monospace;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      background: var(--badge-bg);
+      color: var(--text-muted);
+    }
+
+    .sidebar-footer {
+      padding: 1rem 1.25rem;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .main-content {
+      flex-grow: 1;
+      max-width: 1080px;
+      padding: 2.5rem 3rem 5rem;
+      margin: 0 auto;
+    }
+
+    /* Top Navigation bar */
+    .top-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .status-indicator {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      font-family: monospace;
+      color: var(--text-muted);
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-green);
+      box-shadow: 0 0 8px var(--accent-green);
+    }
+    .btn-group { display: flex; gap: 0.5rem; }
+    .btn {
+      padding: 0.4rem 0.8rem;
+      font-size: 0.85rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+      color: var(--text);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-family: inherit;
+      transition: all 0.15s ease;
+    }
+    .btn:hover { background: var(--bg-surface-elevated); border-color: var(--text-muted); }
+    .btn-primary { background: var(--accent-orange); color: #000; border-color: var(--accent-orange); font-weight: 600; }
+    .btn-primary:hover { background: #ffaa33; }
+
+    /* Hero Section */
+    .hero-banner {
+      margin-bottom: 2.5rem;
+      position: relative;
+    }
+    .hero-view-switcher {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 10;
+    }
+    .hero-svg-container img {
+      width: 100%;
+      height: auto;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      display: block;
+      box-shadow: var(--shadow);
+    }
+    .hero-ascii-container {
+      display: none;
+      background: var(--bg-code);
+      color: #38bdf8;
+      border-radius: 12px;
+      padding: 1.25rem;
+      border: 1px solid var(--border);
+      overflow-x: auto;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+      font-size: 0.82rem;
+      line-height: 1.25;
+      box-shadow: var(--shadow);
+    }
+
+    /* Headings & Typography */
+    h1, h2, h3, h4 { color: var(--text); font-weight: 700; line-height: 1.3; }
+    h1 { font-size: 2.2rem; margin-bottom: 0.5rem; }
+    h2 { font-size: 1.6rem; margin-top: 3.5rem; margin-bottom: 1.2rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 0.5rem; }
+    h3 { font-size: 1.25rem; margin-top: 1.75rem; margin-bottom: 0.75rem; }
+    p { margin-bottom: 1rem; color: var(--text); }
+    a { color: var(--accent-cyan); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Cards & Grids */
+    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem; }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.25rem; margin-bottom: 1.5rem; }
+    .grid-4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+
+    .card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+    .card:hover { border-color: var(--border-accent); }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+    .card-title { font-weight: 700; font-size: 1.05rem; }
+
+    /* Tables */
+    .table-container {
+      overflow-x: auto;
+      margin: 1.25rem 0 2rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg-surface);
+    }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; }
+    th {
+      background: var(--bg-surface-elevated);
+      color: var(--text);
+      font-weight: 600;
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); color: var(--text); }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255, 145, 0, 0.03); }
+
+    /* Code Blocks & Terminal */
+    .code-block {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin: 1rem 0 1.5rem;
+      overflow: hidden;
+      position: relative;
+    }
+    .code-header {
+      background: var(--bg-surface-elevated);
+      padding: 0.4rem 0.8rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      font-family: monospace;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+    pre {
+      padding: 1rem;
+      overflow-x: auto;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.85rem;
+      line-height: 1.5;
+      color: #e2e8f0;
+    }
+    code {
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.85em;
+      background: var(--badge-bg);
+      color: var(--accent-orange);
+      padding: 0.15rem 0.35rem;
+      border-radius: 4px;
+    }
+    pre code { background: none; color: inherit; padding: 0; }
+    .btn-copy {
+      padding: 0.2rem 0.5rem;
+      font-size: 0.75rem;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .btn-copy:hover { color: var(--text); border-color: var(--accent-orange); }
+
+    /* Callout Alerts */
+    .callout {
+      border-left: 4px solid var(--accent-cyan);
+      background: var(--bg-surface);
+      padding: 1rem 1.25rem;
+      border-radius: 0 8px 8px 0;
+      margin: 1.25rem 0;
+    }
+    .callout-warning { border-left-color: var(--accent-orange); }
+    .callout-danger { border-left-color: var(--accent-crimson); }
+    .callout-title { font-weight: 700; margin-bottom: 0.3rem; display: flex; align-items: center; gap: 0.4rem; }
+
+    /* Interactive CLI Search */
+    .cli-filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    .search-input {
+      flex-grow: 1;
+      min-width: 240px;
+      padding: 0.55rem 0.85rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.9rem;
+    }
+    .search-input:focus { outline: none; border-color: var(--border-focus); }
+    .filter-pills { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+    .pill {
+      padding: 0.35rem 0.65rem;
+      font-size: 0.8rem;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: var(--bg-surface);
+      color: var(--text-muted);
+      cursor: pointer;
+      user-select: none;
+    }
+    .pill.active { background: var(--accent-orange); color: #000; border-color: var(--accent-orange); font-weight: 600; }
+
+    /* Gallery & Lightbox */
+    .gallery-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+      margin: 1.5rem 0;
+    }
+    .gallery-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .gallery-card:hover { transform: translateY(-3px); box-shadow: var(--shadow); border-color: var(--accent-orange); }
+    .gallery-thumb { width: 100%; height: 210px; object-fit: cover; display: block; border-bottom: 1px solid var(--border); }
+    .gallery-info { padding: 1rem; }
+    .gallery-title { font-weight: 700; font-size: 0.95rem; margin-bottom: 0.3rem; }
+    .gallery-desc { font-size: 0.8rem; color: var(--text-muted); }
+
+    /* Lightbox Modal */
+    .lightbox-modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.92);
+      z-index: 999;
+      justify-content: center;
+      align-items: center;
+      padding: 2rem;
+    }
+    .lightbox-modal.active { display: flex; }
+    .lightbox-content { max-width: 90vw; max-height: 85vh; object-fit: contain; border-radius: 6px; box-shadow: 0 0 30px rgba(0,0,0,0.8); }
+    .lightbox-close {
+      position: absolute;
+      top: 1.5rem;
+      right: 1.5rem;
+      color: #fff;
+      font-size: 2rem;
+      cursor: pointer;
+      background: rgba(255,255,255,0.1);
+      border: none;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .lightbox-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(255,255,255,0.1);
+      border: none;
+      color: #fff;
+      font-size: 2rem;
+      cursor: pointer;
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .lightbox-prev { left: 1.5rem; }
+    .lightbox-next { right: 1.5rem; }
+
+    /* Math Formulas */
+    .math-block {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent-orange);
+      padding: 0.85rem 1.25rem;
+      border-radius: 6px;
+      margin: 1rem 0;
+      font-family: serif;
+      font-size: 1.1rem;
+      overflow-x: auto;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      body { flex-direction: column; }
+      .sidebar { width: 100%; height: auto; position: static; }
+      .main-content { padding: 1.5rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Sticky Sidebar Navigation -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <img src="./assets/icon.svg" alt="RAPTOR Icon" class="sidebar-logo">
+      <div>
+        <div class="sidebar-title">RAPTOR</div>
+        <div class="sidebar-subtitle">DOCS // v1.0.0</div>
+      </div>
+    </div>
+
+    <ul class="nav-links">
+      <li class="nav-item"><a href="#overview" class="nav-link active"><span>⚡</span> Overview &amp; Dual Engine <span class="nav-badge">Tiered</span></a></li>
+      <li class="nav-item"><a href="#sensors" class="nav-link"><span>🛰️</span> Sensors &amp; Deliverables <span class="nav-badge">10 Prods</span></a></li>
+      <li class="nav-item"><a href="#installation" class="nav-link"><span>📦</span> Installation &amp; Docker <span class="nav-badge">1-Cmd</span></a></li>
+      <li class="nav-item"><a href="#cli" class="nav-link"><span>💻</span> CLI Reference &amp; Flags <span class="nav-badge">Search</span></a></li>
+      <li class="nav-item"><a href="#science" class="nav-link"><span>🔬</span> Science &amp; Pipeline Internals <span class="nav-badge">Math</span></a></li>
+      <li class="nav-item"><a href="#gallery" class="nav-link"><span>🗺️</span> Interactive Visual Gallery <span class="nav-badge">3 Views</span></a></li>
+    </ul>
+
+    <div class="sidebar-footer">
+      <button class="btn" id="theme-toggle" title="Toggle Light/Dark Theme">
+        <span id="theme-icon">🌙</span> <span id="theme-text">Dark Mode</span>
+      </button>
+      <a href="https://github.com/federicogmz/raptor" class="btn" target="_blank" rel="noopener" title="GitHub Repository">
+        <span>GitHub</span>
+      </a>
+    </div>
+  </aside>
+
+  <!-- Main Documentation Content -->
+  <main class="main-content">
+
+    <!-- Top Status Bar -->
+    <div class="top-toolbar">
+      <div class="status-indicator">
+        <span class="status-dot"></span>
+        <span>RAPTOR PIPELINE STATUS: <strong>OPERATIONAL</strong></span>
+      </div>
+      <div class="btn-group">
+        <button class="btn" id="banner-toggle" title="Switch between SVG and ASCII art banner">
+          <span>📟 Terminal ASCII Banner</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Hero Section with Switchable SVG / ASCII Banner -->
+    <section class="hero-banner">
+      <div class="hero-svg-container" id="hero-svg">
+        <img src="./assets/logo.svg" alt="RAPTOR Logo — Multi-Sensor UAV Photogrammetry &amp; Wildfire Triage Pipeline" width="840" height="240">
+      </div>
+      <div class="hero-ascii-container" id="hero-ascii">
+        <pre><code id="ascii-target">+--------------------------------------------------------------------------+
+| RAPTOR // MULTI-SENSOR UAV PHOTOGRAMMETRY &amp; WILDFIRE TRIAGE PIPELINE     |
+|                                                                          |
+|   [SCAN]         ██████╗  █████╗ ██████╗ ████████╗ ██████╗ ██████╗       |
+|  +-------+       ██╔══██╗██╔══██╗██╔══██╗╚══██╔══╝██╔═══██╗██╔══██╗      |
+|  | +---+ | (Hot) ██████╔╝███████║██████╔╝   ██║   ██║   ██║██████╔╝      |
+|  | | c | |  ^ ^  ██╔══██╗██╔══██║██╔═══╝    ██║   ██║   ██║██╔══██╗      |
+|  +-+-+-+-+ (deg) ██║  ██║██║  ██║██║        ██║   ╚██████╔╝██║  ██║      |
+|    +-----+   ^   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝        ╚═╝    ╚═════╝ ╚═╝  ╚═╝      |
+|   ^^^^ (Fire Front)                                                      |
+|  /^^^^\  ###▒▒░░  TIERED PIPELINE ARCHITECTURE:                          |
+| /^^^^^^\####▒▒░░  * Level 0: Thermal Triage Ray-DEM (&lt;2 min)             |
+| ^^^^^^^^####▒▒░░  * Level 1: Tactical 2.5D Zenith Ortho (20-40 s)        |
+| ^^^^^^^^####▒▒░░  * Level 2: Cartographic 3D ODM (15-45 min)             |
++--------------------------------------------------------------------------+</code></pre>
+      </div>
+    </section>
+
+    <!-- SECTION 1: OVERVIEW & TIERED DUAL-ENGINE ARCHITECTURE -->
+    <section id="overview">
+      <h2><span>⚡</span> Section 1: Overview &amp; Tiered Dual-Engine Architecture</h2>
+      <p>
+        <strong>RAPTOR</strong> (<em>Reconstruction of Aerial Products, Thermal, Optical, and multispectral, for Response</em>) is a unified, multi-sensor photogrammetry and wildfire triage pipeline engineered specifically for tactical UAV flight missions (DJI Mavic 3T, Matrice 300 RTK + Zenmuse H20T, Mavic 3 Multispectral, and Zenmuse P1).
+      </p>
+      <p>
+        Unlike monolithic photogrammetry suites that force incident commanders to wait up to an hour for basic orthorectification, RAPTOR deploys a <strong>tiered, multi-resolution processing architecture</strong> that delivers decision-grade situational awareness in seconds while retaining complete cartographic rigor in the background:
+      </p>
+
+      <!-- Tier Cards -->
+      <div class="grid-3">
+        <div class="card" style="border-top: 4px solid var(--accent-crimson);">
+          <div class="card-header">
+            <span class="card-title">Level 0: Emergency Triage</span>
+            <span class="pill active">&lt; 2 Minutes</span>
+          </div>
+          <p style="font-size: 0.88rem; color: var(--text-muted);">
+            Direct Ray-DEM vector intersection directly on raw R-JPEG drone frames. Eliminates SfM bundle adjustment entirely for instantaneous mop-up hotspot geolocation during active wildfire suppression.
+          </p>
+          <div style="font-size: 0.75rem; font-family: monospace; color: var(--accent-crimson);">
+            Engine: Python 3.12 + GDAL / ENU Ray Casting
+          </div>
+        </div>
+
+        <div class="card" style="border-top: 4px solid var(--accent-orange);">
+          <div class="card-header">
+            <span class="card-title">Level 1: Tactical 2.5D Ortho</span>
+            <span class="pill active">20–40 Seconds</span>
+          </div>
+          <p style="font-size: 0.88rem; color: var(--text-muted);">
+            Direct ray-projection orthorectification powered by the native Rust <code>Zenith</code> engine over a 3-tier DEM cascade (Local GeoTIFF &rarr; Copernicus GLO-30 &rarr; barometric planar model). Generates tactical RGB/thermal rasters and XYZ map tiles.
+          </p>
+          <div style="font-size: 0.75rem; font-family: monospace; color: var(--accent-orange);">
+            Engine: Native Rust (Zenith CLI / crates)
+          </div>
+        </div>
+
+        <div class="card" style="border-top: 4px solid var(--accent-cyan);">
+          <div class="card-header">
+            <span class="card-title">Level 2: Cartographic 3D</span>
+            <span class="pill active">15–45 Minutes</span>
+          </div>
+          <p style="font-size: 0.88rem; color: var(--text-muted);">
+            Full photogrammetric bundle adjustment, multi-sensor band alignment, dense point-cloud reconstruction (COPC), and sub-centimeter Digital Surface Models (DSM) via OpenDroneMap and OpenMVS.
+          </p>
+          <div style="font-size: 0.75rem; font-family: monospace; color: var(--accent-cyan);">
+            Engine: OpenDroneMap (C++ / OpenSfM / MVS)
+          </div>
+        </div>
+      </div>
+
+      <!-- Engine Comparison Table -->
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Pipeline Feature / Dimension</th>
+              <th>Level 0 — Ray-DEM Triage</th>
+              <th>Level 1 — Zenith Tactical 2.5D</th>
+              <th>Level 2 — ODM Cartographic 3D</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Execution Time</strong></td>
+              <td><span style="color: var(--accent-crimson); font-weight: 700;">&lt; 2 minutes</span></td>
+              <td><span style="color: var(--accent-orange); font-weight: 700;">20–40 seconds</span></td>
+              <td><span style="color: var(--accent-cyan); font-weight: 700;">15–45 minutes</span></td>
+            </tr>
+            <tr>
+              <td><strong>Core Technology</strong></td>
+              <td>Analytical Ray-Marching in Memory</td>
+              <td>Native Rust compiled binary (<code>zenith</code>)</td>
+              <td>OpenDroneMap / OpenSfM / OpenMVS</td>
+            </tr>
+            <tr>
+              <td><strong>Elevation Model (DEM)</strong></td>
+              <td>External GeoTIFF or Planar Fallback</td>
+              <td>Local DEM &rarr; Copernicus GLO-30 &rarr; Plane</td>
+              <td>Dense photogrammetric DSM from stereo</td>
+            </tr>
+            <tr>
+              <td><strong>Supported Sensors</strong></td>
+              <td>Radiometric Thermal (°C)</td>
+              <td>RGB Visual + Radiometric Thermal (°C)</td>
+              <td>RGB + Thermal + 4-Band Multispectral</td>
+            </tr>
+            <tr>
+              <td><strong>Multispectral Vigor Indices</strong></td>
+              <td>No</td>
+              <td>No (Requires 3D sub-pixel band alignment)</td>
+              <td>Full radiometric calibration (NDVI, etc.)</td>
+            </tr>
+            <tr>
+              <td><strong>Primary Deliverable</strong></td>
+              <td>Emergency Hotspot Centroids &amp; Confidence</td>
+              <td>Tactical Orthomosaics &amp; Incident Summary</td>
+              <td>Sub-centimeter COG, COPC Point Cloud, DSM</td>
+            </tr>
+            <tr>
+              <td><strong>Operational Doctrine</strong></td>
+              <td>Initial wildland mop-up attack</td>
+              <td>Tactical command perimeter evaluation</td>
+              <td>Post-event legal/cartographic archiving</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout">
+        <div class="callout-title"><span>🐳</span> Single Container Deployment Doctrine</div>
+        <p>
+          The entire RAPTOR environment runs within <strong>ONE SINGLE unified Docker container</strong> (consolidating OpenDroneMap, the native Rust Zenith engine, GDAL/PROJ geospatial libraries, the official DJI Thermal SDK v1.8, and the interactive Geovisor web service). No nested Docker-in-Docker daemons or distributed orchestration clusters are required.
+        </p>
+      </div>
+    </section>
+
+    <!-- SECTION 2: SUPPORTED SENSORS & DELIVERABLES -->
+    <section id="sensors">
+      <h2><span>🛰️</span> Section 2: Supported UAV Sensors &amp; Deliverables</h2>
+      <p>
+        RAPTOR is engineered to ingest raw imagery directly from enterprise UAS platforms without proprietary pre-conversion or cloud dependencies:
+      </p>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">DJI Mavic 3 Enterprise Thermal (M3T)</span>
+            <span class="nav-badge">Dual Optical/Thermal</span>
+          </div>
+          <ul style="padding-left: 1.25rem; font-size: 0.88rem; color: var(--text-muted); line-height: 1.7;">
+            <li><strong>RGB Visual:</strong> 48 MP 1/2" CMOS sensor with mechanical rolling shutter compensation.</li>
+            <li><strong>Thermal Radiometric:</strong> Uncooled VOx Microbolometer 640&times;512 @ 30 Hz, 12 &micro;m pixel pitch, 61&deg; DFOV, focal length 9.1 mm (calibrated focal ~758.3 px).</li>
+            <li><strong>Extraction:</strong> Homologated 16-bit raw temperature extraction via DJI Thermal SDK v1.8 (<code>dji_irp</code>).</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Matrice 300 RTK + Zenmuse H20T</span>
+            <span class="nav-badge">Quad-Sensor Payload</span>
+          </div>
+          <ul style="padding-left: 1.25rem; font-size: 0.88rem; color: var(--text-muted); line-height: 1.7;">
+            <li><strong>Sensors:</strong> 20 MP Zoom (23&times; hybrid optical), 12 MP Wide, 640&times;512 Radiometric Thermal, and 1200 m Laser Range Finder (LRF).</li>
+            <li><strong>Firmware Handling:</strong> Automatic fallback for R-JPEG v1 DIRP firmware humidity limits (<math><mo>&ge;</mo><mn>20</mn><mo>%</mo></math> threshold).</li>
+            <li><strong>RTK Precision:</strong> Centimetric GNSS positional logging in EXIF/XMP tags.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">DJI Mavic 3 Multispectral (M3M)</span>
+            <span class="nav-badge">4-Band Multispectral</span>
+          </div>
+          <ul style="padding-left: 1.25rem; font-size: 0.88rem; color: var(--text-muted); line-height: 1.7;">
+            <li><strong>RGB Visual:</strong> 20 MP 4/3" CMOS sensor with global mechanical shutter (0.7 s interval).</li>
+            <li><strong>Multispectral:</strong> 4 discrete 5 MP sensors (Green 560 nm, Red 650 nm, RedEdge 730 nm, Near-Infrared 860 nm).</li>
+            <li><strong>Radiometric Sun Sensor:</strong> Top-mounted irradiance sensor for real-time solar compensation during flight.</li>
+          </ul>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">DJI Zenmuse P1</span>
+            <span class="nav-badge">45 MP Full-Frame</span>
+          </div>
+          <ul style="padding-left: 1.25rem; font-size: 0.88rem; color: var(--text-muted); line-height: 1.7;">
+            <li><strong>Sensor:</strong> 45 MP Full-Frame (35.9 &times; 24.0 mm) sensor with 4.4 &micro;m pixel pitch.</li>
+            <li><strong>Global Mechanical Shutter:</strong> Shutter speed up to 1/2000 s with zero rolling-shutter geometric distortion.</li>
+            <li><strong>Memory Guard:</strong> Protected by RAPTOR's dedicated full-frame memory slot scheduler (isolated ~23 GB/thread MVS allocation).</li>
+          </ul>
+        </div>
+      </div>
+
+      <h3>The 10 Standard GIS Deliverables</h3>
+      <p>
+        Every completed mission outputs a standardized GIS deliverable package to the mounted <code>--export</code> directory, formatted for immediate ingestion into QGIS, ArcGIS Pro, GeoServer, or Web Map Tile Services:
+      </p>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Deliverable Code</th>
+              <th>Format</th>
+              <th>CRS / Projection</th>
+              <th>Description &amp; Operational Utility</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>rgb</code></td>
+              <td>COG (Cloud Optimized GeoTIFF)</td>
+              <td>EPSG:9377 / EPSG:4326</td>
+              <td>Sub-centimeter true-color orthomosaic with overviews and Deflate compression.</td>
+            </tr>
+            <tr>
+              <td><code>thermal</code></td>
+              <td>Float32 GeoTIFF / COG</td>
+              <td>EPSG:9377 / EPSG:4326</td>
+              <td>Calibrated surface temperature raster in degrees Celsius (&deg;C) from DJI Thermal SDK.</td>
+            </tr>
+            <tr>
+              <td><code>dsm</code></td>
+              <td>Float32 GeoTIFF</td>
+              <td>EPSG:9377 / EPSG:4326</td>
+              <td>Digital Surface Model representing true canopy and terrain elevation above sea level.</td>
+            </tr>
+            <tr>
+              <td><code>multispectral</code></td>
+              <td>Multi-band COG (4 bands)</td>
+              <td>EPSG:9377 / EPSG:4326</td>
+              <td>Calibrated surface reflectance cube (Band 1: Green, 2: Red, 3: RedEdge, 4: NIR).</td>
+            </tr>
+            <tr>
+              <td><code>indices</code></td>
+              <td>Float32 GeoTIFF / XYZ Tiles</td>
+              <td>EPSG:9377 / EPSG:4326</td>
+              <td>Canopy vigor index rasters: NDVI, GNDVI, NDRE, and MSAVI2 for burn severity analysis.</td>
+            </tr>
+            <tr>
+              <td><code>classes</code></td>
+              <td>Byte GeoTIFF</td>
+              <td>EPSG:9377 / EPSG:4326</td>
+              <td>Categorical classification: active fire front, high heat, smoldering, healthy vegetation.</td>
+            </tr>
+            <tr>
+              <td><code>confidence</code></td>
+              <td>Float32 GeoTIFF</td>
+              <td>EPSG:9377 / EPSG:4326</td>
+              <td>Intersection confidence mask calculated from ray geometry and multi-view stereo overlap.</td>
+            </tr>
+            <tr>
+              <td><code>area</code></td>
+              <td>GeoJSON / GPKG / SHP / KML</td>
+              <td>EPSG:9377 / EPSG:4326</td>
+              <td>Topological vector polygonal boundary of the fire perimeter with computed area in m&sup2; and ha.</td>
+            </tr>
+            <tr>
+              <td><code>flight_path</code></td>
+              <td>Vector GeoJSON</td>
+              <td>EPSG:4326</td>
+              <td>UAV flight trajectory with 3D camera stations, gimbal attitudes (yaw/pitch/roll), and timestamps.</td>
+            </tr>
+            <tr>
+              <td><code>situation</code></td>
+              <td>JSON &amp; HTML/PDF Report</td>
+              <td>N/A</td>
+              <td>Executive incident triage summary with detected hotspot centroids, peak temperatures, and area metrics.</td>
+            </tr>
+            <tr>
+              <td><code>pointclouds</code></td>
+              <td>COPC (<code>.copc.laz</code>) / LAS</td>
+              <td>EPSG:9377 / UTM</td>
+              <td>Dense 3D point cloud with RGB and thermal colorization for volumetric 3D analysis.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- SECTION 3: INSTALLATION & WEBAPP QUICKSTART -->
+    <section id="installation">
+      <h2><span>📦</span> Section 3: Installation, Docker &amp; Webapp Quickstart</h2>
+      <p>
+        RAPTOR is designed for zero-headache deployment on field laptops and dedicated processing workstations running Linux (Ubuntu 22.04 / 24.04, Debian 12, or Arch Linux / Omarchy):
+      </p>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span>ONE-COMMAND INSTALLATION</span>
+          <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+        </div>
+        <pre><code># 1. Clone repository and execute automated onboarding
+git clone https://github.com/federicogmz/raptor.git
+cd raptor
+./raptor install</code></pre>
+      </div>
+
+      <p>
+        The <code>./raptor install</code> script automatically:
+      </p>
+      <ol style="padding-left: 1.5rem; margin-bottom: 1rem; color: var(--text-muted); line-height: 1.8;">
+        <li>Detects the host environment and installs missing prerequisites (Docker Engine, NVIDIA Container Toolkit).</li>
+        <li>Builds the unified container image <code>raptor:latest</code>.</li>
+        <li>Installs the global <code>raptor</code> command into <code>/usr/local/bin</code> (or <code>~/.local/bin</code>).</li>
+        <li>Prompts for the permanent deliverables destination directory (e.g. <code>~/raptor-deliveries</code>) and preferred HTTP port (default <code>8080</code>).</li>
+        <li>Deploys and starts the persistent background webapp container.</li>
+      </ol>
+
+      <h3>Everyday Daemon Management</h3>
+      <p>
+        Once installed, manage the RAPTOR background service from any terminal directory:
+      </p>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Command</th>
+              <th>Description</th>
+              <th>Lifecycle Scope</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>raptor start</code></td>
+              <td>Start the webapp background daemon with saved settings (<code>~/.raptor/config</code>).</td>
+              <td>Restarts container if stopped.</td>
+            </tr>
+            <tr>
+              <td><code>raptor status</code></td>
+              <td>Display current container status, listening port, and mounted volume bindings.</td>
+              <td>Read-only inspection.</td>
+            </tr>
+            <tr>
+              <td><code>raptor logs</code></td>
+              <td>Watch live tail logs of the active webapp service and photogrammetry queue.</td>
+              <td>Interactive streaming.</td>
+            </tr>
+            <tr>
+              <td><code>raptor stop</code></td>
+              <td>Gracefully halt the webapp background container.</td>
+              <td>Halts background worker.</td>
+            </tr>
+            <tr>
+              <td><code>raptor restart</code></td>
+              <td>Restart the webapp daemon (equivalent to stop followed by start).</td>
+              <td>Refreshes environment.</td>
+            </tr>
+            <tr>
+              <td><code>raptor init</code></td>
+              <td>Reconfigure the deliveries folder path or listening HTTP port.</td>
+              <td>Updates <code>~/.raptor/config</code>.</td>
+            </tr>
+            <tr>
+              <td><code>raptor shell</code></td>
+              <td>Open an interactive Bash debugging shell inside the running container.</td>
+              <td>Power-user diagnostics.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout callout-warning">
+        <div class="callout-title"><span>🎮</span> Automatic GPU Acceleration &amp; CPU Fallback</div>
+        <p>
+          RAPTOR inspects the host kernel for NVIDIA GPU drivers and <code>nvidia-container-toolkit</code> at launch time. If GPU hardware is present, OpenMVS dense point-cloud reconstruction executes with CUDA acceleration. If no GPU is detected (or if <code>--no-gpu</code> is specified), RAPTOR smoothly activates CPU-only reconstruction without throwing pipeline exceptions.
+        </p>
+      </div>
+    </section>
+
+    <!-- SECTION 4: COMPLETE CLI REFERENCE -->
+    <section id="cli">
+      <h2><span>💻</span> Section 4: Complete CLI Reference (<code>raptor run</code>)</h2>
+      <p>
+        For non-interactive field scripting, automated batch processing, or CI/CD pipelines, invoke <code>raptor run [options]</code>. All flags are verified against the runtime binary help output:
+      </p>
+
+      <!-- Live Search & Filter Bar -->
+      <div class="cli-filter-bar">
+        <input type="text" id="cli-search" class="search-input" placeholder="🔍 Filter flags (e.g. preset, thermal, gpu, export, epsg)..." oninput="filterFlags()">
+        <div class="filter-pills">
+          <button class="pill active" data-cat="all" onclick="setCategoryFilter('all', this)">All</button>
+          <button class="pill" data-cat="Input" onclick="setCategoryFilter('Input', this)">Input</button>
+          <button class="pill" data-cat="Processing" onclick="setCategoryFilter('Processing', this)">Processing</button>
+          <button class="pill" data-cat="Export &amp; Deliverables" onclick="setCategoryFilter('Export &amp; Deliverables', this)">Export</button>
+          <button class="pill" data-cat="Automation" onclick="setCategoryFilter('Automation', this)">Automation</button>
+        </div>
+      </div>
+
+      <!-- Filterable Flags Table -->
+      <div class="table-container">
+        <table id="flags-table">
+          <thead>
+            <tr>
+              <th>Flag / Parameter</th>
+              <th>Category</th>
+              <th>Default</th>
+              <th>Description &amp; Behavioral Rules</th>
+            </tr>
+          </thead>
+          <tbody id="flags-tbody">
+            <!-- Dynamically populated or static fallback -->
+            <tr data-cat="Input">
+              <td><code>--input DIR</code></td>
+              <td><span class="nav-badge">Input</span></td>
+              <td><em>Required*</em></td>
+              <td>Path to visual/thermal flight folder (DJI M3T or Zenmuse H20T).</td>
+            </tr>
+            <tr data-cat="Input">
+              <td><code>--input-ms DIR</code></td>
+              <td><span class="nav-badge">Input</span></td>
+              <td><code>None</code></td>
+              <td>Path to 4-band multispectral flight folder (DJI Mavic 3 Multispectral).</td>
+            </tr>
+            <tr data-cat="Processing">
+              <td><code>--mode MODO</code></td>
+              <td><span class="nav-badge">Processing</span></td>
+              <td><code>rgb+thermal</code></td>
+              <td>Processing mode selector: <code>rgb+thermal</code> (default), <code>rgb</code>, or <code>none</code>.</td>
+            </tr>
+            <tr data-cat="Processing">
+              <td><code>--preset NOMBRE</code></td>
+              <td><span class="nav-badge">Processing</span></td>
+              <td><code>cartografico</code></td>
+              <td>
+                Reconstruction quality preset:
+                <br>&bull; <code>tactico</code>: Immediate field triage response (features reduced, faster bundle adjustment).
+                <br>&bull; <code>cartografico</code>: Standard operational flight delivery (full resolution, balanced).
+                <br>&bull; <code>forense</code>: Forensic analysis and legal archiving (maximum point density and ray refinement).
+              </td>
+            </tr>
+            <tr data-cat="Processing">
+              <td><code>--terreno TIPO</code></td>
+              <td><span class="nav-badge">Processing</span></td>
+              <td><code>plano</code></td>
+              <td>Terrain profile: <code>plano</code> or <code>escarpado</code>. Retained for backwards compatibility; all modern presets enforce incremental SfM to prevent photo drops in steep relief.</td>
+            </tr>
+            <tr data-cat="Processing">
+              <td><code>--subsample N</code></td>
+              <td><span class="nav-badge">Processing</span></td>
+              <td><code>None</code></td>
+              <td><strong>URGENCY MODE:</strong> Process 1 out of every <em>N</em> photos (N &ge; 2, e.g. 3). Cuts SfM reconstruction time by ~3&times; in rugged terrain. Original source files remain untouched.</td>
+            </tr>
+            <tr data-cat="Processing">
+              <td><code>--reuse-odm</code></td>
+              <td><span class="nav-badge">Processing</span></td>
+              <td><code>false</code></td>
+              <td>Reuse existing ODM reconstruction stages from <code>--runs</code> cache instead of starting from scratch.</td>
+            </tr>
+            <tr data-cat="Processing">
+              <td><code>--max-concurrency N</code></td>
+              <td><span class="nav-badge">Processing</span></td>
+              <td><code>Auto (RAM)</code></td>
+              <td>Explicit thread override for ODM stages. Defaults to safe automatic hardware budgeting based on real available RAM.</td>
+            </tr>
+            <tr data-cat="Processing">
+              <td><code>--no-gpu</code></td>
+              <td><span class="nav-badge">Processing</span></td>
+              <td><code>false</code></td>
+              <td>Force CPU-only execution, disabling OpenMVS CUDA dense matching acceleration.</td>
+            </tr>
+            <tr data-cat="Processing">
+              <td><code>--verbose</code></td>
+              <td><span class="nav-badge">Processing</span></td>
+              <td><code>false</code></td>
+              <td>Stream raw, unfiltered console output from ODM, OpenSfM, and Python subroutines.</td>
+            </tr>
+            <tr data-cat="Export &amp; Deliverables">
+              <td><code>--export DIR</code></td>
+              <td><span class="nav-badge">Export &amp; Deliverables</span></td>
+              <td><code>None</code></td>
+              <td>Host target destination folder where all completed products and reports will be published.</td>
+            </tr>
+            <tr data-cat="Export &amp; Deliverables">
+              <td><code>--export-products LIST</code></td>
+              <td><span class="nav-badge">Export &amp; Deliverables</span></td>
+              <td><code>all</code></td>
+              <td>Comma-separated product whitelist, or <code>all</code>: <code>rgb,thermal,dsm,multispectral,indices,classes,confidence,area,flight_path,situation,pointclouds</code>.</td>
+            </tr>
+            <tr data-cat="Export &amp; Deliverables">
+              <td><code>--export-epsg CODE</code></td>
+              <td><span class="nav-badge">Export &amp; Deliverables</span></td>
+              <td><code>source</code></td>
+              <td>Target Coordinate Reference System EPSG code (e.g. <code>9377</code> for MAGNA-SIRGAS Origen Nacional Colombia) or <code>source</code> (native UTM/WGS84).</td>
+            </tr>
+            <tr data-cat="Export &amp; Deliverables">
+              <td><code>--export-raster-format F</code></td>
+              <td><span class="nav-badge">Export &amp; Deliverables</span></td>
+              <td><code>cog</code></td>
+              <td>Raster format: <code>cog</code> (Cloud Optimized GeoTIFF with internal overviews) or <code>gtiff</code> (standard GeoTIFF).</td>
+            </tr>
+            <tr data-cat="Export &amp; Deliverables">
+              <td><code>--export-vector-format F</code></td>
+              <td><span class="nav-badge">Export &amp; Deliverables</span></td>
+              <td><code>geojson</code></td>
+              <td>Vector format: <code>geojson</code>, <code>gpkg</code> (GeoPackage), <code>shp</code> (ESRI Shapefile), or <code>kml</code>.</td>
+            </tr>
+            <tr data-cat="Automation">
+              <td><code>--runs DIR</code></td>
+              <td><span class="nav-badge">Automation</span></td>
+              <td><code>./runs</code></td>
+              <td>Persistent scratch and working directory containing intermediate SfM point clouds and tile pyramids.</td>
+            </tr>
+            <tr data-cat="Automation">
+              <td><code>--json</code></td>
+              <td><span class="nav-badge">Automation</span></td>
+              <td><code>false</code></td>
+              <td>Print machine-readable JSON run summary upon mission completion for downstream scripts.</td>
+            </tr>
+            <tr data-cat="Automation">
+              <td><code>--serve</code></td>
+              <td><span class="nav-badge">Automation</span></td>
+              <td><code>false</code></td>
+              <td>Keep interactive Leaflet geovisor HTTP server alive upon pipeline completion (disabled by default in CI).</td>
+            </tr>
+            <tr data-cat="Automation">
+              <td><code>--port N</code></td>
+              <td><span class="nav-badge">Automation</span></td>
+              <td><code>8080</code></td>
+              <td>Listening HTTP port when <code>--serve</code> is specified.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code-block">
+        <div class="code-header">
+          <span>BATCH CLI INVOCATION EXAMPLE</span>
+          <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+        </div>
+        <pre><code># Complete production mission run with MAGNA-SIRGAS EPSG:9377 reprojection
+raptor run \
+  --input /data/vuelos/2026-08-14_incendio_palmitas \
+  --preset cartografico \
+  --export /data/entregas/palmitas \
+  --export-epsg 9377 \
+  --export-raster-format cog \
+  --export-vector-format gpkg \
+  --json</code></pre>
+      </div>
+    </section>
+
+    <!-- SECTION 5: HOW IT WORKS (SCIENCE & PIPELINE INTERNALS) -->
+    <section id="science">
+      <h2><span>🔬</span> Section 5: How It Works (Science &amp; Pipeline Internals)</h2>
+      <p>
+        RAPTOR bridges empirical field operations with rigorous computer vision and geodetic mechanics:
+      </p>
+
+      <!-- Sub-section 5.1: Hardware Budgeting -->
+      <h3>5.1 Hardware Resource Budgeting (<code>scripts/hardware.py</code>)</h3>
+      <p>
+        Monolithic photogrammetry jobs routinely crash on consumer laptops due to Out-Of-Memory (OOM) kernel kills during dense Multi-View Stereo (MVS). RAPTOR eliminates OOM panics through continuous hardware introspection:
+      </p>
+
+      <div class="math-block">
+        <math display="block">
+          <msub><mi>SafeThreads</mi><mi>ODM</mi></msub>
+          <mo>=</mo>
+          <mo movablelimits="true" form="prefix">max</mo>
+          <mrow><mo>(</mo><mn>1</mn><mo>,</mo>
+            <mo movablelimits="true" form="prefix">min</mo>
+            <mrow><mo>(</mo><msub><mi>C</mi><mi>CPU</mi></msub><mo>,</mo>
+              <mrow><mo>&lfloor;</mo>
+                <mfrac>
+                  <mrow><msub><mi>RAM</mi><mi>avail</mi></msub>
+                    <mo>&times;</mo>
+                    <msub><mi>f</mi><mi>RAM</mi></msub>
+                  </mrow>
+                  <mrow><mo movablelimits="true" form="prefix">max</mo><mrow><mo>(</mo><mn>512</mn><mo>,</mo>
+                    <mfrac>
+                      <mrow><mi>MP</mi><mo>&times;</mo><mn>1024</mn></mrow>
+                      <mn>2</mn>
+                    </mfrac>
+                    <mo>&times;</mo><msub><mi>k</mi><mi>GPU</mi></msub>
+                  <mo>)</mo></mrow></mrow>
+                </mfrac>
+              <mo>&rfloor;</mo></mrow>
+            <mo>)</mo></mrow>
+          <mo>)</mo></mrow>
+        </math>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">45 MP Full-Frame Concurrency Guard</span>
+            <span class="pill active">SENSOR_MP_P1_RGB = 45.0</span>
+          </div>
+          <p style="font-size: 0.88rem; color: var(--text-muted);">
+            While standard 12.3 MP drone sensors require ~6.3 GB of uncompressed buffer space per thread during dense stereo matching, a 45 MP Zenmuse P1 requires <strong>~23 GB per worker thread</strong>. The multi-project scheduler (<code>odm_slots</code>) dynamically prevents high-resolution full-frame jobs from competing for concurrent cores, allocating dedicated isolated memory slots.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">2 Hz Asynchronous ResourceMonitor</span>
+            <span class="pill active">MemAvailable &ge; 6.0 GiB</span>
+          </div>
+          <p style="font-size: 0.88rem; color: var(--text-muted);">
+            An asynchronous background daemon samples <code>/proc/meminfo</code> at 2.0 Hz. If system-wide unallocated memory drops below the 6.0 GiB safety floor, worker thread pools are automatically throttled to safeguard the host OS and WSL2 virtual machine from fatal kernel freezes.
+          </p>
+        </div>
+      </div>
+
+      <!-- Sub-section 5.2: Radiometric Calibration -->
+      <h3>5.2 Homologated Radiometric Thermal Calibration (<code>core/thermal_params.py</code>)</h3>
+      <p>
+        Raw thermal frames recorded by DJI drones store sensor digital numbers (DN) inside proprietary APP4 and APP5 metadata markers. RAPTOR links the official DJI Thermal SDK v1.8 (<code>dji_irp</code>) to compute physical surface temperatures according to Planck's radiation law, applying standard operational calibration parameters:
+      </p>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Physical Parameter</th>
+              <th>Symbol</th>
+              <th>Operational Value</th>
+              <th>Valid Physical Range</th>
+              <th>Operational Justification</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Surface Emissivity</strong></td>
+              <td><math><mi>&epsilon;</mi></math></td>
+              <td><code>0.96</code></td>
+              <td><code>[0.10, 1.00]</code></td>
+              <td>Standard emissivity for vegetative canopies, wet soils, and wildland fuels.</td>
+            </tr>
+            <tr>
+              <td><strong>Relative Humidity</strong></td>
+              <td><math><mi>h</mi></math></td>
+              <td><code>15.0%</code></td>
+              <td><code>[1.0, 100.0]%</code></td>
+              <td>Representative dry atmospheric condition during active wildfire emergencies.</td>
+            </tr>
+            <tr>
+              <td><strong>Target Distance</strong></td>
+              <td><math><mi>d</mi></math></td>
+              <td><code>25.0 m</code></td>
+              <td><code>[1.0, 25.0] m</code></td>
+              <td>SDK upper boundary; prevents dynamic range compression observed at factory 5 m setting during AGL flights (120–300 m).</td>
+            </tr>
+            <tr>
+              <td><strong>Reflected Temperature</strong></td>
+              <td><math><msub><mi>T</mi><mi>refl</mi></msub></math></td>
+              <td><code>19.0 &deg;C</code></td>
+              <td><code>[-40.0, 500.0] &deg;C</code></td>
+              <td>Standard ambient background sky/canopy temperature.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="callout callout-warning">
+        <div class="callout-title"><span>🛡️</span> Zenmuse H20T R-JPEG v1 Automatic Firmware Fallback</div>
+        <p>
+          Legacy DJI Zenmuse H20T payloads using R-JPEG v1 firmware return error code <code>253</code> when atmospheric humidity is set below 20%. RAPTOR intercepts this SDK return code at runtime and automatically executes an in-memory clamped fallback to <math><mi>h</mi><mo>=</mo><mn>20.0</mn><mo>%</mo></math>, ensuring uninterrupted batch processing without failing the flight mission.
+        </p>
+      </div>
+
+      <!-- Sub-section 5.3: Level 0 Ray-DEM Triage -->
+      <h3>5.3 Level 0 Ray-DEM Emergency Thermal Triage (<code>scripts/thermal_triage_level0.py</code>)</h3>
+      <p>
+        In life-safety tactical scenarios, waiting 30 minutes for SfM reconstruction is not an option. Level 0 Thermal Triage calculates precise ground coordinates of hotspots directly from individual camera poses:
+      </p>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">1. Camera Basis in ENU Coordinates</div>
+          <p style="font-size: 0.88rem; color: var(--text-muted); margin-top: 0.5rem;">
+            From telemetry gimbal angles (yaw <math><mi>&psi;</mi></math>, pitch <math><mi>&theta;</mi></math>, roll <math><mi>&phi;</mi></math>), an orthonormal camera orientation matrix is established in East-North-Up (ENU) space:
+          </p>
+          <div class="math-block" style="font-size: 0.95rem;">
+            <math display="block">
+              <msub><mi mathvariant="bold">z</mi><mi>c</mi></msub>
+              <mo>=</mo>
+              <msup><mrow><mo>[</mo>
+                <mo form="prefix">cos</mo><mi>&theta;</mi><mo form="prefix">sin</mo><mi>&psi;</mi><mo>,</mo>
+                <mo form="prefix">cos</mo><mi>&theta;</mi><mo form="prefix">cos</mo><mi>&psi;</mi><mo>,</mo>
+                <mo form="prefix">sin</mo><mi>&theta;</mi>
+              <mo>]</mo></mrow><mi>T</mi></msup>
+            </math>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">2. Accelerated Ray-Marching &amp; Bisection</div>
+          <p style="font-size: 0.88rem; color: var(--text-muted); margin-top: 0.5rem;">
+            A ray vector is cast from optical center <math><msub><mi mathvariant="bold">P</mi><mn>0</mn></msub></math> along optical line of sight <math><mi mathvariant="bold">r</mi><mo>(</mo><mi>t</mi><mo>)</mo><mo>=</mo><msub><mi mathvariant="bold">P</mi><mn>0</mn></msub><mo>+</mo><mi>t</mi><mo>&middot;</mo><mi mathvariant="bold">v</mi></math>. The intersection with the DEM elevation profile <math><mi>z</mi><mo>=</mo><msub><mi>Z</mi><mi>DEM</mi></msub><mo>(</mo><mi>x</mi><mo>,</mo><mi>y</mi><mo>)</mo></math> is resolved via 16-step interval bisection in memory.
+          </p>
+        </div>
+      </div>
+
+      <div class="math-block">
+        <strong>Vertical Geoid Undulation Correction:</strong>
+        <math display="block">
+          <msub><mi>H</mi><mi>orthometric</mi></msub>
+          <mo>=</mo>
+          <msub><mi>h</mi><mi>ellipsoidal</mi></msub>
+          <mo>-</mo>
+          <mi>N</mi>
+          <mspace width="1em"/>
+          <mtext>(where regional undulation </mtext>
+          <mi>N</mi>
+          <mo>&approx;</mo>
+          <mo>-</mo><mn>24.0</mn><mtext> m in the Aburr&aacute; Valley, yielding </mtext>
+          <msub><mi>H</mi><mi>ortho</mi></msub>
+          <mo>=</mo>
+          <msub><mi>h</mi><mi>elip</mi></msub>
+          <mo>+</mo>
+          <mn>24.0</mn><mtext> m)</mtext>
+        </math>
+      </div>
+
+      <!-- Sub-section 5.4: Multispectral Indices -->
+      <h3>5.4 Multispectral Vegetation Indices &amp; Burn Scar Mechanics</h3>
+      <p>
+        For DJI Mavic 3 Multispectral (M3M) flights, RAPTOR processes the 4 synchronized narrow spectral bands to assess post-fire canopy scorch severity and ecological recovery potential:
+      </p>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">Normalized Difference Vegetation Index (NDVI)</div>
+          <div class="math-block">
+            <math display="block">
+              <mi>NDVI</mi>
+              <mo>=</mo>
+              <mfrac><mrow><msub><mi>&rho;</mi><mi>NIR</mi></msub><mo>-</mo><msub><mi>&rho;</mi><mi>Red</mi></msub></mrow><mrow><msub><mi>&rho;</mi><mi>NIR</mi></msub><mo>+</mo><msub><mi>&rho;</mi><mi>Red</mi></msub></mrow></mfrac>
+            </math>
+          </div>
+          <p style="font-size: 0.82rem; color: var(--text-muted);">
+            Primary indicator of chlorophyll concentration and green photosynthetic biomass. Values drop below 0.1 in active burn scars.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Normalized Difference Red Edge (NDRE)</div>
+          <div class="math-block">
+            <math display="block">
+              <mi>NDRE</mi>
+              <mo>=</mo>
+              <mfrac><mrow><msub><mi>&rho;</mi><mi>NIR</mi></msub><mo>-</mo><msub><mi>&rho;</mi><mi>RedEdge</mi></msub></mrow><mrow><msub><mi>&rho;</mi><mi>NIR</mi></msub><mo>+</mo><msub><mi>&rho;</mi><mi>RedEdge</mi></msub></mrow></mfrac>
+            </math>
+          </div>
+          <p style="font-size: 0.82rem; color: var(--text-muted);">
+            RedEdge (730 nm) penetration avoids saturation in dense tropical canopies, distinguishing deep crown mortality from superficial scorch.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Green Normalized Difference (GNDVI)</div>
+          <div class="math-block">
+            <math display="block">
+              <mi>GNDVI</mi>
+              <mo>=</mo>
+              <mfrac><mrow><msub><mi>&rho;</mi><mi>NIR</mi></msub><mo>-</mo><msub><mi>&rho;</mi><mi>Green</mi></msub></mrow><mrow><msub><mi>&rho;</mi><mi>NIR</mi></msub><mo>+</mo><msub><mi>&rho;</mi><mi>Green</mi></msub></mrow></mfrac>
+            </math>
+          </div>
+          <p style="font-size: 0.82rem; color: var(--text-muted);">
+            High sensitivity to leaf moisture and senescence stages along wildland-urban interface perimeters.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Modified Soil-Adjusted Vegetation Index 2 (MSAVI2)</div>
+          <div class="math-block">
+            <math display="block">
+              <mi>MSAVI2</mi>
+              <mo>=</mo>
+              <mfrac><mrow><mn>2</mn><msub><mi>&rho;</mi><mi>NIR</mi></msub><mo>+</mo><mn>1</mn><mo>-</mo><msqrt><msup><mrow><mo>(</mo><mn>2</mn><msub><mi>&rho;</mi><mi>NIR</mi></msub><mo>+</mo><mn>1</mn><mo>)</mo></mrow><mn>2</mn></msup><mo>-</mo><mn>8</mn><mrow><mo>(</mo><msub><mi>&rho;</mi><mi>NIR</mi></msub><mo>-</mo><msub><mi>&rho;</mi><mi>Red</mi></msub><mo>)</mo></mrow></msqrt></mrow><mn>2</mn></mfrac>
+            </math>
+          </div>
+          <p style="font-size: 0.82rem; color: var(--text-muted);">
+            Eliminates bare soil reflectance bias in sparse arid scrubland and post-fire ash beds without manual empirical soil line factors.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 6: INTERACTIVE VISUAL GALLERY -->
+    <section id="gallery">
+      <h2><span>🗺️</span> Section 6: Interactive Visual Gallery</h2>
+      <p>
+        Explore real operational outputs generated by RAPTOR during wildland fire response and multispectral vegetation triage missions. Click on any preview to open the high-resolution lightbox inspector:
+      </p>
+
+      <div class="gallery-grid">
+        <!-- Gallery Item 1 -->
+        <div class="gallery-card" onclick="openLightbox(0)">
+          <img src="./images/geovisor_overview.png" alt="RAPTOR Web Geovisor Interface Overview" class="gallery-thumb" loading="lazy">
+          <div class="gallery-info">
+            <div class="gallery-title">Interactive Leaflet Web Geovisor</div>
+            <div class="gallery-desc">Full-screen geovisor with layer switching, GSD telemetry, spatial inspection tools, and vector flight footprints.</div>
+          </div>
+        </div>
+
+        <!-- Gallery Item 2 -->
+        <div class="gallery-card" onclick="openLightbox(1)">
+          <img src="./images/thermal_radiometric.png" alt="Radiometric Thermal Orthomosaic &deg;C" class="gallery-thumb" loading="lazy">
+          <div class="gallery-info">
+            <div class="gallery-title">Radiometric Thermal Orthomosaic (&deg;C)</div>
+            <div class="gallery-desc">Ironbow-colormap calibrated surface temperature raster generated from raw DJI M3T frames via DJI Thermal SDK v1.8.</div>
+          </div>
+        </div>
+
+        <!-- Gallery Item 3 -->
+        <div class="gallery-card" onclick="openLightbox(2)">
+          <img src="./images/multispectral_indices.png" alt="Calibrated Multispectral NDVI Canopy Vigor" class="gallery-thumb" loading="lazy">
+          <div class="gallery-info">
+            <div class="gallery-title">Multispectral Canopy Vigor (NDVI)</div>
+            <div class="gallery-desc">4-band orthorectified surface reflectance index displaying vegetative vigor and post-wildfire boundary delineation.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Lightbox Modal Component -->
+    <div class="lightbox-modal" id="lightbox-modal" role="dialog" aria-modal="true" aria-label="Image Zoom Inspector">
+      <button class="lightbox-close" onclick="closeLightbox()" aria-label="Close Inspector">&times;</button>
+      <button class="lightbox-nav lightbox-prev" onclick="prevLightbox()" aria-label="Previous Image">&#10094;</button>
+      <button class="lightbox-nav lightbox-next" onclick="nextLightbox()" aria-label="Next Image">&#10095;</button>
+      <img id="lightbox-img" class="lightbox-content" src="" alt="High resolution inspection">
+    </div>
+
+    <!-- Embedded Documentation Data (Ensures 100% offline & local file:// functionality) -->
+    <script type="application/json" id="embedded-constants">
+      {
+        "generated_by": "scripts/generate_branding.py",
+        "version": "1.0.0"
+      }
+    </script>
+
+  </main>
+
+  <!-- Interactive Client-side Script -->
+  <script>
+    // Theme Management
+    const themeToggleBtn = document.getElementById('theme-toggle');
+    const themeIcon = document.getElementById('theme-icon');
+    const themeText = document.getElementById('theme-text');
+
+    function updateThemeUI(theme) {
+      if (theme === 'light') {
+        themeIcon.textContent = '☀️';
+        themeText.textContent = 'Light Mode';
+      } else {
+        themeIcon.textContent = '🌙';
+        themeText.textContent = 'Dark Mode';
+      }
+    }
+
+    const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+    updateThemeUI(currentTheme);
+
+    themeToggleBtn.addEventListener('click', () => {
+      const activeTheme = document.documentElement.getAttribute('data-theme');
+      const newTheme = activeTheme === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', newTheme);
+      localStorage.setItem('raptor-theme', newTheme);
+      updateThemeUI(newTheme);
+    });
+
+    // Hero Banner SVG vs ASCII Art Switcher
+    const bannerToggleBtn = document.getElementById('banner-toggle');
+    const heroSvg = document.getElementById('hero-svg');
+    const heroAscii = document.getElementById('hero-ascii');
+    let showingAscii = false;
+
+    bannerToggleBtn.addEventListener('click', () => {
+      if (!showingAscii) {
+        heroSvg.style.display = 'none';
+        heroAscii.style.display = 'block';
+        bannerToggleBtn.innerHTML = '<span>🖼️ Graphical SVG Banner</span>';
+        showingAscii = true;
+      } else {
+        heroAscii.style.display = 'none';
+        heroSvg.style.display = 'block';
+        bannerToggleBtn.innerHTML = '<span>📟 Terminal ASCII Banner</span>';
+        showingAscii = false;
+      }
+    });
+
+    // Copy to Clipboard with Secure Context + execCommand Fallback
+    function copyCode(btn) {
+      const codeBlock = btn.closest('.code-block').querySelector('code');
+      if (!codeBlock) return;
+      const text = codeBlock.innerText;
+
+      const onSuccess = () => {
+        const originalText = btn.textContent;
+        btn.textContent = 'Copied!';
+        btn.style.borderColor = 'var(--accent-green)';
+        btn.style.color = 'var(--accent-green)';
+        setTimeout(() => {
+          btn.textContent = originalText;
+          btn.style.borderColor = '';
+          btn.style.color = '';
+        }, 2000);
+      };
+
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(onSuccess).catch(() => fallbackCopy(text, onSuccess));
+      } else {
+        fallbackCopy(text, onSuccess);
+      }
+    }
+
+    function fallbackCopy(text, cb) {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try {
+        document.execCommand('copy');
+        cb();
+      } catch (err) {
+        console.error('Fallback copy failed', err);
+      }
+      document.body.removeChild(ta);
+    }
+
+    // CLI Flag Filtering
+    let activeCategory = 'all';
+
+    function setCategoryFilter(category, btn) {
+      activeCategory = category;
+      document.querySelectorAll('.filter-pills .pill').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      filterFlags();
+    }
+
+    function filterFlags() {
+      const query = document.getElementById('cli-search').value.toLowerCase().trim();
+      const rows = document.querySelectorAll('#flags-tbody tr');
+
+      rows.forEach(row => {
+        const cat = row.getAttribute('data-cat');
+        const text = row.innerText.toLowerCase();
+
+        const matchesCat = (activeCategory === 'all' || cat === activeCategory);
+        const matchesQuery = (query === '' || text.includes(query));
+
+        if (matchesCat && matchesQuery) {
+          row.style.display = '';
+        } else {
+          row.style.display = 'none';
+        }
+      });
+    }
+
+    // Lightbox Modal
+    const galleryImages = [
+      { src: './images/geovisor_overview.png', alt: 'RAPTOR Web Geovisor Interface Overview' },
+      { src: './images/thermal_radiometric.png', alt: 'Radiometric Thermal Orthomosaic °C' },
+      { src: './images/multispectral_indices.png', alt: 'Calibrated Multispectral NDVI Canopy Vigor' }
+    ];
+    let currentLightboxIdx = 0;
+    const modal = document.getElementById('lightbox-modal');
+    const modalImg = document.getElementById('lightbox-img');
+
+    function openLightbox(idx) {
+      currentLightboxIdx = idx;
+      modalImg.src = galleryImages[idx].src;
+      modalImg.alt = galleryImages[idx].alt;
+      modal.classList.add('active');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeLightbox() {
+      modal.classList.remove('active');
+      document.body.style.overflow = '';
+    }
+
+    function prevLightbox() {
+      currentLightboxIdx = (currentLightboxIdx - 1 + galleryImages.length) % galleryImages.length;
+      openLightbox(currentLightboxIdx);
+    }
+
+    function nextLightbox() {
+      currentLightboxIdx = (currentLightboxIdx + 1) % galleryImages.length;
+      openLightbox(currentLightboxIdx);
+    }
+
+    // Modal Keyboard Listeners
+    window.addEventListener('keydown', (e) => {
+      if (!modal.classList.contains('active')) return;
+      if (e.key === 'Escape') closeLightbox();
+      if (e.key === 'ArrowLeft') prevLightbox();
+      if (e.key === 'ArrowRight') nextLightbox();
+    });
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeLightbox();
+    });
+
+    // Sticky ScrollSpy for Sidebar Navigation
+    const sections = document.querySelectorAll('main section[id]');
+    const navLinks = document.querySelectorAll('.sidebar .nav-link');
+
+    window.addEventListener('scroll', () => {
+      let currentSectionId = '';
+      const scrollPos = window.scrollY + 200;
+
+      sections.forEach(section => {
+        const top = section.offsetTop;
+        const height = section.offsetHeight;
+        if (scrollPos >= top && scrollPos < top + height) {
+          currentSectionId = section.getAttribute('id');
+        }
+      });
+
+      if (currentSectionId) {
+        navLinks.forEach(link => {
+          link.classList.remove('active');
+          if (link.getAttribute('href') === `#${currentSectionId}`) {
+            link.classList.add('active');
+          }
+        });
+      }
+    });
+  </script>
+</body>
+</html>

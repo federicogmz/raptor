@@ -1,0 +1,194 @@
+{
+  "advanced": [
+    {
+      "command": "raptor build",
+      "description": "Build the RAPTOR container image manually."
+    },
+    {
+      "command": "raptor run [options]",
+      "description": "Process one photogrammetry mission non-interactively (ideal for CI/batch)."
+    },
+    {
+      "command": "raptor webapp [options]",
+      "description": "Deploy webapp container with explicit flags, bypassing ~/.raptor/config."
+    },
+    {
+      "command": "raptor shell",
+      "description": "Open an interactive bash shell inside the container."
+    }
+  ],
+  "binary": "raptor",
+  "everyday_use": [
+    {
+      "command": "raptor start",
+      "description": "Start the webapp background daemon with saved config (~/.raptor/config)."
+    },
+    {
+      "command": "raptor restart",
+      "description": "Restart the webapp daemon (same as start)."
+    },
+    {
+      "command": "raptor stop",
+      "description": "Stop the webapp background daemon."
+    },
+    {
+      "command": "raptor status",
+      "description": "Check if webapp container is currently running."
+    },
+    {
+      "command": "raptor logs",
+      "description": "Watch live tail logs of webapp background container."
+    },
+    {
+      "command": "raptor init",
+      "description": "Reconfigure deliveries folder path or listening port."
+    }
+  ],
+  "first_time": [
+    {
+      "command": "./raptor install",
+      "description": "Build image, install global raptor command on host PATH, configure deliveries folder and port, and launch webapp."
+    }
+  ],
+  "run_flags": [
+    {
+      "category": "Input",
+      "description": "Path to RGB/thermal flight folder (DJI M3T or H20T).",
+      "flag": "--input DIR",
+      "required": true
+    },
+    {
+      "category": "Input",
+      "description": "Path to multispectral 4-band flight folder (DJI M3M).",
+      "flag": "--input-ms DIR",
+      "required": false
+    },
+    {
+      "category": "Processing",
+      "choices": [
+        "rgb+thermal",
+        "rgb",
+        "none"
+      ],
+      "default": "rgb+thermal",
+      "description": "Processing mode selection.",
+      "flag": "--mode MODO"
+    },
+    {
+      "category": "Processing",
+      "choices": [
+        "tactico",
+        "cartografico",
+        "forense"
+      ],
+      "default": "cartografico",
+      "description": "Quality preset: tactico (rapid field response), cartografico (standard cartography), forense (forensic max detail).",
+      "flag": "--preset NOMBRE"
+    },
+    {
+      "category": "Processing",
+      "choices": [
+        "plano",
+        "escarpado"
+      ],
+      "default": "plano",
+      "description": "Terrain profile; incremental SfM is enabled across all modern presets to prevent photo drops in steep relief.",
+      "flag": "--terreno TIPO"
+    },
+    {
+      "category": "Processing",
+      "default": null,
+      "description": "Emergency subsampling: process 1 in every N photos (N>=2). Cuts SfM time by ~3x in rugged terrain.",
+      "flag": "--subsample N"
+    },
+    {
+      "category": "Processing",
+      "default": false,
+      "description": "Reuse existing ODM reconstruction stages from --runs directory.",
+      "flag": "--reuse-odm"
+    },
+    {
+      "category": "Processing",
+      "default": "Auto (RAM-budgeted)",
+      "description": "Manual thread limit override for ODM stages. Defaults to memory-safe auto budget.",
+      "flag": "--max-concurrency N"
+    },
+    {
+      "category": "Processing",
+      "default": false,
+      "description": "Force CPU-only execution, disabling CUDA / OpenMVS GPU offload.",
+      "flag": "--no-gpu"
+    },
+    {
+      "category": "Processing",
+      "default": false,
+      "description": "Stream raw verbose output from ODM and core subroutines.",
+      "flag": "--verbose"
+    },
+    {
+      "category": "Export & Deliverables",
+      "default": null,
+      "description": "Host destination folder for exported GIS deliverables.",
+      "flag": "--export DIR"
+    },
+    {
+      "category": "Export & Deliverables",
+      "default": "all",
+      "description": "Comma-separated products or 'all': rgb, thermal, dsm, multispectral, indices, classes, confidence, area, flight_path, situation, pointclouds.",
+      "flag": "--export-products LIST"
+    },
+    {
+      "category": "Export & Deliverables",
+      "default": "source",
+      "description": "Target CRS EPSG code (e.g. 9377 for MAGNA-SIRGAS Origen Nacional Colombia) or 'source'.",
+      "flag": "--export-epsg CODE"
+    },
+    {
+      "category": "Export & Deliverables",
+      "choices": [
+        "cog",
+        "gtiff"
+      ],
+      "default": "cog",
+      "description": "Raster format: Cloud Optimized GeoTIFF (cog) or standard GeoTIFF (gtiff).",
+      "flag": "--export-raster-format F"
+    },
+    {
+      "category": "Export & Deliverables",
+      "choices": [
+        "geojson",
+        "gpkg",
+        "shp",
+        "kml"
+      ],
+      "default": "geojson",
+      "description": "Vector format for boundaries, flight path, and incident situation summary.",
+      "flag": "--export-vector-format F"
+    },
+    {
+      "category": "Automation",
+      "default": "./runs",
+      "description": "Persistent working and caching scratch directory.",
+      "flag": "--runs DIR"
+    },
+    {
+      "category": "Automation",
+      "default": false,
+      "description": "Output machine-readable run summary JSON upon completion.",
+      "flag": "--json"
+    },
+    {
+      "category": "Automation",
+      "default": false,
+      "description": "Keep interactive geovisor HTTP server running upon mission completion.",
+      "flag": "--serve"
+    },
+    {
+      "category": "Automation",
+      "default": "8080",
+      "description": "Port for geovisor server when --serve is passed.",
+      "flag": "--port N"
+    }
+  ],
+  "version": "1.0.0"
+}
