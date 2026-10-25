@@ -1,3 +1,45 @@
+<p align="center">
+  <img src="docs/assets/logo.svg" alt="RAPTOR Logo" width="100%"/>
+</p>
+
+<p align="center">
+  <a href="https://github.com/federicogmz/raptor/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg" alt="License: MIT"/></a>
+  <a href="https://federicogmz.github.io/raptor/"><img src="https://img.shields.io/badge/docs-interactive%20portal-0284c7?logo=googledocs&logoColor=white" alt="Documentation Portal"/></a>
+  <img src="https://img.shields.io/badge/docker-unified--container-blue?logo=docker&logoColor=white" alt="Docker Unified"/>
+  <img src="https://img.shields.io/badge/engine-2.5D%20Zenith%20%2B%203D%20ODM-dea584?logo=rust&logoColor=white" alt="Zenith Engine"/>
+  <img src="https://img.shields.io/badge/thermal-DJI%20DIRP%20v1.8%20%C2%B0C-e11d48" alt="Calibrated Thermal"/>
+  <img src="https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white" alt="Python 3.12+"/>
+</p>
+
+<p align="center">
+  📖 <strong><a href="https://federicogmz.github.io/raptor/">Interactive Documentation &amp; CLI Reference Portal</a></strong> (or serve locally with <code>python -m http.server -d docs</code>)
+</p>
+
+<details>
+<summary>📟 <strong>Terminal ASCII Banner</strong> (click to expand)</summary>
+
+```text
++--------------------------------------------------------------------------+
+| RAPTOR // MULTI-SENSOR UAV PHOTOGRAMMETRY & WILDFIRE TRIAGE PIPELINE     |
+|                                                                          |
+|   [SCAN]         ██████╗  █████╗ ██████╗ ████████╗ ██████╗ ██████╗       |
+|  +-------+       ██╔══██╗██╔══██╗██╔══██╗╚══██╔══╝██╔═══██╗██╔══██╗      |
+|  | +---+ | (Hot) ██████╔╝███████║██████╔╝   ██║   ██║   ██║██████╔╝      |
+|  | | c | |  ^ ^  ██╔══██╗██╔══██║██╔═══╝    ██║   ██║   ██║██╔══██╗      |
+|  +-+-+-+-+ (deg) ██║  ██║██║  ██║██║        ██║   ╚██████╔╝██║  ██║      |
+|    +-----+   ^   ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝        ╚═╝    ╚═════╝ ╚═╝  ╚═╝      |
+|   ^^^^ (Fire Front)                                                      |
+|  /^^^^\  ###▒▒░░  TIERED PIPELINE ARCHITECTURE:                          |
+| /^^^^^^\####▒▒░░  * Level 0: Thermal Triage Ray-DEM (<2 min)             |
+| ^^^^^^^^####▒▒░░  * Level 1: Tactical 2.5D Zenith Ortho (20-40 s)        |
+| ^^^^^^^^####▒▒░░  * Level 2: Cartographic 3D ODM (15-45 min)             |
++--------------------------------------------------------------------------+
+```
+
+</details>
+
+---
+
 # RAPTOR: DJI M3T / H20T / M3M
 
 **R**econstruction of **A**erial **P**roducts, **T**hermal, **O**ptical (and
