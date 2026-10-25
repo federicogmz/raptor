@@ -53,30 +53,30 @@ PALETTE = {
 }
 
 MATRIX_24X24 = [
-    "    CCCC                ",  # 00: UAV Footprint 1 top
-    "   C    C               ",  # 01
-    "  C      C    AAAA      ",  # 02: Overlapping Footprint 2
-    "  C   c  C   A    A     ",  # 03: Scan crosshair tick
-    "  C c c cC   A  a A     ",  # 04: Flight camera reticle
-    "  C   c  C  A  aaa A    ",  # 05: Overlap zone
-    "   C    C   A   a  A    ",  # 06: Plume rises into reticle
-    "    CCCC    A      A    ",  # 07
-    "      pPmP   AAAAAA     ",  # 08: Billowing thermal smoke
-    "     pPPPPm    ssss     ",  # 09: Andean mountain peak right
-    "    pPmPPPPP  sBBBB     ",  # 10: Stepped mountain slope
-    "   pPPmPrrPP sBBBB      ",  # 11: Thermal anomaly signature
-    "   pPPrRRrPP sBBgG      ",  # 12: Fire front crown
-    "   pPrROORrPsBBgGG      ",  # 13: High-heat zone
-    "  pPrROoyOoRsBgGlG      ",  # 14: Radiant fire front
-    "  pPrOOywyOOBgGGgG      ",  # 15: Core ignition zone
-    " pPrROywwyORgGlGBB      ",  # 16: White-hot incandescent center
-    " pPrROOywyoRgGGBBB      ",  # 17: Fire flank on slope
-    "sBrRROyOOoRBBBBBBB      ",  # 18: Basalt terrace fire line
-    "ssBBbrRRroBBsBBBBB      ",  # 19: Charred burn scar & embers
-    "BBBBBBBBBBBBBBBBBB      ",  # 20: Stepped Andean bedrock
-    "BBgGBBBgGGBBBBBbBb      ",  # 21: Native vegetation patches
-    "bbBBBbbBBBbBbbbbbb      ",  # 22: Basalt foundation
-    "bbbbbbbbbbbbbbbbbb      ",  # 23: Bedrock base
+    "kkkkkkkkk p  o kkkkkkkkk",  # 00: Raster sky grid + rising embers
+    "kkkkkkkk pPp  y kkkkkkkk",  # 01: Smoke & glowing spark
+    "kkkkkkk pPPPp    kkkkkkk",  # 02: Thermal smoke plume
+    "kkkkkk pPPmPPp o  kkkkkk",  # 03: Billowing plume + ember
+    "kkkkk  pPmrmPp    sssskk",  # 04: Plume + high Andean peak (right)
+    "kkkkk   prRrp    ssBBBsk",  # 05: Flame tip + rocky ridge
+    "kkkk  o rROOr r  sBBBBBs",  # 06: Dancing flame tongues
+    "kkkk   rROyOOrR sBBBBgBB",  # 07: Twin flame peaks + mountain slope
+    "kkk   rROOywyORsBBBgGggB",  # 08: Incandescent fire crown
+    "kkk  rROOyywyyORBBgGllgB",  # 09: White-hot wildfire core
+    "kkss rROyywwwyyORBgGlggB",  # 10: Left ridge + roaring fire front
+    "ksBBsrROywwwwwyORgGllgGB",  # 11: Intense combustion heart
+    "sBBBBrrROyywwyyORgGlgGGB",  # 12: Fire consuming mountain forest
+    "BBBBBBrrROOyyyOORggGGBBB",  # 13: Radiant thermal front on slope
+    "BBBBbBbrrRROOOORRggGBBBB",  # 14: Glowing fireline
+    "BBbBssBbrrrRRRRrrgGGBBBb",  # 15: Charred ember bed & forest edge
+    "BbBssssBbbbrrrrrbGGGBBbb",  # 16: Stepped terrain contour
+    "bBssBBBBbbbbrrrbbGGBBbbb",  # 17: Terraced elevation cells
+    "BssBBBBBBbbbbbbbbGBBbbbb",  # 18: Mountain flank
+    "ssBBBBbBBBbbbbbbbbBbbbbb",  # 19: Stepped DEM cells
+    "sBBBBbbbBBBbbbbbbbbbbbbb",  # 20: Lower valley raster cells
+    "BBBBbbbbbBBBbbbbbbbbbbbb",  # 21: Bedrock layer
+    "BBBbbbbbbbBBBbbbbbbbbbbb",  # 22: Deep terrain grid
+    "bbBbbbbbbbbBBBbbbbbbbbbb",  # 23: Base raster row
 ]
 
 # 5x7 Pixel Font Bitmaps for 'RAPTOR'
@@ -141,31 +141,19 @@ FONT_ROW_COLORS = [
 
 
 def render_pixel_matrix_svg(matrix, palette, origin_x, origin_y, cell_size):
-    """Render a pixel matrix into SVG <rect> elements with horizontal run merging."""
+    """Render a pixel matrix into discrete raster grid <rect> cells with 1px separation."""
     rects = []
-    height = len(matrix)
-    width = len(matrix[0]) if height > 0 else 0
-
-    for y in range(height):
-        row = matrix[y]
-        x = 0
-        while x < width:
-            char = row[x]
+    gap = 1 if cell_size >= 4 else 0
+    box = cell_size - gap
+    for y, row in enumerate(matrix):
+        for x, char in enumerate(row):
             color = palette.get(char)
             if color is None:
-                x += 1
                 continue
-            # Merge contiguous horizontal runs of same color
-            run_start = x
-            while x < width and row[x] == char:
-                x += 1
-            run_length = x - run_start
-            rx = origin_x + run_start * cell_size
+            rx = origin_x + x * cell_size
             ry = origin_y + y * cell_size
-            rw = run_length * cell_size
-            rh = cell_size
             rects.append(
-                f'<rect x="{rx}" y="{ry}" width="{rw}" height="{rh}" fill="{color}"/>'
+                f'<rect x="{rx}" y="{ry}" width="{box}" height="{box}" fill="{color}"/>'
             )
     return rects
 
