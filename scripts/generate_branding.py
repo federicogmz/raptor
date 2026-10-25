@@ -29,54 +29,51 @@ ASSETS_DIR = DOCS_DIR / "assets"
 # ---------------------------------------------------------------------------
 # Color Palette
 PALETTE = {
-    " ": None,                  # Transparent / background
-    "k": "#0f172a",             # Sky dark slate
-    "b": "#1e293b",             # Basalt dark slate (Andean bedrock)
-    "B": "#334155",             # Basalt mid slate
-    "s": "#475569",             # Basalt light terrace
-    "g": "#14532d",             # Deep Andean pine canopy
-    "G": "#166534",             # Lush mountain forest
-    "l": "#22c55e",             # Light canopy edge
-    "p": "#4a148c",             # Ironbow thermal smoke (deep purple)
-    "P": "#7b1fa2",             # Ironbow thermal smoke (violet plume)
-    "m": "#aa00ff",             # Radiometric plume edge
-    "r": "#d50000",             # Radiometric crimson (200-300 °C)
-    "R": "#ff1744",             # Active fire front crimson
-    "o": "#ff6d00",             # Radiometric orange (400-500 °C)
-    "O": "#ff9100",             # Bright radiant flame
-    "y": "#ffea00",             # Incandescent yellow (600+ °C)
-    "w": "#fff9c4",             # Thermal plume core (white-hot >700 °C)
-    "c": "#00f0ff",             # UAV Reticle / Scan crosshair (Cyan)
-    "C": "#0284c7",             # UAV Scan footprint 1 (Cyan border)
-    "a": "#fbbf24",             # UAV Overlap footprint reticle (Amber)
-    "A": "#d97706",             # UAV Scan footprint 2 (Amber border)
+    " ": None,                  # Sky (transparent to dark card)
+    "k": "#0a121e",             # Subtle sky grid cell
+    "s": "#64748b",             # High mountain ridge rock (light slate)
+    "B": "#475569",             # Mountain upper contour (mid slate)
+    "b": "#334155",             # Mountain mid bedrock (dark slate)
+    "d": "#1e293b",             # Deep valley bedrock
+    "l": "#4ade80",             # Sunlit forest canopy crest
+    "G": "#22c55e",             # Mountain forest canopy
+    "g": "#15803d",             # Deep pine forest slope
+    "r": "#ef4444",             # Flame outer tongue (Red)
+    "o": "#f97316",             # Flame middle body (Orange)
+    "y": "#facc15",             # Flame hot core (Yellow)
+    "w": "#fef08a",             # Ignition base center (Warm white-yellow)
+    "m": "#94a3b8",             # Wispy gray smoke puff (NO purple!)
 }
 
+# 24x24 pixel matrix:
+# Top rows (0..7) are sky (where the UAV thermal scan cone projects down).
+# Rows 8..23 show a clear twin-peaked mountain range with green forest slopes
+# and a proportionate, crisp 3-tongue pixel wildfire on the right-center slope.
 MATRIX_24X24 = [
-    "kkkkkkkkk p  o kkkkkkkkk",  # 00: Raster sky grid + rising embers
-    "kkkkkkkk pPp  y kkkkkkkk",  # 01: Smoke & glowing spark
-    "kkkkkkk pPPPp    kkkkkkk",  # 02: Thermal smoke plume
-    "kkkkkk pPPmPPp o  kkkkkk",  # 03: Billowing plume + ember
-    "kkkkk  pPmrmPp    sssskk",  # 04: Plume + high Andean peak (right)
-    "kkkkk   prRrp    ssBBBsk",  # 05: Flame tip + rocky ridge
-    "kkkk  o rROOr r  sBBBBBs",  # 06: Dancing flame tongues
-    "kkkk   rROyOOrR sBBBBgBB",  # 07: Twin flame peaks + mountain slope
-    "kkk   rROOywyORsBBBgGggB",  # 08: Incandescent fire crown
-    "kkk  rROOyywyyORBBgGllgB",  # 09: White-hot wildfire core
-    "kkss rROyywwwyyORBgGlggB",  # 10: Left ridge + roaring fire front
-    "ksBBsrROywwwwwyORgGllgGB",  # 11: Intense combustion heart
-    "sBBBBrrROyywwyyORgGlgGGB",  # 12: Fire consuming mountain forest
-    "BBBBBBrrROOyyyOORggGGBBB",  # 13: Radiant thermal front on slope
-    "BBBBbBbrrRROOOORRggGBBBB",  # 14: Glowing fireline
-    "BBbBssBbrrrRRRRrrgGGBBBb",  # 15: Charred ember bed & forest edge
-    "BbBssssBbbbrrrrrbGGGBBbb",  # 16: Stepped terrain contour
-    "bBssBBBBbbbbrrrbbGGBBbbb",  # 17: Terraced elevation cells
-    "BssBBBBBBbbbbbbbbGBBbbbb",  # 18: Mountain flank
-    "ssBBBBbBBBbbbbbbbbBbbbbb",  # 19: Stepped DEM cells
-    "sBBBBbbbBBBbbbbbbbbbbbbb",  # 20: Lower valley raster cells
-    "BBBBbbbbbBBBbbbbbbbbbbbb",  # 21: Bedrock layer
-    "BBBbbbbbbbBBBbbbbbbbbbbb",  # 22: Deep terrain grid
-    "bbBbbbbbbbbBBBbbbbbbbbbb",  # 23: Base raster row
+    "                        ",  # 00: Sky (UAV position at top)
+    "                        ",  # 01
+    "                        ",  # 02
+    "                        ",  # 03
+    "               m        ",  # 04: Subtle gray smoke wisp
+    "             m   m      ",  # 05: Subtle gray smoke wisp
+    "      ss       r        ",  # 06: Left mountain peak + top flame tip
+    "     sBBs    r r r      ",  # 07: High rocky peak + 3 distinct flame tips
+    "    sBBBBs   rooor   ss ",  # 08: Left peak + crisp orange-red flames + right peak
+    "   sBBBBBBs rrooorr sBBs",  # 09: Mountain ridge + proportionate fire crown
+    "  sBBBllBBBsrooyoorBBBBs",  # 10: Forested slope + yellow-orange fire core
+    " sBBllGGllBBrroyyorBBgBs",  # 11: Lush canopy + fire base on slope
+    "sBBlGGGGGGllggryrgglGGGB",  # 12: Continuous forest across valley + ignition point
+    "BBlGGGGggggGGGGggggGGGGB",  # 13: Green mountain forest layer
+    "BlGGGggggbbbbggggggGggBB",  # 14: Forest + stepped topographic contour
+    "lGGggggbbBBBBbbbbggggBBB",  # 15: Stepped terrain contour
+    "GggggbbBBBBBBBBbbbbgBBBB",  # 16: Mountain flank contour
+    "gggbbBBBBbddddbBBBBbBBBB",  # 17: Terraced elevation layer
+    "gbbBBBBbbddddddbbBBBBBBB",  # 18: Stepped DEM cells
+    "bBBBBbbddddddddddbbBBBBB",  # 19: Lower valley contours
+    "BBBBbddddddddddddddbbBBB",  # 20: Bedrock layer
+    "BBbddddddddddddddddddbbB",  # 21: Deep terrain grid
+    "bbddddddddddddddddddddbb",  # 22: Base DEM row
+    "dddddddddddddddddddddddd",  # 23: Foundation
 ]
 
 # 5x7 Pixel Font Bitmaps for 'RAPTOR'
@@ -141,20 +138,55 @@ FONT_ROW_COLORS = [
 
 
 def render_pixel_matrix_svg(matrix, palette, origin_x, origin_y, cell_size):
-    """Render a pixel matrix into discrete raster grid <rect> cells with 1px separation."""
+    """Render the 24x24 mountain+fire pixel grid plus UAV thermal scan cone from above."""
     rects = []
     gap = 1 if cell_size >= 4 else 0
     box = cell_size - gap
+    w = 24 * cell_size
+    h = 24 * cell_size
+
+    # Subtle background raster grid for sky cells
     for y, row in enumerate(matrix):
         for x, char in enumerate(row):
-            color = palette.get(char)
-            if color is None:
-                continue
             rx = origin_x + x * cell_size
             ry = origin_y + y * cell_size
-            rects.append(
-                f'<rect x="{rx}" y="{ry}" width="{box}" height="{box}" fill="{color}"/>'
-            )
+            color = palette.get(char)
+            if color is None:
+                # Subtle dark sky raster cell
+                rects.append(
+                    f'<rect x="{rx}" y="{ry}" width="{box}" height="{box}" fill="#0c1524" fill-opacity="0.65"/>'
+                )
+            else:
+                rects.append(
+                    f'<rect x="{rx}" y="{ry}" width="{box}" height="{box}" fill="{color}"/>'
+                )
+
+    # UAV Thermal Scan Cone from top-center UAV down to the fire on the mountain slope (cols 11..19, row 12)
+    uav_x = origin_x + 12.5 * cell_size
+    uav_y = origin_y + 1.8 * cell_size
+    scan_l_x = origin_x + 10.5 * cell_size
+    scan_r_x = origin_x + 19.5 * cell_size
+    scan_y = origin_y + 12.5 * cell_size
+
+    rects.append(
+        f'<polygon points="{uav_x:.1f},{uav_y:.1f} {scan_l_x:.1f},{scan_y:.1f} {scan_r_x:.1f},{scan_y:.1f}" '
+        f'fill="#ff6d00" fill-opacity="0.16"/>'
+    )
+    rects.append(
+        f'<line x1="{uav_x:.1f}" y1="{uav_y:.1f}" x2="{scan_l_x:.1f}" y2="{scan_y:.1f}" '
+        f'stroke="#ff9100" stroke-width="1.3" stroke-dasharray="3,2" stroke-opacity="0.9"/>'
+    )
+    rects.append(
+        f'<line x1="{uav_x:.1f}" y1="{uav_y:.1f}" x2="{scan_r_x:.1f}" y2="{scan_y:.1f}" '
+        f'stroke="#ff9100" stroke-width="1.3" stroke-dasharray="3,2" stroke-opacity="0.9"/>'
+    )
+    # UAV Drone Node at top
+    rects.append(f'<rect x="{uav_x - 10:.1f}" y="{uav_y - 3:.1f}" width="20" height="2.5" fill="#ff9100"/>')
+    rects.append(f'<rect x="{uav_x - 12:.1f}" y="{uav_y - 5:.1f}" width="5" height="2" fill="#e2e8f0"/>')
+    rects.append(f'<rect x="{uav_x + 7:.1f}" y="{uav_y - 5:.1f}" width="5" height="2" fill="#e2e8f0"/>')
+    rects.append(f'<rect x="{uav_x - 4:.1f}" y="{uav_y - 1.5:.1f}" width="8" height="5" fill="#0f172a" stroke="#ff9100" stroke-width="1.3"/>')
+    rects.append(f'<rect x="{uav_x - 1.5:.1f}" y="{uav_y:.1f}" width="3" height="2.5" fill="#facc15"/>')
+
     return rects
 
 
