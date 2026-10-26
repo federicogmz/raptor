@@ -72,7 +72,7 @@
       ],
       "default": "rgb+thermal",
       "description": "Processing mode selection.",
-      "flag": "--mode MODO"
+      "flag": "--mode MODE"
     },
     {
       "category": "Processing",
@@ -83,7 +83,7 @@
       ],
       "default": "cartografico",
       "description": "Quality preset: tactico (rapid field response), cartografico (standard cartography), forense (forensic max detail).",
-      "flag": "--preset NOMBRE"
+      "flag": "--preset NAME"
     },
     {
       "category": "Processing",
@@ -93,7 +93,7 @@
       ],
       "default": "plano",
       "description": "Terrain profile; incremental SfM is enabled across all modern presets to prevent photo drops in steep relief.",
-      "flag": "--terreno TIPO"
+      "flag": "--terreno TYPE"
     },
     {
       "category": "Processing",
