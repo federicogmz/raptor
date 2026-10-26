@@ -68,7 +68,7 @@ sensors reconstruct at once" below).
 
 RAPTOR implements a dual photogrammetry engine to address both immediate tactical incident command and detailed post-incident cartographic analysis:
 
-| Feature / Metric | Modo 2.5D — Zenith Direct Ortho | Modo 3D — ODM Dense Reconstruction |
+| Feature / Metric | 2.5D Mode — Zenith Direct Ortho | 3D Mode — ODM Dense Reconstruction |
 | :--- | :--- | :--- |
 | **Engine Core** | Native Rust (`zenith` CLI / crates) | OpenDroneMap (C++ / OpenSfM / MVS) |
 | **Execution Time** | **20–40 seconds** | 15–45 minutes |

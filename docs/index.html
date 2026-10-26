@@ -959,13 +959,13 @@ cd raptor
               <td>Path to 4-band multispectral flight folder (DJI Mavic 3 Multispectral).</td>
             </tr>
             <tr data-cat="Processing">
-              <td><code>--mode MODO</code></td>
+              <td><code>--mode MODE</code></td>
               <td><span class="nav-badge">Processing</span></td>
               <td><code>rgb+thermal</code></td>
               <td>Processing mode selector: <code>rgb+thermal</code> (default), <code>rgb</code>, or <code>none</code>.</td>
             </tr>
             <tr data-cat="Processing">
-              <td><code>--preset NOMBRE</code></td>
+              <td><code>--preset NAME</code></td>
               <td><span class="nav-badge">Processing</span></td>
               <td><code>cartografico</code></td>
               <td>
@@ -976,7 +976,7 @@ cd raptor
               </td>
             </tr>
             <tr data-cat="Processing">
-              <td><code>--terreno TIPO</code></td>
+              <td><code>--terreno TYPE</code></td>
               <td><span class="nav-badge">Processing</span></td>
               <td><code>plano</code></td>
               <td>Terrain profile: <code>plano</code> or <code>escarpado</code>. Retained for backwards compatibility; all modern presets enforce incremental SfM to prevent photo drops in steep relief.</td>
@@ -1076,9 +1076,9 @@ cd raptor
         </div>
         <pre><code># Complete production mission run with MAGNA-SIRGAS EPSG:9377 reprojection
 raptor run \
-  --input /data/vuelos/2026-08-14_incendio_palmitas \
+  --input /data/flights/2026-08-14_wildfire_mission \
   --preset cartografico \
-  --export /data/entregas/palmitas \
+  --export /data/deliverables/wildfire_mission \
   --export-epsg 9377 \
   --export-raster-format cog \
   --export-vector-format gpkg \
