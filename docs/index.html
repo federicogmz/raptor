@@ -754,45 +754,45 @@
           <tbody>
             <tr>
               <td><code>rgb</code></td>
-              <td>COG (Cloud Optimized GeoTIFF)</td>
+              <td>UInt8 COG (Cloud Optimized GeoTIFF)</td>
               <td>EPSG:9377 / EPSG:4326</td>
-              <td>Sub-centimeter true-color orthomosaic with overviews and Deflate compression.</td>
+              <td>Sub-centimeter true-color orthomosaic with embedded overviews and Deflate compression (<code>PREDICTOR=2</code>).</td>
             </tr>
             <tr>
               <td><code>thermal</code></td>
-              <td>Float32 GeoTIFF / COG</td>
+              <td>Float32 COG (Cloud Optimized GeoTIFF)</td>
               <td>EPSG:9377 / EPSG:4326</td>
-              <td>Calibrated surface temperature raster in degrees Celsius (&deg;C) from DJI Thermal SDK.</td>
+              <td>Calibrated surface temperature raster in degrees Celsius (&deg;C) from DJI Thermal SDK (<code>PREDICTOR=3</code>).</td>
             </tr>
             <tr>
               <td><code>dsm</code></td>
-              <td>Float32 GeoTIFF</td>
+              <td>Float32 COG (Cloud Optimized GeoTIFF)</td>
               <td>EPSG:9377 / EPSG:4326</td>
-              <td>Digital Surface Model representing true canopy and terrain elevation above sea level.</td>
+              <td>Digital Surface Model representing true canopy and terrain elevation above sea level (<code>PREDICTOR=3</code>).</td>
             </tr>
             <tr>
               <td><code>multispectral</code></td>
-              <td>Multi-band COG (4 bands)</td>
+              <td>Multi-band Float32 COG (4 bands)</td>
               <td>EPSG:9377 / EPSG:4326</td>
-              <td>Calibrated surface reflectance cube (Band 1: Green, 2: Red, 3: RedEdge, 4: NIR).</td>
+              <td>Calibrated surface reflectance cube (Band 1: Green, 2: Red, 3: RedEdge, 4: NIR) with embedded overviews.</td>
             </tr>
             <tr>
               <td><code>indices</code></td>
-              <td>Float32 GeoTIFF / XYZ Tiles</td>
+              <td>Float32 COG (Cloud Optimized GeoTIFF)</td>
               <td>EPSG:9377 / EPSG:4326</td>
-              <td>Canopy vigor index rasters: NDVI, GNDVI, NDRE, and MSAVI2 for burn severity analysis.</td>
+              <td>Canopy vigor index rasters: NDVI, GNDVI, NDRE, and MSAVI2 for burn severity analysis (<code>PREDICTOR=3</code>).</td>
             </tr>
             <tr>
               <td><code>classes</code></td>
-              <td>Byte GeoTIFF</td>
+              <td>Byte COG (Cloud Optimized GeoTIFF)</td>
               <td>EPSG:9377 / EPSG:4326</td>
-              <td>Categorical classification: active fire front, high heat, smoldering, healthy vegetation.</td>
+              <td>Discrete categorical classification rasters: active fire hotspots and classified vegetation index tiers (<code>PREDICTOR=2</code>, nearest-neighbor overviews).</td>
             </tr>
             <tr>
               <td><code>confidence</code></td>
-              <td>Float32 GeoTIFF</td>
+              <td>Byte COG (Cloud Optimized GeoTIFF)</td>
               <td>EPSG:9377 / EPSG:4326</td>
-              <td>Intersection confidence mask calculated from ray geometry and multi-view stereo overlap.</td>
+              <td>Combined RGB + thermal co-registration validity mask on the thermal grid (<code>PREDICTOR=2</code>).</td>
             </tr>
             <tr>
               <td><code>area</code></td>
@@ -802,8 +802,8 @@
             </tr>
             <tr>
               <td><code>flight_path</code></td>
-              <td>Vector GeoJSON</td>
-              <td>EPSG:4326</td>
+              <td>GeoJSON / GPKG / SHP / KML</td>
+              <td>EPSG:9377 / EPSG:4326</td>
               <td>UAV flight trajectory with 3D camera stations, gimbal attitudes (yaw/pitch/roll), and timestamps.</td>
             </tr>
             <tr>
@@ -814,9 +814,9 @@
             </tr>
             <tr>
               <td><code>pointclouds</code></td>
-              <td>COPC (<code>.copc.laz</code>) / LAS</td>
+              <td>COPC (<code>.copc.laz</code>)</td>
               <td>EPSG:9377 / UTM</td>
-              <td>Dense 3D point cloud with RGB and thermal colorization for volumetric 3D analysis.</td>
+              <td>Cloud-Optimized Point Clouds (RGB, thermal, multispectral, and D-band) for HTTP range streaming in Potree/QGIS.</td>
             </tr>
           </tbody>
         </table>
