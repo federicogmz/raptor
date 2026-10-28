@@ -30,6 +30,25 @@ set -euo pipefail
 IMAGE="${RAPTOR_IMAGE:-raptor:latest}"
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+_reexec_docker_group() {
+  export RAPTOR_SG_REEXEC=1
+  if command -v sg >/dev/null 2>&1; then
+    exec sg docker -c "$(printf '%q ' "$@")"
+  elif command -v newgrp >/dev/null 2>&1; then
+    exec newgrp docker <<EOF
+exec $(printf '%q ' "$@")
+EOF
+  fi
+}
+
+if [[ -z "${RAPTOR_SG_REEXEC:-}" && -n "${1:-}" && "${1:-}" != "-h" && "${1:-}" != "--help" ]]; then
+  if [[ -S /var/run/docker.sock && ! -w /var/run/docker.sock ]]; then
+    if [[ " $(id -nG "$(id -un)" 2>/dev/null) " == *" docker "* ]] && [[ " $(id -nG 2>/dev/null) " != *" docker "* ]]; then
+      _reexec_docker_group "$AQUI/raptor" "$@"
+    fi
+  fi
+fi
+
 # Puntos de montaje FIJOS adentro del contenedor. El usuario nunca los escribe:
 # da rutas del host y este script las mapea.
 C_INPUT=/input
@@ -183,7 +202,7 @@ asegurar_permiso_docker() {
     _sudo usermod -aG docker "$yo"
   fi
   echo "ℹ  Continuando con el grupo «docker» activo. En terminales nuevas va a funcionar después de cerrar sesión y volver a entrar."
-  RAPTOR_SG_REEXEC=1 exec sg docker -c "$(printf '%q ' "$AQUI/raptor" install)"
+  _reexec_docker_group "$AQUI/raptor" install
 }
 
 # GPU NVIDIA presente pero sin nvidia-container-toolkit: `--gpus all`
