@@ -1,0 +1,87 @@
+{
+  "hardware_budgeting": {
+    "constants": {
+      "LIGHT_MP": 2.0,
+      "MAX_PROYECTOS_PARALELOS": 2,
+      "MIN_HILOS_POR_PROYECTO": 2,
+      "RAM_THRESHOLD_SAFETY_GIB": 6.0,
+      "RESOURCE_MONITOR_SAMPLING_HZ": 2.0,
+      "SENSOR_MP_DEFAULT_RGB": 12.3,
+      "SENSOR_MP_MULTISPECTRAL": 5.0,
+      "SENSOR_MP_P1_RGB": 45.0,
+      "SENSOR_MP_THERMAL": 0.33
+    },
+    "formulas": {
+      "mb_per_thread": "max(512, int(megapixels * 1024 / 2 * gpu_factor))",
+      "safe_concurrency": "max(1, min(cpu_cores, int(mem_available_mb * ram_frac / mb_per_thread)))"
+    },
+    "notes": "ZENMUSE P1 45 MP guard: requires ~23 GB per thread during dense stereo matching vs ~6.3 GB for 12 MP M3T, requiring single-job slot isolation.",
+    "source_file": "scripts/hardware.py"
+  },
+  "level0_triage": {
+    "algorithm": "Memory-buffered DEM ROI + 16-step interval bisection ray marching + analytical GNSS/Gimbal/IFOV error propagation.",
+    "execution_target": "< 2 minutes directly from flight frames",
+    "sensor_intrinsics": {
+      "calibrated_focal_px": 758.33,
+      "focal_length_mm": 9.1,
+      "nominal_dfov_deg": 61.0,
+      "pixel_pitch_um": 12.0,
+      "resolution": "640x512 VOx microbolometer",
+      "sensor_model": "DJI Mavic 3 Enterprise Thermal (M3T)"
+    },
+    "source_file": "scripts/thermal_triage_level0.py",
+    "vertical_datum": {
+      "formula": "H_orthometric = h_ellipsoidal - N (where N = -24.0m -> H = h + 24.0m)",
+      "geoid_undulation_m": -24.0,
+      "scope": "Regional assumption for Antioquia / Valle de Aburr\u00e1 (EGM96/GEOCOL)"
+    },
+    "wildfire_thresholds": {
+      "min_cluster_pixels": 9,
+      "min_fire_temp_c": 88.0
+    }
+  },
+  "thermal_radiometry": {
+    "firmware_fallback": {
+      "action": "Automatic clamping fallback to humidity=20.0% preserving operational continuity.",
+      "constraint": "Firmware rejects relative humidity < 20% (returncode 253)",
+      "sensor": "Zenmuse H20T (R-JPEG v1)"
+    },
+    "precedence": "Explicit CLI argument > Environment variable > SIATA Operational Standard",
+    "sdk_backend": "DJI Thermal SDK v1.8 (dirp)",
+    "sdk_valid_ranges": {
+      "distance": [
+        1.0,
+        25.0
+      ],
+      "emissivity": [
+        0.1,
+        1.0
+      ],
+      "humidity": [
+        1.0,
+        100.0
+      ],
+      "reflection": [
+        -40.0,
+        500.0
+      ]
+    },
+    "siata_operational_standards": {
+      "emissivity": 0.96,
+      "reflected_temp_deg_c": 19.0,
+      "relative_humidity_pct": 15.0,
+      "target_distance_m": 25.0
+    },
+    "source_file": "core/thermal_params.py"
+  },
+  "vegetation_indices": {
+    "indices": {
+      "GNDVI": "(NIR - Green) / (NIR + Green)",
+      "MSAVI2": "(2 * NIR + 1 - sqrt((2 * NIR + 1)^2 - 8 * (NIR - Red))) / 2",
+      "NDRE": "(NIR - RedEdge) / (NIR + RedEdge)",
+      "NDVI": "(NIR - Red) / (NIR + Red)"
+    },
+    "sensor": "DJI Mavic 3 Multispectral (M3M 4-band: Green, Red, RedEdge, NIR)",
+    "source_file": "scripts/compute_vegetation_indices.py"
+  }
+}

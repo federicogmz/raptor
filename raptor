@@ -30,6 +30,38 @@ set -euo pipefail
 IMAGE="${RAPTOR_IMAGE:-raptor:latest}"
 AQUI="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+_reexec_docker_group() {
+  export RAPTOR_SG_REEXEC=1
+  if command -v sg >/dev/null 2>&1; then
+    exec sg docker -c "$(printf '%q ' "$@")"
+  elif command -v newgrp >/dev/null 2>&1; then
+    if { : < /dev/tty; } 2>/dev/null; then
+      exec newgrp docker <<EOF
+exec $(printf '%q ' "$@") < /dev/tty
+EOF
+    else
+      exec newgrp docker <<EOF
+exec $(printf '%q ' "$@")
+EOF
+    fi
+  fi
+  echo "❌ No se pudo activar el grupo «docker» (faltan sg/newgrp). Cerrá sesión y volvé a entrar." >&2
+  exit 2
+}
+
+if [[ -z "${RAPTOR_SG_REEXEC:-}" ]]; then
+  case "${1:-}" in
+    ""|-h|--help|init) ;;
+    *)
+      if [[ -S /var/run/docker.sock && ! -w /var/run/docker.sock ]]; then
+        if [[ " $(id -nG "$(id -un)" 2>/dev/null) " == *" docker "* ]] && [[ " $(id -nG 2>/dev/null) " != *" docker "* ]]; then
+          _reexec_docker_group "$AQUI/raptor" "$@"
+        fi
+      fi
+      ;;
+  esac
+fi
+
 # Puntos de montaje FIJOS adentro del contenedor. El usuario nunca los escribe:
 # da rutas del host y este script las mapea.
 C_INPUT=/input
@@ -183,7 +215,7 @@ asegurar_permiso_docker() {
     _sudo usermod -aG docker "$yo"
   fi
   echo "ℹ  Continuando con el grupo «docker» activo. En terminales nuevas va a funcionar después de cerrar sesión y volver a entrar."
-  RAPTOR_SG_REEXEC=1 exec sg docker -c "$(printf '%q ' "$AQUI/raptor" install)"
+  _reexec_docker_group "$AQUI/raptor" install
 }
 
 # GPU NVIDIA presente pero sin nvidia-container-toolkit: `--gpus all`
@@ -541,15 +573,20 @@ RAPTOR_CONFIG="$HOME/.raptor/config"
 
 cmd_init() {
   echo "Configuremos RAPTOR (podés volver a correr esto cuando quieras para cambiarlo)."
-  local default_export="$HOME/raptor-deliveries"
-  local export_dir port
-  read -rp "Carpeta de entregas (dónde quedan los productos exportados) [$default_export]: " export_dir
+  local default_export="${RAPTOR_EXPORT_DIR:-$HOME/raptor-deliveries}"
+  local default_port="${RAPTOR_PORT:-8080}"
+  local export_dir="" port=""
+  if [[ -t 0 ]]; then
+    read -rp "Carpeta de entregas (dónde quedan los productos exportados) [$default_export]: " export_dir || true
+  fi
   export_dir="${export_dir:-$default_export}"
   export_dir="$(abs "$export_dir")"
   mkdir -p "$export_dir" 2>/dev/null || morir "no se pudo crear la carpeta de entregas: $export_dir"
 
-  read -rp "Puerto [8080]: " port
-  port="${port:-8080}"
+  if [[ -t 0 ]]; then
+    read -rp "Puerto [$default_port]: " port || true
+  fi
+  port="${port:-$default_port}"
   [[ "$port" =~ ^[0-9]+$ ]] || morir "puerto inválido: $port"
 
   local runs_dir="$HOME/.raptor/runs"
