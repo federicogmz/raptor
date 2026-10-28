@@ -830,12 +830,26 @@
         RAPTOR is designed for zero-headache deployment on field laptops and dedicated processing workstations running Linux (Ubuntu 22.04 / 24.04, Debian 12, or Arch Linux / Omarchy):
       </p>
 
+      <h3>3.1 Standalone Release Installer (Recommended)</h3>
+      <p>
+        Run the standalone bootstrap installer for <code>Linux x86_64</code> directly from GitHub Releases (automatically installs the native <code>zenith</code> v1.0.0 binary on the host, clones RAPTOR into <code>~/.local/share/raptor</code>, and launches <code>./raptor install</code>):
+      </p>
+
       <div class="code-block">
         <div class="code-header">
-          <span>ONE-COMMAND INSTALLATION</span>
+          <span>BASH &bull; STANDALONE RELEASE INSTALLER</span>
           <button class="btn-copy" onclick="copyCode(this)">Copy</button>
         </div>
-        <pre><code># 1. Clone repository and execute automated onboarding
+        <pre><code>curl -sSL https://github.com/federicogmz/raptor/releases/download/v1.0.0/raptor-install.sh | bash</code></pre>
+      </div>
+
+      <h3>3.2 Install from Source Repository</h3>
+      <div class="code-block">
+        <div class="code-header">
+          <span>BASH &bull; SOURCE REPOSITORY INSTALLATION</span>
+          <button class="btn-copy" onclick="copyCode(this)">Copy</button>
+        </div>
+        <pre><code># Clone repository and execute automated onboarding
 git clone https://github.com/federicogmz/raptor.git
 cd raptor
 ./raptor install</code></pre>
