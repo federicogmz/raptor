@@ -35,18 +35,31 @@ _reexec_docker_group() {
   if command -v sg >/dev/null 2>&1; then
     exec sg docker -c "$(printf '%q ' "$@")"
   elif command -v newgrp >/dev/null 2>&1; then
-    exec newgrp docker <<EOF
+    if { : < /dev/tty; } 2>/dev/null; then
+      exec newgrp docker <<EOF
+exec $(printf '%q ' "$@") < /dev/tty
+EOF
+    else
+      exec newgrp docker <<EOF
 exec $(printf '%q ' "$@")
 EOF
-  fi
-}
-
-if [[ -z "${RAPTOR_SG_REEXEC:-}" && -n "${1:-}" && "${1:-}" != "-h" && "${1:-}" != "--help" ]]; then
-  if [[ -S /var/run/docker.sock && ! -w /var/run/docker.sock ]]; then
-    if [[ " $(id -nG "$(id -un)" 2>/dev/null) " == *" docker "* ]] && [[ " $(id -nG 2>/dev/null) " != *" docker "* ]]; then
-      _reexec_docker_group "$AQUI/raptor" "$@"
     fi
   fi
+  echo "❌ No se pudo activar el grupo «docker» (faltan sg/newgrp). Cerrá sesión y volvé a entrar." >&2
+  exit 2
+}
+
+if [[ -z "${RAPTOR_SG_REEXEC:-}" ]]; then
+  case "${1:-}" in
+    ""|-h|--help|init) ;;
+    *)
+      if [[ -S /var/run/docker.sock && ! -w /var/run/docker.sock ]]; then
+        if [[ " $(id -nG "$(id -un)" 2>/dev/null) " == *" docker "* ]] && [[ " $(id -nG 2>/dev/null) " != *" docker "* ]]; then
+          _reexec_docker_group "$AQUI/raptor" "$@"
+        fi
+      fi
+      ;;
+  esac
 fi
 
 # Puntos de montaje FIJOS adentro del contenedor. El usuario nunca los escribe:
