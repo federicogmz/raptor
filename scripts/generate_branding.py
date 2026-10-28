@@ -13,10 +13,6 @@ Deterministic: No random timestamps or UUIDs. Trailing newlines, sorted keys, UT
 """
 
 import json
-import os
-import re
-import subprocess
-import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -29,20 +25,20 @@ ASSETS_DIR = DOCS_DIR / "assets"
 # ---------------------------------------------------------------------------
 # Color Palette
 PALETTE = {
-    " ": None,                  # Sky (transparent to dark card)
-    "k": "#0a121e",             # Subtle sky grid cell
-    "s": "#64748b",             # High mountain ridge rock (light slate)
-    "B": "#475569",             # Mountain upper contour (mid slate)
-    "b": "#334155",             # Mountain mid bedrock (dark slate)
-    "d": "#1e293b",             # Deep valley bedrock
-    "l": "#4ade80",             # Sunlit forest canopy crest
-    "G": "#22c55e",             # Mountain forest canopy
-    "g": "#15803d",             # Deep pine forest slope
-    "r": "#ef4444",             # Flame outer tongue (Red)
-    "o": "#f97316",             # Flame middle body (Orange)
-    "y": "#facc15",             # Flame hot core (Yellow)
-    "w": "#fef08a",             # Ignition base center (Warm white-yellow)
-    "m": "#94a3b8",             # Wispy gray smoke puff (NO purple!)
+    " ": None,  # Sky (transparent to dark card)
+    "k": "#0a121e",  # Subtle sky grid cell
+    "s": "#64748b",  # High mountain ridge rock (light slate)
+    "B": "#475569",  # Mountain upper contour (mid slate)
+    "b": "#334155",  # Mountain mid bedrock (dark slate)
+    "d": "#1e293b",  # Deep valley bedrock
+    "l": "#4ade80",  # Sunlit forest canopy crest
+    "G": "#22c55e",  # Mountain forest canopy
+    "g": "#15803d",  # Deep pine forest slope
+    "r": "#ef4444",  # Flame outer tongue (Red)
+    "o": "#f97316",  # Flame middle body (Orange)
+    "y": "#facc15",  # Flame hot core (Yellow)
+    "w": "#fef08a",  # Ignition base center (Warm white-yellow)
+    "m": "#94a3b8",  # Wispy gray smoke puff (NO purple!)
 }
 
 # 24x24 pixel matrix:
@@ -157,9 +153,7 @@ def render_pixel_matrix_svg(matrix, palette, origin_x, origin_y, cell_size):
                     f'<rect x="{rx}" y="{ry}" width="{box}" height="{box}" fill="#0c1524" fill-opacity="0.65"/>'
                 )
             else:
-                rects.append(
-                    f'<rect x="{rx}" y="{ry}" width="{box}" height="{box}" fill="{color}"/>'
-                )
+                rects.append(f'<rect x="{rx}" y="{ry}" width="{box}" height="{box}" fill="{color}"/>')
 
     # UAV Thermal Scan Cone from top-center UAV down to the fire on the mountain slope (cols 11..19, row 12)
     uav_x = origin_x + 12.5 * cell_size
@@ -184,7 +178,9 @@ def render_pixel_matrix_svg(matrix, palette, origin_x, origin_y, cell_size):
     rects.append(f'<rect x="{uav_x - 10:.1f}" y="{uav_y - 3:.1f}" width="20" height="2.5" fill="#ff9100"/>')
     rects.append(f'<rect x="{uav_x - 12:.1f}" y="{uav_y - 5:.1f}" width="5" height="2" fill="#e2e8f0"/>')
     rects.append(f'<rect x="{uav_x + 7:.1f}" y="{uav_y - 5:.1f}" width="5" height="2" fill="#e2e8f0"/>')
-    rects.append(f'<rect x="{uav_x - 4:.1f}" y="{uav_y - 1.5:.1f}" width="8" height="5" fill="#0f172a" stroke="#ff9100" stroke-width="1.3"/>')
+    rects.append(
+        f'<rect x="{uav_x - 4:.1f}" y="{uav_y - 1.5:.1f}" width="8" height="5" fill="#0f172a" stroke="#ff9100" stroke-width="1.3"/>'
+    )
     rects.append(f'<rect x="{uav_x - 1.5:.1f}" y="{uav_y:.1f}" width="3" height="2.5" fill="#facc15"/>')
 
     return rects
@@ -214,9 +210,7 @@ def render_wordmark_svg(text, font, origin_x, origin_y, cell_size, letter_spacin
                     ry = origin_y + r_idx * cell_size
                     rw = run_length * cell_size
                     rh = cell_size
-                    rects.append(
-                        f'<rect x="{rx}" y="{ry}" width="{rw}" height="{rh}" fill="{color}"/>'
-                    )
+                    rects.append(f'<rect x="{rx}" y="{ry}" width="{rw}" height="{rh}" fill="{color}"/>')
                 else:
                     c_idx += 1
         cur_x += 5 * cell_size + letter_spacing
@@ -232,9 +226,7 @@ def generate_logo_svg(output_path: Path):
     emblem_y = 36
 
     # Left Emblem
-    emblem_rects = render_pixel_matrix_svg(
-        MATRIX_24X24, PALETTE, emblem_x, emblem_y, emblem_cell
-    )
+    emblem_rects = render_pixel_matrix_svg(MATRIX_24X24, PALETTE, emblem_x, emblem_y, emblem_cell)
 
     # Wordmark RAPTOR
     # 5x7 at cell_size 9, letter_spacing 9
@@ -246,83 +238,87 @@ def generate_logo_svg(output_path: Path):
 
     svg_lines = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {view_w} {view_h}" width="{view_w}" height="{view_h}" role="img" aria-label="RAPTOR Logo" shape-rendering="crispEdges">',
-        '  <title>RAPTOR — Multi-Sensor UAV Photogrammetry &amp; Wildfire Triage Pipeline</title>',
-        '  <defs>',
+        "  <title>RAPTOR — Multi-Sensor UAV Photogrammetry &amp; Wildfire Triage Pipeline</title>",
+        "  <defs>",
         '    <linearGradient id="bgGlow" x1="0%" y1="0%" x2="100%" y2="100%">',
         '      <stop offset="0%" stop-color="#0e1726"/>',
         '      <stop offset="50%" stop-color="#0b1017"/>',
         '      <stop offset="100%" stop-color="#140a18"/>',
-        '    </linearGradient>',
+        "    </linearGradient>",
         '    <linearGradient id="accentDivider" x1="0%" y1="0%" x2="0%" y2="100%">',
         '      <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.2"/>',
         '      <stop offset="50%" stop-color="#ff9100" stop-opacity="0.8"/>',
         '      <stop offset="100%" stop-color="#ff1744" stop-opacity="0.2"/>',
-        '    </linearGradient>',
-        '  </defs>',
-        '',
-        '  <!-- Background Card -->',
+        "    </linearGradient>",
+        "  </defs>",
+        "",
+        "  <!-- Background Card -->",
         f'  <rect width="{view_w}" height="{view_h}" rx="12" fill="url(#bgGlow)" stroke="#2d1b2e" stroke-width="1.5"/>',
-        '',
-        '  <!-- Subtle Technical Grid Lines -->',
+        "",
+        "  <!-- Subtle Technical Grid Lines -->",
         '  <g stroke="#1e293b" stroke-width="0.75" stroke-dasharray="2,6" opacity="0.4">',
         '    <line x1="24" y1="24" x2="816" y2="24"/>',
         '    <line x1="24" y1="216" x2="816" y2="216"/>',
         '    <line x1="220" y1="24" x2="220" y2="216"/>',
-        '  </g>',
-        '',
-        '  <!-- Emblem Backdrop Frame -->',
+        "  </g>",
+        "",
+        "  <!-- Emblem Backdrop Frame -->",
         '  <rect x="30" y="30" width="180" height="180" rx="8" fill="#070c14" stroke="#1e293b" stroke-width="1"/>',
-        '',
-        '  <!-- Left Emblem: Stepped Andean Terrain + Thermal Fire Plume + Dual Scan Footprint -->',
+        "",
+        "  <!-- Left Emblem: Stepped Andean Terrain + Thermal Fire Plume + Dual Scan Footprint -->",
         '  <g id="pixel-emblem">',
     ]
 
     for rect in emblem_rects:
         svg_lines.append(f"    {rect}")
 
-    svg_lines.extend([
-        '  </g>',
-        '',
-        '  <!-- Vertical Separator -->',
-        '  <line x1="220" y1="36" x2="220" y2="204" stroke="url(#accentDivider)" stroke-width="1.5"/>',
-        '',
-        '  <!-- RAPTOR Pixel Wordmark -->',
-        '  <g id="pixel-wordmark">',
-    ])
+    svg_lines.extend(
+        [
+            "  </g>",
+            "",
+            "  <!-- Vertical Separator -->",
+            '  <line x1="220" y1="36" x2="220" y2="204" stroke="url(#accentDivider)" stroke-width="1.5"/>',
+            "",
+            "  <!-- RAPTOR Pixel Wordmark -->",
+            '  <g id="pixel-wordmark">',
+        ]
+    )
 
     for rect in wordmark_rects:
         svg_lines.append(f"    {rect}")
 
-    svg_lines.extend([
-        '  </g>',
-        '',
-        '  <!-- Horizontal Accent Line -->',
-        '  <line x1="244" y1="126" x2="796" y2="126" stroke="#334155" stroke-width="1"/>',
-        '  <line x1="244" y1="126" x2="420" y2="126" stroke="#ff9100" stroke-width="1.5"/>',
-        '',
-        '  <!-- Subtitle Text -->',
-        '  <text x="244" y="148" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="11" font-weight="600" fill="#94a3b8" letter-spacing="1">MULTI-SENSOR UAV PHOTOGRAMMETRY &amp; WILDFIRE TRIAGE <tspan fill="#ff9100">//</tspan> v1.0.0</text>',
-        '',
-        '  <!-- Operational Status Badges / Pills -->',
-        '  <g id="status-pills" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="10" font-weight="700">',
-        '    <!-- Pill 1: Zenith + ODM -->',
-        '    <rect x="244" y="168" width="168" height="26" rx="4" fill="#071a2e" stroke="#0284c7" stroke-width="1"/>',
-        '    <circle cx="256" cy="181" r="3" fill="#38bdf8"/>',
-        '    <text x="266" y="185" fill="#38bdf8">2.5D ZENITH + 3D ODM</text>',
-        '',
-        '    <!-- Pill 2: Thermal -->',
-        '    <rect x="420" y="168" width="112" height="26" rx="4" fill="#250914" stroke="#e11d48" stroke-width="1"/>',
-        '    <circle cx="432" cy="181" r="3" fill="#fb7185"/>',
-        '    <text x="442" y="185" fill="#fb7185">THERMAL °C</text>',
-        '',
-        '    <!-- Pill 3: Sensors -->',
-        '    <rect x="540" y="168" width="176" height="26" rx="4" fill="#062117" stroke="#059669" stroke-width="1"/>',
-        '    <circle cx="552" cy="181" r="3" fill="#34d399"/>',
-        '    <text x="562" y="185" fill="#34d399">M3T / H20T / M3M / P1</text>',
-        '  </g>',
-        '</svg>',
-        '',
-    ])
+    svg_lines.extend(
+        [
+            "  </g>",
+            "",
+            "  <!-- Horizontal Accent Line -->",
+            '  <line x1="244" y1="126" x2="796" y2="126" stroke="#334155" stroke-width="1"/>',
+            '  <line x1="244" y1="126" x2="420" y2="126" stroke="#ff9100" stroke-width="1.5"/>',
+            "",
+            "  <!-- Subtitle Text -->",
+            '  <text x="244" y="148" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="11" font-weight="600" fill="#94a3b8" letter-spacing="1">MULTI-SENSOR UAV PHOTOGRAMMETRY &amp; WILDFIRE TRIAGE <tspan fill="#ff9100">//</tspan> v1.0.0</text>',
+            "",
+            "  <!-- Operational Status Badges / Pills -->",
+            '  <g id="status-pills" font-family="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" font-size="10" font-weight="700">',
+            "    <!-- Pill 1: Zenith + ODM -->",
+            '    <rect x="244" y="168" width="168" height="26" rx="4" fill="#071a2e" stroke="#0284c7" stroke-width="1"/>',
+            '    <circle cx="256" cy="181" r="3" fill="#38bdf8"/>',
+            '    <text x="266" y="185" fill="#38bdf8">2.5D ZENITH + 3D ODM</text>',
+            "",
+            "    <!-- Pill 2: Thermal -->",
+            '    <rect x="420" y="168" width="112" height="26" rx="4" fill="#250914" stroke="#e11d48" stroke-width="1"/>',
+            '    <circle cx="432" cy="181" r="3" fill="#fb7185"/>',
+            '    <text x="442" y="185" fill="#fb7185">THERMAL °C</text>',
+            "",
+            "    <!-- Pill 3: Sensors -->",
+            '    <rect x="540" y="168" width="176" height="26" rx="4" fill="#062117" stroke="#059669" stroke-width="1"/>',
+            '    <circle cx="552" cy="181" r="3" fill="#34d399"/>',
+            '    <text x="562" y="185" fill="#34d399">M3T / H20T / M3M / P1</text>',
+            "  </g>",
+            "</svg>",
+            "",
+        ]
+    )
 
     output_path.write_text("\n".join(svg_lines), encoding="utf-8")
     print(f"Generated {output_path} ({len(svg_lines)} lines, {output_path.stat().st_size} bytes)")
@@ -336,24 +332,24 @@ def generate_icon_svg(output_path: Path):
     origin_x = 16
     origin_y = 16
 
-    emblem_rects = render_pixel_matrix_svg(
-        MATRIX_24X24, PALETTE, origin_x, origin_y, cell_size
-    )
+    emblem_rects = render_pixel_matrix_svg(MATRIX_24X24, PALETTE, origin_x, origin_y, cell_size)
 
     svg_lines = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {view_w} {view_h}" width="{view_w}" height="{view_h}" role="img" aria-label="RAPTOR Icon" shape-rendering="crispEdges">',
-        '  <title>RAPTOR App Icon</title>',
+        "  <title>RAPTOR App Icon</title>",
         '  <rect width="128" height="128" rx="16" fill="#0b1017" stroke="#2d1b2e" stroke-width="2"/>',
         '  <rect x="10" y="10" width="108" height="108" rx="10" fill="#070c14" stroke="#1e293b" stroke-width="1"/>',
         '  <g id="pixel-icon">',
     ]
     for rect in emblem_rects:
         svg_lines.append(f"    {rect}")
-    svg_lines.extend([
-        '  </g>',
-        '</svg>',
-        '',
-    ])
+    svg_lines.extend(
+        [
+            "  </g>",
+            "</svg>",
+            "",
+        ]
+    )
 
     output_path.write_text("\n".join(svg_lines), encoding="utf-8")
     print(f"Generated {output_path} ({len(svg_lines)} lines, {output_path.stat().st_size} bytes)")
