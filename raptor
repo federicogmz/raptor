@@ -541,15 +541,20 @@ RAPTOR_CONFIG="$HOME/.raptor/config"
 
 cmd_init() {
   echo "Configuremos RAPTOR (podés volver a correr esto cuando quieras para cambiarlo)."
-  local default_export="$HOME/raptor-deliveries"
-  local export_dir port
-  read -rp "Carpeta de entregas (dónde quedan los productos exportados) [$default_export]: " export_dir
+  local default_export="${RAPTOR_EXPORT_DIR:-$HOME/raptor-deliveries}"
+  local default_port="${RAPTOR_PORT:-8080}"
+  local export_dir="" port=""
+  if [[ -t 0 ]]; then
+    read -rp "Carpeta de entregas (dónde quedan los productos exportados) [$default_export]: " export_dir || true
+  fi
   export_dir="${export_dir:-$default_export}"
   export_dir="$(abs "$export_dir")"
   mkdir -p "$export_dir" 2>/dev/null || morir "no se pudo crear la carpeta de entregas: $export_dir"
 
-  read -rp "Puerto [8080]: " port
-  port="${port:-8080}"
+  if [[ -t 0 ]]; then
+    read -rp "Puerto [$default_port]: " port || true
+  fi
+  port="${port:-$default_port}"
   [[ "$port" =~ ^[0-9]+$ ]] || morir "puerto inválido: $port"
 
   local runs_dir="$HOME/.raptor/runs"

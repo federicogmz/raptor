@@ -133,11 +133,16 @@ RAPTOR includes an interactive Leaflet-based web geovisor accessible at `http://
 
 ## Installation: persistent webapp (default)
 
-The way to install RAPTOR on a machine (your own or someone else's) is one
-command:
+Install RAPTOR on any `Linux x86_64` workstation with the standalone release installer:
 
 ```bash
-git clone <repo-url> raptor && cd raptor && ./raptor install
+curl -sSL https://github.com/federicogmz/raptor/releases/download/v1.0.0/raptor-install.sh | bash
+```
+
+Or directly from a cloned repository checkout:
+
+```bash
+git clone https://github.com/federicogmz/raptor.git && cd raptor && ./raptor install
 ```
 
 `install` builds the image, installs a global `raptor` command on your
