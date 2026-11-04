@@ -571,14 +571,17 @@ def match_pair_sift(
     pts_i = np.float32([kp_i[m.queryIdx] for m in good_matches])
     pts_j = np.float32([kp_j[m.trainIdx] for m in good_matches])
 
-    f_mat, inlier_mask = cv2.findFundamentalMat(
-        pts_i,
-        pts_j,
-        cv2.USAC_MAGSAC,
-        max_reproj_err_px,
-        0.99,
-        2000,
-    )
+    try:
+        f_mat, inlier_mask = cv2.findFundamentalMat(
+            pts_i,
+            pts_j,
+            cv2.USAC_MAGSAC,
+            max_reproj_err_px,
+            0.99,
+            2000,
+        )
+    except Exception:
+        return None
 
     if f_mat is None or inlier_mask is None:
         return None
@@ -659,6 +662,8 @@ class FlexGlueEngine:
         desc_i: np.ndarray,
         kp_j: np.ndarray,
         desc_j: np.ndarray,
+        size_i: Optional[Tuple[float, float]] = None,
+        size_j: Optional[Tuple[float, float]] = None,
         filter_threshold: float = 0.15,
         min_covisibility: float = 0.35,
     ) -> Optional[Dict[str, Any]]:
@@ -669,46 +674,40 @@ class FlexGlueEngine:
         if len(kp_i) < 8 or len(kp_j) < 8:
             return None
 
-        matcher_inputs = self.matcher_session.get_inputs()
-        input_dict = {}
+        w_i, h_i = size_i if size_i is not None else (float(np.max(kp_i[:, 0])) + 1.0, float(np.max(kp_i[:, 1])) + 1.0)
+        w_j, h_j = size_j if size_j is not None else (float(np.max(kp_j[:, 0])) + 1.0, float(np.max(kp_j[:, 1])) + 1.0)
 
-        # Mapeo dinámico de inputs según nombres de la sesión ONNX exportada con soporte FP16
-        for inp in matcher_inputs:
-            name = inp.name.lower()
-            is_zero = ("0" in name) or ("_a" in name) or ("src" in name)
-            is_one = ("1" in name) or ("_b" in name) or ("dst" in name)
-            is_kp = any(k in name for k in ("kpt", "kp", "point", "coord"))
-            is_desc = any(k in name for k in ("desc", "feat", "map"))
-
-            dtype = np.float16 if inp.type == "tensor(float16)" else np.float32
-
-            if is_kp:
-                kps = kp_i if (is_zero or not is_one) else kp_j
-                input_dict[inp.name] = kps[np.newaxis, ...].astype(dtype)
-            elif is_desc:
-                desc = desc_i if (is_zero or not is_one) else desc_j
-                input_dict[inp.name] = desc.astype(dtype)
-            else:
-                if is_zero or not is_one:
-                    input_dict[inp.name] = desc_i.astype(dtype)
-                else:
-                    input_dict[inp.name] = desc_j.astype(dtype)
+        dtype = np.float32
+        input_dict = {
+            "features0": desc_i.astype(dtype),
+            "features1": desc_j.astype(dtype),
+            "kpts0": kp_i[np.newaxis, ...].astype(dtype),
+            "kpts1": kp_j[np.newaxis, ...].astype(dtype),
+            "image_size0": np.array([[w_i, h_i]], dtype=dtype),
+            "image_size1": np.array([[w_j, h_j]], dtype=dtype),
+            "filter_threshold": np.array(filter_threshold, dtype=dtype),
+            "max_distance_px": np.array(20.0, dtype=dtype),
+            "min_covisibility": np.array(min_covisibility, dtype=dtype),
+            "early_stop_decay": np.array(0.95, dtype=dtype),
+        }
 
         try:
             outputs = self.matcher_session.run(None, input_dict)
-            covisibility = float(outputs[0]) if len(outputs) > 0 else 0.5
+            matches0 = outputs[0][0]  # shape (N0,)
+            mscores0 = outputs[1][0]  # shape (N0,)
+            covisibility = float(outputs[2][0]) if len(outputs) > 2 else 1.0
+
             if covisibility < min_covisibility:
                 return None  # Early stop
 
-            matches_raw = outputs[1] if len(outputs) > 1 else np.array([])
-            scores_raw = outputs[2] if len(outputs) > 2 else np.array([])
-
             inliers = []
             scores = []
-            for m_idx, score in enumerate(scores_raw):
-                if score >= filter_threshold:
-                    inliers.append([int(matches_raw[m_idx, 0]), int(matches_raw[m_idx, 1])])
-                    scores.append(round(float(score), 4))
+            for i, j in enumerate(matches0):
+                if j >= 0:
+                    sc = float(mscores0[i])
+                    if sc >= filter_threshold:
+                        inliers.append([int(i), int(j)])
+                        scores.append(round(sc, 4))
 
             if len(inliers) < 8:
                 return None
@@ -717,6 +716,7 @@ class FlexGlueEngine:
                 "num_inliers": len(inliers),
                 "inlier_matches": inliers,
                 "inlier_scores": scores,
+                "covisibility": round(covisibility, 4),
             }
         except Exception as exc:
             print(f"  ⚠ Aviso en matcher ONNX FlexGlue: {exc}")
@@ -983,6 +983,7 @@ def run_feature_matching_pipeline(
     all_kps: List[np.ndarray] = []
     all_des: List[Optional[np.ndarray]] = []
     all_flexglue_features: List[Optional[np.ndarray]] = []
+    all_img_sizes: List[Tuple[float, float]] = []
     unreadable_images: List[str] = []
 
     for idx, img_path in enumerate(image_paths):
@@ -1008,10 +1009,12 @@ def run_feature_matching_pipeline(
                     all_kps.append(np.empty((0, 2), dtype=np.float64))
                     all_des.append(np.empty((0, 128), dtype=np.float32))
                     all_flexglue_features.append(None)
+                    all_img_sizes.append((640.0, 512.0))
                     continue
                 thermal_data = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
                 img_bgr = None
 
+            all_img_sizes.append((float(thermal_data.shape[1]), float(thermal_data.shape[0])))
             kps, des, _ = extract_thermal_keypoints(thermal_data)
             all_kps.append(kps)
             all_des.append(des)
@@ -1033,8 +1036,10 @@ def run_feature_matching_pipeline(
                 all_kps.append(np.empty((0, 2), dtype=np.float64))
                 all_des.append(np.empty((0, 128), dtype=np.float32))
                 all_flexglue_features.append(None)
+                all_img_sizes.append((512.0, 512.0))
                 continue
 
+            all_img_sizes.append((float(img_bgr.shape[1]), float(img_bgr.shape[0])))
             kps, des, _ = extract_downsampled_sift(img_bgr, max_dim=max_dim, nfeatures=1500)
             all_kps.append(kps)
             all_des.append(des)
@@ -1068,6 +1073,8 @@ def run_feature_matching_pipeline(
                 all_flexglue_features[i],
                 all_kps[j],
                 all_flexglue_features[j],
+                size_i=all_img_sizes[i],
+                size_j=all_img_sizes[j],
             )
         else:
             # Línea base SIFT
@@ -1096,7 +1103,7 @@ def run_feature_matching_pipeline(
     matcher_s = time.time() - t_match_start
     total_matching_s = time.time() - t_start
 
-    # Diagnóstico de VRAM si torch está disponible
+    # Diagnóstico de VRAM con fallback a nvidia-smi
     peak_vram_mb = 0.0
     try:
         import torch
@@ -1105,6 +1112,21 @@ def run_feature_matching_pipeline(
             peak_vram_mb = round(float(torch.cuda.max_memory_allocated() / (1024 * 1024)), 2)
     except Exception:
         pass
+
+    if peak_vram_mb == 0.0:
+        import subprocess
+
+        for smi_bin in ("/usr/lib/wsl/lib/nvidia-smi", "nvidia-smi"):
+            try:
+                out = subprocess.check_output(
+                    [smi_bin, "--query-gpu=memory.used", "--format=csv,noheader,nounits"],
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                ).strip()
+                peak_vram_mb = round(float(out.split("\n")[0]), 2)
+                break
+            except Exception:
+                pass
 
     result: Dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
