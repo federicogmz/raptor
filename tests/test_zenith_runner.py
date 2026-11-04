@@ -458,3 +458,257 @@ class TestFlightQualityAndParity:
         js_text = app_js.read_text(encoding="utf-8")
         assert f"'{ZENITH_RGB_STAGE}'" in js_text or f'"{ZENITH_RGB_STAGE}"' in js_text
         assert f"'{ZENITH_THERMAL_STAGE}'" in js_text or f'"{ZENITH_THERMAL_STAGE}"' in js_text
+
+
+class TestZenithRunnerPoseRefinement:
+    def test_pose_refinement_invalid_value(self, tmp_path):
+        """Verifica que valores desconocidos de pose_refinement lancen ValueError."""
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "DJI_0001.JPG").write_bytes(b"FAKE")
+        out = tmp_path / "out"
+        with pytest.raises(ValueError, match="pose_refinement inválido"):
+            run_zenith_25d(source_dir=src, output_dir=out, pose_refinement="invalido_xyz")
+
+    def test_pose_refinement_explicit_error_when_zenith_lacks_support(self, tmp_path, monkeypatch):
+        """Invariante B1: Falla explícitamente si pose_refinement != 'none' y Zenith no soporta --tie-points."""
+        mock_zenith = tmp_path / "zenith_no_tie_points"
+        mock_zenith.write_text("""#!/usr/bin/env python3
+import sys
+if "--help" in sys.argv:
+    print("Zenith legacy without tie points")
+sys.exit(0)
+""")
+        mock_zenith.chmod(0o755)
+        monkeypatch.setenv("ZENITH_BIN", str(mock_zenith))
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "DJI_0001.JPG").write_bytes(b"RGB")
+        out = tmp_path / "out"
+
+        with pytest.raises(RuntimeError, match="no soporta --tie-points en ortho-rgb"):
+            run_zenith_25d(source_dir=src, output_dir=out, pose_refinement="sift")
+
+    def test_pose_refinement_none_passes_no_new_flags(self, tmp_path, monkeypatch):
+        """Invariante I6: pose_refinement='none' preserva exactamente las banderas clásicas sin --tie-points."""
+        log_file = tmp_path / "zenith_calls.log"
+        mock_zenith = tmp_path / "zenith_mock"
+        mock_zenith.write_text(f"""#!/usr/bin/env python3
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+with open("{log_file}", "a") as f:
+    f.write(" ".join(args) + "\\n")
+
+if "--help" in args:
+    print("--feather-px --blend-mode --tie-points --export-refined-poses")
+    sys.exit(0)
+
+if "ortho-rgb" in args or "ortho-thermal" in args:
+    out_idx = args.index("--output") if "--output" in args else -1
+    if out_idx != -1:
+        p = Path(args[out_idx + 1])
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"RAW")
+        p.with_suffix(".tif").write_bytes(b"TIF")
+    m_idx = args.index("--manifest") if "--manifest" in args else -1
+    if m_idx != -1:
+        Path(args[m_idx + 1]).write_text('{{"gsd_m": 0.1}}')
+sys.exit(0)
+""")
+        mock_zenith.chmod(0o755)
+        monkeypatch.setenv("ZENITH_BIN", str(mock_zenith))
+        monkeypatch.setattr("core.zenith_runner._extract_one_raw", lambda *args, **kwargs: True)
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "DJI_0001_V.JPG").write_bytes(b"RGB")
+        (src / "DJI_0001_T.JPG").write_bytes(b"TH")
+        out = tmp_path / "out"
+
+        summary = run_zenith_25d(source_dir=src, output_dir=out, pose_refinement="none")
+        assert summary["ok"] is True
+        assert summary["pose_refinement"] == "none"
+
+        calls = log_file.read_text().strip().splitlines()
+        for call in calls:
+            assert "--tie-points" not in call
+            assert "--export-refined-poses" not in call
+
+    def test_pose_refinement_sift_orchestration(self, tmp_path, monkeypatch):
+        """Verifica la orquestación completa de refinamiento SIFT: RGB primero, transferencia a térmico y banderas."""
+        log_file = tmp_path / "zenith_calls_sift.log"
+        mock_zenith = tmp_path / "zenith_mock_sift"
+        mock_zenith.write_text(f"""#!/usr/bin/env python3
+import sys
+import json
+from pathlib import Path
+
+args = sys.argv[1:]
+with open("{log_file}", "a") as f:
+    f.write(" ".join(args) + "\\n")
+
+if "--help" in args:
+    print("--feather-px --blend-mode --tie-points --export-refined-poses")
+    sys.exit(0)
+
+if "ortho-rgb" in args:
+    if "--export-refined-poses" in args:
+        rp_idx = args.index("--export-refined-poses")
+        poses_path = Path(args[rp_idx + 1])
+        poses_path.parent.mkdir(parents=True, exist_ok=True)
+        poses_data = {{
+            "enu_origin": [6.25, -75.58, 1450.0],
+            "poses": [
+                {{"image": "DJI_0001_V.JPG", "position": [10.0, 20.0, 80.0], "yaw_deg": 0.0, "pitch_deg": -90.0, "roll_deg": 0.0}}
+            ]
+        }}
+        poses_path.write_text(json.dumps(poses_data))
+    out_idx = args.index("--output") if "--output" in args else -1
+    if out_idx != -1:
+        p = Path(args[out_idx + 1])
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"RAW")
+        p.with_suffix(".tif").write_bytes(b"TIF")
+    m_idx = args.index("--manifest") if "--manifest" in args else -1
+    if m_idx != -1:
+        Path(args[m_idx + 1]).write_text('{{"gsd_m": 0.05}}')
+    sys.exit(0)
+
+if "ortho-thermal" in args:
+    out_idx = args.index("--output") if "--output" in args else -1
+    if out_idx != -1:
+        p = Path(args[out_idx + 1])
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"RAW")
+        p.with_suffix(".tif").write_bytes(b"TIF")
+    m_idx = args.index("--manifest") if "--manifest" in args else -1
+    if m_idx != -1:
+        Path(args[m_idx + 1]).write_text('{{"gsd_m": 0.15}}')
+    sys.exit(0)
+
+sys.exit(0)
+""")
+        mock_zenith.chmod(0o755)
+        monkeypatch.setenv("ZENITH_BIN", str(mock_zenith))
+        monkeypatch.setattr("core.zenith_runner._extract_one_raw", lambda *args, **kwargs: True)
+
+        src = tmp_path / "src"
+        src.mkdir()
+        import cv2
+        import numpy as np
+
+        # Crear 3 imágenes con solape y textura rica para generar pares y matches no triviales
+        np.random.seed(42)
+        cv2.setRNGSeed(42)
+        base = np.random.randint(50, 200, (400, 400), dtype=np.uint8)
+        for _ in range(30):
+            pt = tuple(np.random.randint(40, 360, size=2))
+            cv2.circle(base, (int(pt[0]), int(pt[1])), 8, int(np.random.randint(0, 255)), -1)
+        base_bgr = cv2.cvtColor(base, cv2.COLOR_GRAY2BGR)
+
+        cv2.imwrite(str(src / "DJI_0001_V.JPG"), base_bgr)
+        (src / "DJI_0001_T.JPG").write_bytes(b"THERMAL_DATA")
+
+        m1 = np.float32([[1, 0, 15.0], [0, 1, 10.0]])
+        img2 = cv2.warpAffine(base_bgr, m1, (400, 400))
+        cv2.imwrite(str(src / "DJI_0002_V.JPG"), img2)
+        (src / "DJI_0002_T.JPG").write_bytes(b"THERMAL_DATA")
+
+        m2 = np.float32([[1, 0, 30.0], [0, 1, 20.0]])
+        img3 = cv2.warpAffine(base_bgr, m2, (400, 400))
+        cv2.imwrite(str(src / "DJI_0003_V.JPG"), img3)
+        (src / "DJI_0003_T.JPG").write_bytes(b"THERMAL_DATA")
+
+        out = tmp_path / "out"
+
+        summary = run_zenith_25d(source_dir=src, output_dir=out, pose_refinement="sift")
+        assert summary["ok"] is True
+        assert summary["pose_refinement"] == "sift"
+        assert summary["pose_refinement_applied"] is True
+        assert summary["rgb_processed"] is True
+        assert summary["thermal_processed"] is True
+
+        calls = log_file.read_text().strip().splitlines()
+        ortho_calls = [c for c in calls if "ortho-" in c and "--help" not in c]
+        assert len(ortho_calls) >= 2
+        # Orden invertido obligatorio: RGB primero
+        assert "ortho-rgb" in ortho_calls[0]
+        assert "--tie-points" in ortho_calls[0]
+        assert "--export-refined-poses" in ortho_calls[0]
+
+        # Térmico segundo con las poses transferidas
+        assert "ortho-thermal" in ortho_calls[1]
+        assert "--tie-points" in ortho_calls[1]
+
+        # Validar que los archivos de tie points no estén vacíos
+        prep_dir = tmp_path / "preprocessing"
+        rgb_tp = json.loads((prep_dir / "rgb_tie_points.json").read_text())
+        assert rgb_tp["matcher"] == "sift"
+        assert len(rgb_tp["matches"]) >= 1
+
+        th_tp = json.loads((prep_dir / "thermal_tie_points.json").read_text())
+        assert len(th_tp["pose_overrides"]) >= 1
+        assert th_tp["pose_overrides"][0]["image"] == "DJI_0001_T.JPG"
+
+    def test_pose_refinement_prevents_stale_poses_transfer(self, tmp_path, monkeypatch):
+        """Invariante B-B: Asegura que un refined_rgb_poses.json previo se borre y no se transfiera a térmicas si RGB falla."""
+        # Pre-crear archivo de poses obsoleto con coordenadas absurdas en preprocessing
+        prep_dir = tmp_path / "preprocessing"
+        prep_dir.mkdir(parents=True, exist_ok=True)
+        stale_file = prep_dir / "refined_rgb_poses.json"
+        stale_file.write_text(
+            json.dumps(
+                {
+                    "enu_origin": [0.0, 0.0, 0.0],
+                    "poses": [{"image": "DJI_0001_V.JPG", "position": [99999.0, 99999.0, 99999.0]}],
+                }
+            )
+        )
+
+        mock_zenith = tmp_path / "zenith_mock_fail_rgb"
+        mock_zenith.write_text("""#!/usr/bin/env python3
+import sys
+from pathlib import Path
+args = sys.argv[1:]
+if "--help" in args:
+    print("--feather-px --blend-mode --tie-points --export-refined-poses")
+    sys.exit(0)
+if "ortho-rgb" in args:
+    # Simular fallo en RGB
+    sys.exit(1)
+if "ortho-thermal" in args:
+    out_idx = args.index("--output") if "--output" in args else -1
+    if out_idx != -1:
+        p = Path(args[out_idx + 1])
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"RAW")
+        p.with_suffix(".tif").write_bytes(b"TIF")
+    m_idx = args.index("--manifest") if "--manifest" in args else -1
+    if m_idx != -1:
+        Path(args[m_idx + 1]).write_text('{"gsd_m": 0.15}')
+    sys.exit(0)
+""")
+        mock_zenith.chmod(0o755)
+        monkeypatch.setenv("ZENITH_BIN", str(mock_zenith))
+        monkeypatch.setattr("core.zenith_runner._extract_one_raw", lambda *args, **kwargs: True)
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "DJI_0001_V.JPG").write_bytes(b"RGB")
+        (src / "DJI_0001_T.JPG").write_bytes(b"TH")
+        out = tmp_path / "out"
+
+        summary = run_zenith_25d(source_dir=src, output_dir=out, pose_refinement="sift")
+        assert summary["ok"] is True
+        assert summary["pose_refinement_applied"] is False
+        assert summary["rgb_processed"] is False
+        assert summary["thermal_processed"] is True
+
+        # Verificar que el thermal_tie_points.json generado NO contenga las poses obsoletas [99999.0, ...]
+        th_tp_path = prep_dir / "thermal_tie_points.json"
+        assert th_tp_path.exists()
+        th_data = json.loads(th_tp_path.read_text())
+        assert th_data["pose_overrides"] == []

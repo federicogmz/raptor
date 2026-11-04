@@ -32,6 +32,12 @@ def main():
     parser.add_argument("--distance", type=float, help="Distancia al objetivo en metros [1.0, 25.0]")
     parser.add_argument("--reflection", type=float, help="Temperatura reflejada en °C [-40.0, 500.0]")
     parser.add_argument("--crs", help="Sistema de coordenadas de referencia (e.g. EPSG:32618)")
+    parser.add_argument(
+        "--pose-refinement",
+        default=None,
+        choices=["none", "sift", "flexglue"],
+        help="Método de refinamiento de poses de cámara ('none', 'sift', 'flexglue')",
+    )
 
     args = parser.parse_args()
 
@@ -71,6 +77,10 @@ def main():
     crs = os.environ.get("EXPORT_EPSG", args.crs)
     if crs and crs.lower() == "source":
         crs = None
+    if args.pose_refinement is not None:
+        pose_refinement = args.pose_refinement
+    else:
+        pose_refinement = os.environ.get("RAPTOR_POSE_REFINEMENT", "none")
 
     try:
         run_zenith_25d(
@@ -85,6 +95,7 @@ def main():
             distance=distance,
             reflection=reflection,
             crs=crs,
+            pose_refinement=pose_refinement,
         )
     except Exception as e:
         print(f"❌ ERROR en pipeline Zenith 2.5D: {e}", file=sys.stderr)

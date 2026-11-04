@@ -18,7 +18,7 @@ import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.thermal_params import (
     SIATA_DISTANCE,
@@ -394,6 +394,376 @@ def extract_thermal_raw_batch(
     return ok_count, fail_count
 
 
+def _get_feature_matcher_module():
+    """Importa scripts.flexglue_matcher de manera robusta sin importar el directorio de trabajo."""
+    try:
+        from scripts import flexglue_matcher
+
+        return flexglue_matcher
+    except ImportError:
+        if str(_BASE_DIR) not in sys.path:
+            sys.path.insert(0, str(_BASE_DIR))
+        from scripts import flexglue_matcher
+
+        return flexglue_matcher
+
+
+def _run_zenith_rgb_stage(
+    zenith_bin: str,
+    source_dir: Path,
+    rgb_jpgs: List[str],
+    thermal_jpgs: List[str],
+    output_dir: Path,
+    prep_dir: Path,
+    zenith_log: Path,
+    progress_file: Optional[Path],
+    dem_args: List[str],
+    used_local_va: bool,
+    crs: Optional[str],
+    zenith_timeout: int,
+    products_generated: List[str],
+    zenith_manifests: Dict[str, Any],
+    pose_refinement: str = "none",
+) -> Tuple[bool, Optional[Path]]:
+    """Ejecuta la ortorrectificación visual RGB con Zenith, con soporte para refinamiento de poses."""
+    _emit_progress(
+        progress_file,
+        "start",
+        "rgb_odm",
+        "Ortorrectificación visual RGB 2.5D",
+        channel_stage=ZENITH_RGB_STAGE,
+        step_n=1,
+        step_total=100,
+    )
+    print("\n── [3/4] Procesando sensor visual RGB con Zenith ──")
+    rgb_raw_out = output_dir / "rgb_orthomosaic.raw"
+    rgb_manifest = output_dir / "manifest_rgb_zenith.json"
+    rgb_ok = False
+    refined_rgb_poses_path: Path = prep_dir / "refined_rgb_poses.json"
+    rgb_tie_points: Path = prep_dir / "rgb_tie_points.json"
+
+    # Prevenir uso de poses obsoletas de vuelos previos (Invariante B-B)
+    refined_rgb_poses_path.unlink(missing_ok=True)
+    rgb_tie_points.unlink(missing_ok=True)
+    t_stage_start = time.time()
+
+    # Aislar fotos visuales RGB si hay imágenes térmicas en el mismo directorio
+    rgb_input_dir = source_dir
+    if thermal_jpgs:
+        rgb_filtered_dir = prep_dir / "rgb_images"
+        rgb_filtered_dir.mkdir(parents=True, exist_ok=True)
+        for p in rgb_jpgs:
+            target_link = rgb_filtered_dir / Path(p).name
+            if not target_link.exists():
+                try:
+                    target_link.symlink_to(Path(p).resolve())
+                except OSError:
+                    shutil.copy2(p, target_link)
+        rgb_input_dir = rgb_filtered_dir
+
+    rgb_blend_args = []
+    help_stdout = ""
+    try:
+        help_check_rgb = subprocess.run([zenith_bin, "ortho-rgb", "--help"], capture_output=True, text=True, timeout=5)
+        help_stdout = help_check_rgb.stdout
+        if "--blend-mode" in help_stdout:
+            blend_mode = os.environ.get("ZENITH_BLEND_MODE", "micro-feather")
+            feather_px = os.environ.get("ZENITH_FEATHER_PX", "25.0")
+            rgb_blend_args = ["--blend-mode", blend_mode, "--feather-px", feather_px]
+    except Exception as exc:
+        print(f"  ⚠ Aviso: {exc}")
+
+    refine_args = []
+    if pose_refinement in ("sift", "flexglue"):
+        if "--tie-points" not in help_stdout:
+            raise RuntimeError(
+                f"El binario de Zenith '{zenith_bin}' no soporta --tie-points en ortho-rgb, "
+                f"requerido para pose_refinement='{pose_refinement}'."
+            )
+        matcher_mod = _get_feature_matcher_module()
+        print(f"  Extrayendo puntos de enlace con matcher '{pose_refinement}' en {rgb_input_dir}...")
+        matcher_mod.run_feature_matching_pipeline(
+            images_dir=rgb_input_dir,
+            output_tie_points_path=rgb_tie_points,
+            matcher_type=pose_refinement,
+            is_thermal=False,
+        )
+        refine_args.extend(["--tie-points", str(rgb_tie_points)])
+        if "--export-refined-poses" in help_stdout:
+            refine_args.extend(["--export-refined-poses", str(refined_rgb_poses_path)])
+
+    cmd_rgb = (
+        [
+            zenith_bin,
+            "ortho-rgb",
+            "--images",
+            str(rgb_input_dir),
+            "--output",
+            str(rgb_raw_out),
+            "--manifest",
+            str(rgb_manifest),
+        ]
+        + rgb_blend_args
+        + dem_args
+        + refine_args
+    )
+
+    print(f"  Invocando: {' '.join(cmd_rgb)}")
+    try:
+        ret = _run_zenith_streaming(cmd_rgb, zenith_log, progress_file, ZENITH_RGB_STAGE, timeout=zenith_timeout)
+        if ret != 0 and used_local_va:
+            print("  ⚠ Falló la ejecución RGB con DEM regional local. Reintentando con DEM Copernicus GLO-30 auto...")
+            cmd_rgb_fb = (
+                [
+                    zenith_bin,
+                    "ortho-rgb",
+                    "--images",
+                    str(rgb_input_dir),
+                    "--output",
+                    str(rgb_raw_out),
+                    "--manifest",
+                    str(rgb_manifest),
+                ]
+                + rgb_blend_args
+                + ["--dem-source", "auto"]
+                + refine_args
+            )
+            if crs:
+                cmd_rgb_fb.extend(["--crs", str(crs)])
+            ret = _run_zenith_streaming(cmd_rgb_fb, zenith_log, progress_file, ZENITH_RGB_STAGE, timeout=zenith_timeout)
+
+        if ret == 0:
+            rgb_tif = output_dir / "rgb_orthomosaic.tif"
+            if rgb_tif.exists():
+                products_generated.append(str(rgb_tif))
+                rgb_ok = True
+                if rgb_manifest.exists():
+                    try:
+                        zenith_manifests["rgb"] = json.loads(rgb_manifest.read_text())
+                    except Exception as exc:
+                        print(f"  ⚠ Aviso: {exc}")
+        else:
+            print("  ❌ Falló la generación del ortomosaico RGB con Zenith")
+    except subprocess.TimeoutExpired as exc:
+        print(f"  ❌ Timeout ({zenith_timeout}s) en ortorrectificación RGB con Zenith: {exc}")
+
+    # Limpiar archivos .raw/.hdr intermedios de RGB
+    for intermediate in [rgb_raw_out, rgb_raw_out.with_suffix(".hdr")]:
+        if intermediate.exists():
+            try:
+                intermediate.unlink()
+            except Exception as exc:
+                print(f"  ⚠ Aviso: {exc}")
+
+    # Limpieza condicional y segura de imágenes RGB aisladas
+    keep_prep_rgb = os.environ.get("RAPTOR_KEEP_PREP_RGB", "0") in ("1", "true", "True")
+    rgb_tif_path = output_dir / "rgb_orthomosaic.tif"
+    if rgb_ok and thermal_jpgs and not keep_prep_rgb and rgb_tif_path.exists() and rgb_tif_path.stat().st_size > 0:
+        rgb_filtered_dir = prep_dir / "rgb_images"
+        if (
+            rgb_filtered_dir.exists()
+            and not rgb_filtered_dir.is_symlink()
+            and os.path.realpath(rgb_filtered_dir).startswith(str(prep_dir.resolve()))
+        ):
+            try:
+                freed_bytes = sum(
+                    f.stat().st_size for f in rgb_filtered_dir.glob("*") if f.is_file() and not f.is_symlink()
+                )
+                shutil.rmtree(rgb_filtered_dir, ignore_errors=True)
+                with open(zenith_log, "a", encoding="utf-8") as lf:
+                    lf.write(
+                        f"  ✓ Limpieza segura de imágenes RGB intermedias (prep_dir/rgb_images, {freed_bytes / (1024 * 1024):.1f} MB liberados)\n"
+                    )
+            except Exception as exc:
+                print(f"  ⚠ Aviso al limpiar rgb_images: {exc}")
+    elif keep_prep_rgb:
+        with open(zenith_log, "a", encoding="utf-8") as lf:
+            lf.write("  ℹ RAPTOR_KEEP_PREP_RGB activo: se preservan imágenes intermedias en prep_dir/rgb_images\n")
+
+    _emit_progress(
+        progress_file,
+        "done",
+        "rgb_odm",
+        "Ortorrectificación visual RGB 2.5D",
+        channel_stage=ZENITH_RGB_STAGE,
+        step_n=100,
+        step_total=100,
+    )
+    # Validar que las poses refinadas existan y hayan sido escritas en esta ejecución
+    valid_poses_path = None
+    if rgb_ok and refined_rgb_poses_path.exists() and refined_rgb_poses_path.stat().st_mtime >= t_stage_start - 1.0:
+        valid_poses_path = refined_rgb_poses_path
+
+    return rgb_ok, valid_poses_path
+
+
+def _run_zenith_thermal_stage(
+    zenith_bin: str,
+    source_dir: Path,
+    thermal_jpgs: List[str],
+    thermal_cfg: Dict[str, Any],
+    output_dir: Path,
+    prep_dir: Path,
+    zenith_log: Path,
+    progress_file: Optional[Path],
+    dem_args: List[str],
+    used_local_va: bool,
+    crs: Optional[str],
+    zenith_timeout: int,
+    products_generated: List[str],
+    zenith_manifests: Dict[str, Any],
+    pose_refinement: str = "none",
+    refined_rgb_poses: Optional[Path] = None,
+) -> bool:
+    """Ejecuta la ortorrectificación térmica 2.5D con Zenith, con soporte para transferencia de poses."""
+    _emit_progress(
+        progress_file,
+        "start",
+        "thermal_ortho",
+        "Ortorrectificación térmica 2.5D",
+        channel_stage=ZENITH_THERMAL_STAGE,
+        step_n=1,
+        step_total=100,
+    )
+    print("\n── [2/4] Procesando sensor térmico con Zenith ──")
+    raw_dir = prep_dir / "thermal_raw"
+    ok_raw, fail_raw = extract_thermal_raw_batch(
+        thermal_jpgs,
+        raw_dir,
+        emissivity=thermal_cfg["emissivity"],
+        humidity=thermal_cfg["humidity"],
+        distance=thermal_cfg["distance"],
+        reflection=thermal_cfg["reflection"],
+    )
+    print(f"  Extracción radiométrica (°C): {ok_raw} OK, {fail_raw} fallos")
+
+    thermal_raw_out = output_dir / "thermal_orthomosaic.raw"
+    thermal_manifest = output_dir / "manifest_thermal_zenith.json"
+    feather_args = []
+    help_stdout = ""
+    try:
+        help_check = subprocess.run([zenith_bin, "ortho-thermal", "--help"], capture_output=True, text=True, timeout=5)
+        help_stdout = help_check.stdout
+        if "--feather-px" in help_stdout:
+            feather_args = ["--feather-px", "10.0", "--max-blend-temp-diff", "3.5"]
+    except Exception as exc:
+        print(f"  ⚠ Aviso: {exc}")
+
+    refine_th_args = []
+    if pose_refinement in ("sift", "flexglue"):
+        if "--tie-points" not in help_stdout:
+            raise RuntimeError(
+                f"El binario de Zenith '{zenith_bin}' no soporta --tie-points en ortho-thermal, "
+                f"requerido para pose_refinement='{pose_refinement}'."
+            )
+        thermal_tie_points = prep_dir / "thermal_tie_points.json"
+        thermal_tie_points.unlink(missing_ok=True)
+        matcher_mod = _get_feature_matcher_module()
+
+        if refined_rgb_poses and Path(refined_rgb_poses).exists():
+            print(f"  Transfiriendo poses RGB refinadas ({refined_rgb_poses}) al sensor térmico...")
+            matcher_mod.transfer_poses_to_thermal(
+                refined_rgb_poses_path=refined_rgb_poses,
+                thermal_images_dir=source_dir,
+                output_tie_points_path=thermal_tie_points,
+            )
+            refine_th_args = ["--tie-points", str(thermal_tie_points)]
+        else:
+            print(f"  Extrayendo puntos de enlace térmicos nativos con matcher '{pose_refinement}'...")
+            matcher_mod.run_feature_matching_pipeline(
+                images_dir=source_dir,
+                output_tie_points_path=thermal_tie_points,
+                matcher_type=pose_refinement,
+                is_thermal=True,
+                raw_dir=raw_dir,
+            )
+            refine_th_args = ["--tie-points", str(thermal_tie_points)]
+
+    cmd_thermal = (
+        [
+            zenith_bin,
+            "ortho-thermal",
+            "--images",
+            str(source_dir),
+            "--raw-dir",
+            str(raw_dir),
+            "--output",
+            str(thermal_raw_out),
+            "--manifest",
+            str(thermal_manifest),
+        ]
+        + feather_args
+        + dem_args
+        + refine_th_args
+    )
+
+    print(f"  Invocando: {' '.join(cmd_thermal)}")
+    thermal_ok = False
+    try:
+        ret = _run_zenith_streaming(
+            cmd_thermal, zenith_log, progress_file, ZENITH_THERMAL_STAGE, timeout=zenith_timeout
+        )
+        if ret != 0 and used_local_va:
+            print("  ⚠ Falló la ejecución con DEM regional local. Reintentando con DEM Copernicus GLO-30 auto...")
+            cmd_thermal_fb = (
+                [
+                    zenith_bin,
+                    "ortho-thermal",
+                    "--images",
+                    str(source_dir),
+                    "--raw-dir",
+                    str(raw_dir),
+                    "--output",
+                    str(thermal_raw_out),
+                    "--manifest",
+                    str(thermal_manifest),
+                ]
+                + feather_args
+                + ["--dem-source", "auto"]
+                + refine_th_args
+            )
+            if crs:
+                cmd_thermal_fb.extend(["--crs", str(crs)])
+            ret = _run_zenith_streaming(
+                cmd_thermal_fb, zenith_log, progress_file, ZENITH_THERMAL_STAGE, timeout=zenith_timeout
+            )
+
+        if ret == 0:
+            thermal_tif = output_dir / "thermal_orthomosaic.tif"
+            if thermal_tif.exists():
+                products_generated.append(str(thermal_tif))
+                thermal_ok = True
+                if thermal_manifest.exists():
+                    try:
+                        zenith_manifests["thermal"] = json.loads(thermal_manifest.read_text())
+                    except Exception as exc:
+                        print(f"  ⚠ Aviso: {exc}")
+        else:
+            print("  ❌ Falló la generación del ortomosaico térmico con Zenith")
+    except subprocess.TimeoutExpired as exc:
+        print(f"  ❌ Timeout ({zenith_timeout}s) en ortorrectificación térmica con Zenith: {exc}")
+
+    # Limpiar raw_dir temporal y archivos intermedios tras generación
+    shutil.rmtree(raw_dir, ignore_errors=True)
+    for intermediate in [thermal_raw_out, thermal_raw_out.with_suffix(".hdr")]:
+        if intermediate.exists():
+            try:
+                intermediate.unlink()
+            except Exception as exc:
+                print(f"  ⚠ Aviso: {exc}")
+
+    _emit_progress(
+        progress_file,
+        "done",
+        "thermal_ortho",
+        "Ortorrectificación térmica 2.5D",
+        channel_stage=ZENITH_THERMAL_STAGE,
+        step_n=100,
+        step_total=100,
+    )
+    return thermal_ok
+
+
 def run_zenith_25d(
     source_dir: Path,
     output_dir: Path,
@@ -406,6 +776,7 @@ def run_zenith_25d(
     distance: Optional[float] = None,
     reflection: Optional[float] = None,
     crs: Optional[str] = None,
+    pose_refinement: Optional[str] = None,
 ) -> Dict:
     """Ejecuta el pipeline completo de ortorrectificación directa 2.5D con Zenith."""
     if hasattr(sys.stdout, "reconfigure"):
@@ -420,6 +791,12 @@ def run_zenith_25d(
     prep_dir = output_dir.parent / "preprocessing"
     prep_dir.mkdir(parents=True, exist_ok=True)
 
+    if pose_refinement is None:
+        pose_refinement = os.environ.get("RAPTOR_POSE_REFINEMENT", "none")
+    pose_refinement = (pose_refinement or "none").strip().lower()
+    if pose_refinement not in ("none", "sift", "flexglue"):
+        raise ValueError(f"pose_refinement inválido: '{pose_refinement}'. Opciones: 'none', 'sift', 'flexglue'")
+
     thermal_cfg = resolve_thermal_params(emissivity, humidity, distance, reflection)
 
     # 1. Clasificación de imágenes
@@ -433,6 +810,7 @@ def run_zenith_25d(
     print(f"  Fuente: {source_dir}")
     print(f"  Total JPG: {len(all_jpgs)} | RGB: {len(rgb_jpgs)} | Térmicas: {len(thermal_jpgs)}")
     print(f"  Política DEM: {dem_source} (DEM externo: {external_dem})")
+    print(f"  Refinamiento de poses: {pose_refinement}")
     print(
         f"  Parámetros radiométricos: emisividad={thermal_cfg['emissivity']}, "
         f"humedad={thermal_cfg['humidity']}%, dist={thermal_cfg['distance']}m, "
@@ -468,6 +846,48 @@ def run_zenith_25d(
             raise FileNotFoundError(
                 "Binario 'zenith' no encontrado en PATH ni en /home/fdgmz/zenith/target/release/zenith"
             )
+
+    # Preflight de capacidades de Zenith cuando se solicita refinamiento de poses (R1, R2)
+    if pose_refinement in ("sift", "flexglue"):
+        if rgb_jpgs:
+            try:
+                check_rgb = subprocess.run(
+                    [zenith_bin, "ortho-rgb", "--help"], capture_output=True, text=True, timeout=5
+                )
+                if check_rgb.returncode != 0:
+                    raise RuntimeError(
+                        f"Fallo al invocar '{zenith_bin} ortho-rgb --help' (código {check_rgb.returncode}): {check_rgb.stderr}"
+                    )
+                if "--tie-points" not in check_rgb.stdout:
+                    raise RuntimeError(
+                        f"El binario de Zenith '{zenith_bin}' no soporta --tie-points en ortho-rgb, "
+                        f"requerido para pose_refinement='{pose_refinement}'."
+                    )
+            except Exception as exc:
+                if isinstance(exc, RuntimeError):
+                    raise
+                raise RuntimeError(f"Error al verificar capacidades de Zenith '{zenith_bin}' ortho-rgb: {exc}") from exc
+
+        if thermal_jpgs:
+            try:
+                check_th = subprocess.run(
+                    [zenith_bin, "ortho-thermal", "--help"], capture_output=True, text=True, timeout=5
+                )
+                if check_th.returncode != 0:
+                    raise RuntimeError(
+                        f"Fallo al invocar '{zenith_bin} ortho-thermal --help' (código {check_th.returncode}): {check_th.stderr}"
+                    )
+                if "--tie-points" not in check_th.stdout:
+                    raise RuntimeError(
+                        f"El binario de Zenith '{zenith_bin}' no soporta --tie-points en ortho-thermal, "
+                        f"requerido para pose_refinement='{pose_refinement}'."
+                    )
+            except Exception as exc:
+                if isinstance(exc, RuntimeError):
+                    raise
+                raise RuntimeError(
+                    f"Error al verificar capacidades de Zenith '{zenith_bin}' ortho-thermal: {exc}"
+                ) from exc
 
     zenith_timeout = int(os.environ.get("ZENITH_TIMEOUT", 900))
     zenith_log = output_dir / "logs" / "zenith.log"
@@ -509,261 +929,95 @@ def run_zenith_25d(
 
     _emit_progress(progress_file, "done", "preprocessing", "Preparación y telemetría de vuelo")
 
-    # 2. Ortorrectificación Térmica (si hay fotos térmicas)
-    if thermal_jpgs:
-        _emit_progress(
-            progress_file,
-            "start",
-            "thermal_ortho",
-            "Ortorrectificación térmica 2.5D",
-            channel_stage=ZENITH_THERMAL_STAGE,
-            step_n=1,
-            step_total=100,
-        )
-        print("\n── [2/4] Procesando sensor térmico con Zenith ──")
-        raw_dir = prep_dir / "thermal_raw"
-        ok_raw, fail_raw = extract_thermal_raw_batch(
-            thermal_jpgs,
-            raw_dir,
-            emissivity=thermal_cfg["emissivity"],
-            humidity=thermal_cfg["humidity"],
-            distance=thermal_cfg["distance"],
-            reflection=thermal_cfg["reflection"],
-        )
-        print(f"  Extracción radiométrica (°C): {ok_raw} OK, {fail_raw} fallos")
-
-        thermal_raw_out = output_dir / "thermal_orthomosaic.raw"
-        thermal_manifest = output_dir / "manifest_thermal_zenith.json"
-        feather_args = []
-        try:
-            help_check = subprocess.run(
-                [zenith_bin, "ortho-thermal", "--help"], capture_output=True, text=True, timeout=5
+    # 2 & 3. Ortorrectificación con Zenith (RGB y Térmico)
+    pose_refinement_applied = False
+    if pose_refinement in ("sift", "flexglue"):
+        # Orden invertido para refinamiento: RGB primero para alimentar térmico con poses refinadas
+        refined_rgb_poses_file = None
+        if rgb_jpgs:
+            rgb_ok, refined_rgb_poses_file = _run_zenith_rgb_stage(
+                zenith_bin=zenith_bin,
+                source_dir=source_dir,
+                rgb_jpgs=rgb_jpgs,
+                thermal_jpgs=thermal_jpgs,
+                output_dir=output_dir,
+                prep_dir=prep_dir,
+                zenith_log=zenith_log,
+                progress_file=progress_file,
+                dem_args=dem_args,
+                used_local_va=used_local_va,
+                crs=crs,
+                zenith_timeout=zenith_timeout,
+                products_generated=products_generated,
+                zenith_manifests=zenith_manifests,
+                pose_refinement=pose_refinement,
             )
-            if "--feather-px" in help_check.stdout:
-                feather_args = ["--feather-px", "10.0", "--max-blend-temp-diff", "3.5"]
-        except Exception as exc:
-            print(f"  ⚠ Aviso: {exc}")
-
-        cmd_thermal = (
-            [
-                zenith_bin,
-                "ortho-thermal",
-                "--images",
-                str(source_dir),
-                "--raw-dir",
-                str(raw_dir),
-                "--output",
-                str(thermal_raw_out),
-                "--manifest",
-                str(thermal_manifest),
-            ]
-            + feather_args
-            + dem_args
-        )
-
-        print(f"  Invocando: {' '.join(cmd_thermal)}")
-        try:
-            ret = _run_zenith_streaming(
-                cmd_thermal, zenith_log, progress_file, ZENITH_THERMAL_STAGE, timeout=zenith_timeout
-            )
-            if ret != 0 and used_local_va:
-                print("  ⚠ Falló la ejecución con DEM regional local. Reintentando con DEM Copernicus GLO-30 auto...")
-                cmd_thermal_fb = (
-                    [
-                        zenith_bin,
-                        "ortho-thermal",
-                        "--images",
-                        str(source_dir),
-                        "--raw-dir",
-                        str(raw_dir),
-                        "--output",
-                        str(thermal_raw_out),
-                        "--manifest",
-                        str(thermal_manifest),
-                    ]
-                    + feather_args
-                    + ["--dem-source", "auto"]
-                )
-                if crs:
-                    cmd_thermal_fb.extend(["--crs", str(crs)])
-                ret = _run_zenith_streaming(
-                    cmd_thermal_fb, zenith_log, progress_file, ZENITH_THERMAL_STAGE, timeout=zenith_timeout
-                )
-
-            if ret == 0:
-                thermal_tif = output_dir / "thermal_orthomosaic.tif"
-                if thermal_tif.exists():
-                    products_generated.append(str(thermal_tif))
-                    thermal_ok = True
-                    if thermal_manifest.exists():
-                        try:
-                            zenith_manifests["thermal"] = json.loads(thermal_manifest.read_text())
-                        except Exception as exc:
-                            print(f"  ⚠ Aviso: {exc}")
-            else:
-                print("  ❌ Falló la generación del ortomosaico térmico con Zenith")
-        except subprocess.TimeoutExpired as exc:
-            print(f"  ❌ Timeout ({zenith_timeout}s) en ortorrectificación térmica con Zenith: {exc}")
-
-        # Limpiar raw_dir temporal y archivos intermedios tras generación
-        shutil.rmtree(raw_dir, ignore_errors=True)
-        for intermediate in [thermal_raw_out, thermal_raw_out.with_suffix(".hdr")]:
-            if intermediate.exists():
-                try:
-                    intermediate.unlink()
-                except Exception as exc:
-                    print(f"  ⚠ Aviso: {exc}")
-
-        _emit_progress(
-            progress_file,
-            "done",
-            "thermal_ortho",
-            "Ortorrectificación térmica 2.5D",
-            channel_stage=ZENITH_THERMAL_STAGE,
-            step_n=100,
-            step_total=100,
-        )
-
-    # 3. Ortorrectificación RGB (si hay fotos visuales)
-    if rgb_jpgs:
-        _emit_progress(
-            progress_file,
-            "start",
-            "rgb_odm",
-            "Ortorrectificación visual RGB 2.5D",
-            channel_stage=ZENITH_RGB_STAGE,
-            step_n=1,
-            step_total=100,
-        )
-        print("\n── [3/4] Procesando sensor visual RGB con Zenith ──")
-        rgb_raw_out = output_dir / "rgb_orthomosaic.raw"
-        rgb_manifest = output_dir / "manifest_rgb_zenith.json"
-
-        # Aislar fotos visuales RGB si hay imágenes térmicas en el mismo directorio
-        rgb_input_dir = source_dir
-        if thermal_jpgs:
-            rgb_filtered_dir = prep_dir / "rgb_images"
-            rgb_filtered_dir.mkdir(parents=True, exist_ok=True)
-            for p in rgb_jpgs:
-                target_link = rgb_filtered_dir / Path(p).name
-                if not target_link.exists():
-                    try:
-                        target_link.symlink_to(Path(p).resolve())
-                    except OSError:
-                        shutil.copy2(p, target_link)
-            rgb_input_dir = rgb_filtered_dir
-
-        rgb_blend_args = []
-        try:
-            help_check_rgb = subprocess.run(
-                [zenith_bin, "ortho-rgb", "--help"], capture_output=True, text=True, timeout=5
-            )
-            if "--blend-mode" in help_check_rgb.stdout:
-                blend_mode = os.environ.get("ZENITH_BLEND_MODE", "micro-feather")
-                feather_px = os.environ.get("ZENITH_FEATHER_PX", "25.0")
-                rgb_blend_args = ["--blend-mode", blend_mode, "--feather-px", feather_px]
-        except Exception as exc:
-            print(f"  ⚠ Aviso: {exc}")
-
-        cmd_rgb = (
-            [
-                zenith_bin,
-                "ortho-rgb",
-                "--images",
-                str(rgb_input_dir),
-                "--output",
-                str(rgb_raw_out),
-                "--manifest",
-                str(rgb_manifest),
-            ]
-            + rgb_blend_args
-            + dem_args
-        )
-
-        print(f"  Invocando: {' '.join(cmd_rgb)}")
-        try:
-            ret = _run_zenith_streaming(cmd_rgb, zenith_log, progress_file, ZENITH_RGB_STAGE, timeout=zenith_timeout)
-            if ret != 0 and used_local_va:
+            if not rgb_ok and thermal_jpgs:
                 print(
-                    "  ⚠ Falló la ejecución RGB con DEM regional local. Reintentando con DEM Copernicus GLO-30 auto..."
-                )
-                cmd_rgb_fb = (
-                    [
-                        zenith_bin,
-                        "ortho-rgb",
-                        "--images",
-                        str(rgb_input_dir),
-                        "--output",
-                        str(rgb_raw_out),
-                        "--manifest",
-                        str(rgb_manifest),
-                    ]
-                    + rgb_blend_args
-                    + ["--dem-source", "auto"]
-                )
-                if crs:
-                    cmd_rgb_fb.extend(["--crs", str(crs)])
-                ret = _run_zenith_streaming(
-                    cmd_rgb_fb, zenith_log, progress_file, ZENITH_RGB_STAGE, timeout=zenith_timeout
+                    "  ⚠ Falló la ortorrectificación RGB con refinamiento. "
+                    "Continuando térmico con puntos de enlace térmicos nativos..."
                 )
 
-            if ret == 0:
-                rgb_tif = output_dir / "rgb_orthomosaic.tif"
-                if rgb_tif.exists():
-                    products_generated.append(str(rgb_tif))
-                    rgb_ok = True
-                    if rgb_manifest.exists():
-                        try:
-                            zenith_manifests["rgb"] = json.loads(rgb_manifest.read_text())
-                        except Exception as exc:
-                            print(f"  ⚠ Aviso: {exc}")
-            else:
-                print("  ❌ Falló la generación del ortomosaico RGB con Zenith")
-        except subprocess.TimeoutExpired as exc:
-            print(f"  ❌ Timeout ({zenith_timeout}s) en ortorrectificación RGB con Zenith: {exc}")
+        if thermal_jpgs:
+            thermal_ok = _run_zenith_thermal_stage(
+                zenith_bin=zenith_bin,
+                source_dir=source_dir,
+                thermal_jpgs=thermal_jpgs,
+                thermal_cfg=thermal_cfg,
+                output_dir=output_dir,
+                prep_dir=prep_dir,
+                zenith_log=zenith_log,
+                progress_file=progress_file,
+                dem_args=dem_args,
+                used_local_va=used_local_va,
+                crs=crs,
+                zenith_timeout=zenith_timeout,
+                products_generated=products_generated,
+                zenith_manifests=zenith_manifests,
+                pose_refinement=pose_refinement,
+                refined_rgb_poses=refined_rgb_poses_file,
+            )
 
-        # Limpiar archivos .raw/.hdr intermedios de RGB
-        for intermediate in [rgb_raw_out, rgb_raw_out.with_suffix(".hdr")]:
-            if intermediate.exists():
-                try:
-                    intermediate.unlink()
-                except Exception as exc:
-                    print(f"  ⚠ Aviso: {exc}")
+        pose_refinement_applied = bool((rgb_ok and refined_rgb_poses_file is not None) or (thermal_ok and not rgb_jpgs))
+    else:
+        # Orden clásico backward-compatible: Térmico primero, luego RGB
+        if thermal_jpgs:
+            thermal_ok = _run_zenith_thermal_stage(
+                zenith_bin=zenith_bin,
+                source_dir=source_dir,
+                thermal_jpgs=thermal_jpgs,
+                thermal_cfg=thermal_cfg,
+                output_dir=output_dir,
+                prep_dir=prep_dir,
+                zenith_log=zenith_log,
+                progress_file=progress_file,
+                dem_args=dem_args,
+                used_local_va=used_local_va,
+                crs=crs,
+                zenith_timeout=zenith_timeout,
+                products_generated=products_generated,
+                zenith_manifests=zenith_manifests,
+                pose_refinement="none",
+            )
 
-        # Limpieza condicional y segura de imágenes RGB aisladas
-        keep_prep_rgb = os.environ.get("RAPTOR_KEEP_PREP_RGB", "0") in ("1", "true", "True")
-        rgb_tif_path = output_dir / "rgb_orthomosaic.tif"
-        if rgb_ok and thermal_jpgs and not keep_prep_rgb and rgb_tif_path.exists() and rgb_tif_path.stat().st_size > 0:
-            rgb_filtered_dir = prep_dir / "rgb_images"
-            if (
-                rgb_filtered_dir.exists()
-                and not rgb_filtered_dir.is_symlink()
-                and os.path.realpath(rgb_filtered_dir).startswith(str(prep_dir.resolve()))
-            ):
-                try:
-                    freed_bytes = sum(
-                        f.stat().st_size for f in rgb_filtered_dir.glob("*") if f.is_file() and not f.is_symlink()
-                    )
-                    shutil.rmtree(rgb_filtered_dir, ignore_errors=True)
-                    with open(zenith_log, "a", encoding="utf-8") as lf:
-                        lf.write(
-                            f"  ✓ Limpieza segura de imágenes RGB intermedias (prep_dir/rgb_images, {freed_bytes / (1024 * 1024):.1f} MB liberados)\n"
-                        )
-                except Exception as exc:
-                    print(f"  ⚠ Aviso al limpiar rgb_images: {exc}")
-        elif keep_prep_rgb:
-            with open(zenith_log, "a", encoding="utf-8") as lf:
-                lf.write("  ℹ RAPTOR_KEEP_PREP_RGB activo: se preservan imágenes intermedias en prep_dir/rgb_images\n")
-
-        _emit_progress(
-            progress_file,
-            "done",
-            "rgb_odm",
-            "Ortorrectificación visual RGB 2.5D",
-            channel_stage=ZENITH_RGB_STAGE,
-            step_n=100,
-            step_total=100,
-        )
+        if rgb_jpgs:
+            rgb_ok, _ = _run_zenith_rgb_stage(
+                zenith_bin=zenith_bin,
+                source_dir=source_dir,
+                rgb_jpgs=rgb_jpgs,
+                thermal_jpgs=thermal_jpgs,
+                output_dir=output_dir,
+                prep_dir=prep_dir,
+                zenith_log=zenith_log,
+                progress_file=progress_file,
+                dem_args=dem_args,
+                used_local_va=used_local_va,
+                crs=crs,
+                zenith_timeout=zenith_timeout,
+                products_generated=products_generated,
+                zenith_manifests=zenith_manifests,
+                pose_refinement="none",
+            )
 
     if not thermal_ok and not rgb_ok:
         raise RuntimeError("Zenith no pudo generar ningún ortomosaico (RGB ni térmico).")
@@ -839,6 +1093,8 @@ def run_zenith_25d(
         "rgb_processed": rgb_ok,
         "zenith_manifests": zenith_manifests,
         "thermal_params": thermal_cfg,
+        "pose_refinement": pose_refinement,
+        "pose_refinement_applied": pose_refinement_applied,
     }
 
     summary_path = output_dir / "run_summary.json"
