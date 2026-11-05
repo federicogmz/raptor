@@ -25,6 +25,8 @@ from core.zenith_runner import (
     ZENITH_THERMAL_STAGE,
     _emit_progress,
     extract_thermal_raw_batch,
+    is_flexglue_available,
+    resolve_pose_refinement,
     run_zenith_25d,
     write_zenith_flight_quality,
 )
@@ -597,7 +599,7 @@ sys.exit(0)
 
         src = tmp_path / "src"
         src.mkdir()
-        import cv2
+        cv2 = pytest.importorskip("cv2")
         import numpy as np
 
         # Crear 3 imágenes con solape y textura rica para generar pares y matches no triviales
@@ -655,6 +657,8 @@ sys.exit(0)
 
     def test_pose_refinement_prevents_stale_poses_transfer(self, tmp_path, monkeypatch):
         """Invariante B-B: Asegura que un refined_rgb_poses.json previo se borre y no se transfiera a térmicas si RGB falla."""
+        pytest.importorskip("cv2")
+        monkeypatch.setattr("core.zenith_runner.is_flexglue_available", lambda: True)
         # Pre-crear archivo de poses obsoleto con coordenadas absurdas en preprocessing
         prep_dir = tmp_path / "preprocessing"
         prep_dir.mkdir(parents=True, exist_ok=True)
@@ -712,3 +716,123 @@ if "ortho-thermal" in args:
         assert th_tp_path.exists()
         th_data = json.loads(th_tp_path.read_text())
         assert th_data["pose_overrides"] == []
+
+    def test_pose_refinement_auto_thermal_only_focus(self, tmp_path, monkeypatch):
+        """Verifica que pose_refinement='auto' y 'flexglue' mantengan RGB en proyección RTK directa por defecto y refinen el térmico."""
+        log_file = tmp_path / "zenith_calls_auto.log"
+        mock_zenith = tmp_path / "zenith_mock_auto"
+        mock_zenith.write_text(f"""#!/usr/bin/env python3
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+with open("{log_file}", "a") as f:
+    f.write(" ".join(args) + "\\n")
+
+if "--help" in args:
+    print("--feather-px --blend-mode --tie-points --export-refined-poses")
+    sys.exit(0)
+
+if "ortho-rgb" in args or "ortho-thermal" in args:
+    out_idx = args.index("--output") if "--output" in args else -1
+    if out_idx != -1:
+        p = Path(args[out_idx + 1])
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"RAW")
+        p.with_suffix(".tif").write_bytes(b"TIF")
+    m_idx = args.index("--manifest") if "--manifest" in args else -1
+    if m_idx != -1:
+        Path(args[m_idx + 1]).write_text('{{"gsd_m": 0.15}}')
+    sys.exit(0)
+
+sys.exit(0)
+""")
+        mock_zenith.chmod(0o755)
+        monkeypatch.setenv("ZENITH_BIN", str(mock_zenith))
+        monkeypatch.setattr("core.zenith_runner._extract_one_raw", lambda *args, **kwargs: True)
+
+        # Mock feature matcher module so it doesn't try to load heavy ONNX models during unit tests
+        class MockMatcherMod:
+            @staticmethod
+            def run_feature_matching_pipeline(
+                images_dir, output_tie_points_path, matcher_type, is_thermal=False, raw_dir=None
+            ):
+                Path(output_tie_points_path).parent.mkdir(parents=True, exist_ok=True)
+                Path(output_tie_points_path).write_text(
+                    json.dumps({"matcher": matcher_type, "matches": [], "pose_overrides": []})
+                )
+
+        monkeypatch.setattr("core.zenith_runner._get_feature_matcher_module", lambda: MockMatcherMod)
+        monkeypatch.setattr("core.zenith_runner.is_flexglue_available", lambda: True)
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "DJI_0001_V.JPG").write_bytes(b"RGB")
+        (src / "DJI_0001_T.JPG").write_bytes(b"TH")
+        out = tmp_path / "out"
+
+        # 1. Caso default: auto sin forzar RGB
+        summary = run_zenith_25d(source_dir=src, output_dir=out, pose_refinement="auto", force_rgb_refinement=False)
+        assert summary["ok"] is True
+        assert summary["pose_refinement"] == "auto"
+        assert summary["pose_refinement_applied"] is True
+        assert summary["force_rgb_refinement"] is False
+
+        calls = log_file.read_text().strip().splitlines()
+        ortho_calls = [c for c in calls if "ortho-" in c and "--help" not in c]
+        # Con auto: RGB debe ser directo RTK (sin --tie-points), Térmico sí debe tener --tie-points
+        rgb_call = [c for c in ortho_calls if "ortho-rgb" in c][0]
+        th_call = [c for c in ortho_calls if "ortho-thermal" in c][0]
+        assert "--tie-points" not in rgb_call
+        assert "--tie-points" in th_call
+
+        # 2. Caso con force_rgb_refinement=True
+        log_file.unlink()
+        summary_forced = run_zenith_25d(
+            source_dir=src, output_dir=out, pose_refinement="flexglue", force_rgb_refinement=True
+        )
+        assert summary_forced["ok"] is True
+        assert summary_forced["force_rgb_refinement"] is True
+        calls_forced = log_file.read_text().strip().splitlines()
+        ortho_calls_forced = [c for c in calls_forced if "ortho-" in c and "--help" not in c]
+        rgb_call_forced = [c for c in ortho_calls_forced if "ortho-rgb" in c][0]
+        assert "--tie-points" in rgb_call_forced
+
+
+@pytest.mark.parametrize(
+    "mode,modality,is_rtk,force_rgb,expected",
+    [
+        ("none", "thermal", True, False, "none"),
+        ("none", "rgb", True, False, "none"),
+        ("sift", "thermal", True, False, "sift"),
+        ("sift", "rgb", True, False, "sift"),
+        ("flexglue", "thermal", True, False, "flexglue"),
+        ("flexglue", "rgb", True, False, "none"),
+        ("flexglue", "rgb", True, True, "flexglue"),
+        ("flexglue", "rgb", False, False, "flexglue"),
+        ("auto", "thermal", True, False, "flexglue"),
+        ("auto", "rgb", True, False, "none"),
+        ("auto", "rgb", True, True, "flexglue"),
+        ("auto", "rgb", False, False, "flexglue"),
+        (None, "thermal", True, False, "none"),
+    ],
+)
+def test_resolve_pose_refinement_matrix(monkeypatch, mode, modality, is_rtk, force_rgb, expected):
+    """Verifica la resolución per-modalidad bajo RTK, non-RTK, y force_rgb_refinement."""
+    monkeypatch.setattr("core.zenith_runner.is_flexglue_available", lambda: True)
+    assert resolve_pose_refinement(mode, modality, is_rtk=is_rtk, force_rgb_refinement=force_rgb) == expected
+
+
+def test_resolve_pose_refinement_fallback(monkeypatch):
+    """Verifica que el modo auto haga fallback a none cuando FlexGlue no esté disponible."""
+    assert isinstance(is_flexglue_available(), bool)
+    monkeypatch.setattr("core.zenith_runner.is_flexglue_available", lambda: False)
+    assert resolve_pose_refinement("auto", "thermal") == "none"
+    assert resolve_pose_refinement("auto", "rgb", is_rtk=False) == "none"
+
+
+def test_resolve_pose_refinement_invalid():
+    """Verifica que modos o modalidades inválidas se manejen adecuadamente."""
+    with pytest.raises(ValueError, match="pose_refinement inválido"):
+        resolve_pose_refinement("invalid_mode", "thermal")
+    assert resolve_pose_refinement("auto", "unknown_sensor") == "none"

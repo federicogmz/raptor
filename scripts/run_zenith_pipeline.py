@@ -35,8 +35,14 @@ def main():
     parser.add_argument(
         "--pose-refinement",
         default=None,
-        choices=["none", "sift", "flexglue"],
-        help="Método de refinamiento de poses de cámara ('none', 'sift', 'flexglue')",
+        choices=["none", "sift", "flexglue", "auto"],
+        help="Método de refinamiento de poses de cámara ('none', 'sift', 'flexglue', 'auto')",
+    )
+    parser.add_argument(
+        "--force-rgb-refinement",
+        action="store_true",
+        default=False,
+        help="Fuerza el refinamiento de poses también en el sensor visual RGB (por defecto desactivado para prevenir deriva por paralaje en dosel arbóreo)",
     )
 
     args = parser.parse_args()
@@ -82,6 +88,11 @@ def main():
     else:
         pose_refinement = os.environ.get("RAPTOR_POSE_REFINEMENT", "none")
 
+    force_rgb_refinement = (
+        os.environ.get("RAPTOR_FORCE_RGB_REFINEMENT", "").strip().lower() in ("1", "true", "yes")
+        or args.force_rgb_refinement
+    )
+
     try:
         run_zenith_25d(
             source_dir=source_dir,
@@ -96,6 +107,7 @@ def main():
             reflection=reflection,
             crs=crs,
             pose_refinement=pose_refinement,
+            force_rgb_refinement=force_rgb_refinement,
         )
     except Exception as e:
         print(f"❌ ERROR en pipeline Zenith 2.5D: {e}", file=sys.stderr)

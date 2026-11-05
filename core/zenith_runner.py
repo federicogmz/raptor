@@ -8,6 +8,7 @@ situación y teselas XYZ).
 
 import glob
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -19,6 +20,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 from core.thermal_params import (
     SIATA_DISTANCE,
@@ -392,6 +395,90 @@ def extract_thermal_raw_batch(
         print(f"  ⚠ Aviso al escribir thermal_params.json: {exc}")
 
     return ok_count, fail_count
+
+
+def is_flexglue_available() -> bool:
+    """Verifica si las dependencias de FlexGlue (onnxruntime y cv2) están instaladas y disponibles."""
+    try:
+        import cv2  # noqa: F401
+        import onnxruntime  # noqa: F401
+
+        return True
+    except (ImportError, Exception):
+        return False
+
+
+def resolve_pose_refinement(
+    pose_refinement: Optional[str],
+    modality: str,
+    is_rtk: bool = True,
+    force_rgb_refinement: bool = False,
+) -> str:
+    """Resuelve la política de refinamiento de poses por modalidad de sensor ('rgb' o 'thermal').
+
+    Parámetros
+    ----------
+    pose_refinement : Optional[str]
+        Política global de refinamiento solicitada ('none', 'sift', 'flexglue', 'auto').
+    modality : str
+        Modalidad del sensor ('rgb', 'ortho-rgb', 'thermal', 'ortho-thermal').
+    is_rtk : bool, default True
+        Indica si las imágenes provienen de una misión con navegación RTK de alta precisión.
+    force_rgb_refinement : bool, default False
+        Fuerza la activación de refinamiento en RGB incluso en misiones RTK o modo 'auto'.
+
+    Retorna
+    -------
+    str
+        Modo resuelto para la modalidad: 'none', 'sift' o 'flexglue'.
+    """
+    if pose_refinement is None:
+        pose_refinement = "none"
+    mode = str(pose_refinement).strip().lower()
+    valid_modes = ("none", "sift", "flexglue", "auto")
+    if mode not in valid_modes:
+        raise ValueError(f"pose_refinement inválido: '{pose_refinement}'. Opciones: 'none', 'sift', 'flexglue', 'auto'")
+
+    mod = modality.strip().lower()
+    is_thermal = mod in ("thermal", "ortho-thermal")
+    is_rgb = mod in ("rgb", "ortho-rgb")
+
+    if not is_thermal and not is_rgb:
+        logger.warning("Modalidad '%s' no reconocida. Se desactiva refinamiento.", modality)
+        return "none"
+
+    if mode == "none":
+        resolved = "none"
+    elif mode == "sift":
+        resolved = "sift"
+    elif mode == "flexglue":
+        if is_rgb and not force_rgb_refinement and is_rtk:
+            # Según hallazgo empírico multicámara (Caldas/Quitasol), en RGB RTK el refinamiento
+            # visual induce deriva por paralaje en copas de árboles (0.36m -> 1.54m), por lo que
+            # por defecto se preserva la proyección RTK directa a menos que force_rgb_refinement sea True.
+            resolved = "none"
+        else:
+            resolved = "flexglue"
+    elif mode == "auto":
+        if is_thermal:
+            # Para ortomosaicos térmicos, FlexGlue aporta el mayor beneficio (+0.093 F1, -47% MAE)
+            if is_flexglue_available():
+                resolved = "flexglue"
+            else:
+                logger.warning(
+                    "Modo 'auto' seleccionó FlexGlue para térmico, pero onnxruntime/cv2 no están disponibles. "
+                    "Fallback a 'none'."
+                )
+                resolved = "none"
+        else:
+            # Para RGB, en misiones RTK se desactiva por defecto para prevenir deriva de copa arbórea
+            if force_rgb_refinement or not is_rtk:
+                resolved = "flexglue" if is_flexglue_available() else "none"
+            else:
+                resolved = "none"
+
+    logger.info("Pose refinement resuelto: %s -> %s (modality=%s, is_rtk=%s)", mode, resolved, modality, is_rtk)
+    return resolved
 
 
 def _get_feature_matcher_module():
@@ -777,6 +864,7 @@ def run_zenith_25d(
     reflection: Optional[float] = None,
     crs: Optional[str] = None,
     pose_refinement: Optional[str] = None,
+    force_rgb_refinement: bool = False,
 ) -> Dict:
     """Ejecuta el pipeline completo de ortorrectificación directa 2.5D con Zenith."""
     if hasattr(sys.stdout, "reconfigure"):
@@ -794,8 +882,22 @@ def run_zenith_25d(
     if pose_refinement is None:
         pose_refinement = os.environ.get("RAPTOR_POSE_REFINEMENT", "none")
     pose_refinement = (pose_refinement or "none").strip().lower()
-    if pose_refinement not in ("none", "sift", "flexglue"):
-        raise ValueError(f"pose_refinement inválido: '{pose_refinement}'. Opciones: 'none', 'sift', 'flexglue'")
+    if pose_refinement not in ("none", "sift", "flexglue", "auto"):
+        raise ValueError(f"pose_refinement inválido: '{pose_refinement}'. Opciones: 'none', 'sift', 'flexglue', 'auto'")
+
+    # Determinar modo de refinamiento efectivo por sensor
+    rgb_refinement = resolve_pose_refinement(
+        pose_refinement,
+        modality="rgb",
+        is_rtk=True,
+        force_rgb_refinement=force_rgb_refinement,
+    )
+    thermal_refinement = resolve_pose_refinement(
+        pose_refinement,
+        modality="thermal",
+        is_rtk=True,
+        force_rgb_refinement=force_rgb_refinement,
+    )
 
     thermal_cfg = resolve_thermal_params(emissivity, humidity, distance, reflection)
 
@@ -810,7 +912,7 @@ def run_zenith_25d(
     print(f"  Fuente: {source_dir}")
     print(f"  Total JPG: {len(all_jpgs)} | RGB: {len(rgb_jpgs)} | Térmicas: {len(thermal_jpgs)}")
     print(f"  Política DEM: {dem_source} (DEM externo: {external_dem})")
-    print(f"  Refinamiento de poses: {pose_refinement}")
+    print(f"  Refinamiento de poses: {pose_refinement} (RGB: {rgb_refinement}, Térmico: {thermal_refinement})")
     print(
         f"  Parámetros radiométricos: emisividad={thermal_cfg['emissivity']}, "
         f"humedad={thermal_cfg['humidity']}%, dist={thermal_cfg['distance']}m, "
@@ -931,7 +1033,7 @@ def run_zenith_25d(
 
     # 2 & 3. Ortorrectificación con Zenith (RGB y Térmico)
     pose_refinement_applied = False
-    if pose_refinement in ("sift", "flexglue"):
+    if rgb_refinement != "none":
         # Orden invertido para refinamiento: RGB primero para alimentar térmico con poses refinadas
         refined_rgb_poses_file = None
         if rgb_jpgs:
@@ -950,7 +1052,7 @@ def run_zenith_25d(
                 zenith_timeout=zenith_timeout,
                 products_generated=products_generated,
                 zenith_manifests=zenith_manifests,
-                pose_refinement=pose_refinement,
+                pose_refinement=rgb_refinement,
             )
             if not rgb_ok and thermal_jpgs:
                 print(
@@ -974,13 +1076,16 @@ def run_zenith_25d(
                 zenith_timeout=zenith_timeout,
                 products_generated=products_generated,
                 zenith_manifests=zenith_manifests,
-                pose_refinement=pose_refinement,
+                pose_refinement=thermal_refinement,
                 refined_rgb_poses=refined_rgb_poses_file,
             )
 
-        pose_refinement_applied = bool((rgb_ok and refined_rgb_poses_file is not None) or (thermal_ok and not rgb_jpgs))
+        pose_refinement_applied = bool(
+            (rgb_ok and refined_rgb_poses_file is not None)
+            or (thermal_ok and not rgb_jpgs and thermal_refinement != "none")
+        )
     else:
-        # Orden clásico backward-compatible: Térmico primero, luego RGB
+        # Orden clásico backward-compatible: Térmico primero (con refinamiento nativo si aplica), luego RGB
         if thermal_jpgs:
             thermal_ok = _run_zenith_thermal_stage(
                 zenith_bin=zenith_bin,
@@ -997,7 +1102,8 @@ def run_zenith_25d(
                 zenith_timeout=zenith_timeout,
                 products_generated=products_generated,
                 zenith_manifests=zenith_manifests,
-                pose_refinement="none",
+                pose_refinement=thermal_refinement,
+                refined_rgb_poses=None,
             )
 
         if rgb_jpgs:
@@ -1018,6 +1124,7 @@ def run_zenith_25d(
                 zenith_manifests=zenith_manifests,
                 pose_refinement="none",
             )
+        pose_refinement_applied = bool(thermal_ok and thermal_refinement != "none")
 
     if not thermal_ok and not rgb_ok:
         raise RuntimeError("Zenith no pudo generar ningún ortomosaico (RGB ni térmico).")
@@ -1095,6 +1202,7 @@ def run_zenith_25d(
         "thermal_params": thermal_cfg,
         "pose_refinement": pose_refinement,
         "pose_refinement_applied": pose_refinement_applied,
+        "force_rgb_refinement": force_rgb_refinement,
     }
 
     summary_path = output_dir / "run_summary.json"
