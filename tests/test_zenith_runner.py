@@ -23,6 +23,7 @@ from core.zenith_runner import (
     REFLECTION,
     ZENITH_RGB_STAGE,
     ZENITH_THERMAL_STAGE,
+    _detect_rtk_from_images,
     _emit_progress,
     extract_thermal_raw_batch,
     is_flexglue_available,
@@ -718,7 +719,7 @@ if "ortho-thermal" in args:
         assert th_data["pose_overrides"] == []
 
     def test_pose_refinement_auto_thermal_only_focus(self, tmp_path, monkeypatch):
-        """Verifica que pose_refinement='auto' y 'flexglue' mantengan RGB en proyección RTK directa por defecto y refinen el térmico."""
+        """Verifica que pose_refinement='auto' mantenga RGB en proyección RTK directa y refine el térmico con FlexGlue."""
         log_file = tmp_path / "zenith_calls_auto.log"
         mock_zenith = tmp_path / "zenith_mock_auto"
         mock_zenith.write_text(f"""#!/usr/bin/env python3
@@ -759,7 +760,13 @@ sys.exit(0)
             ):
                 Path(output_tie_points_path).parent.mkdir(parents=True, exist_ok=True)
                 Path(output_tie_points_path).write_text(
-                    json.dumps({"matcher": matcher_type, "matches": [], "pose_overrides": []})
+                    json.dumps(
+                        {
+                            "matcher": matcher_type,
+                            "matches": [{"point1": [10.0, 20.0], "point2": [12.0, 22.0]}],
+                            "pose_overrides": [{"image": "DJI_0001_T.JPG", "position": [1.0, 2.0, 3.0]}],
+                        }
+                    )
                 )
 
         monkeypatch.setattr("core.zenith_runner._get_feature_matcher_module", lambda: MockMatcherMod)
@@ -769,14 +776,21 @@ sys.exit(0)
         src.mkdir()
         (src / "DJI_0001_V.JPG").write_bytes(b"RGB")
         (src / "DJI_0001_T.JPG").write_bytes(b"TH")
-        out = tmp_path / "out"
 
-        # 1. Caso default: auto sin forzar RGB
-        summary = run_zenith_25d(source_dir=src, output_dir=out, pose_refinement="auto", force_rgb_refinement=False)
+        # 1. Caso default: auto sin forzar RGB (con directorio de salida dedicado)
+        out_auto = tmp_path / "out_auto"
+        summary = run_zenith_25d(
+            source_dir=src, output_dir=out_auto, pose_refinement="auto", force_rgb_refinement=False, is_rtk=True
+        )
         assert summary["ok"] is True
         assert summary["pose_refinement"] == "auto"
+        assert summary["rgb_refinement_resolved"] == "none"
+        assert summary["thermal_refinement_resolved"] == "flexglue"
+        assert summary["rgb_refinement_applied"] is False
+        assert summary["thermal_refinement_applied"] is True
         assert summary["pose_refinement_applied"] is True
         assert summary["force_rgb_refinement"] is False
+        assert summary["is_rtk"] is True
 
         calls = log_file.read_text().strip().splitlines()
         ortho_calls = [c for c in calls if "ortho-" in c and "--help" not in c]
@@ -786,17 +800,43 @@ sys.exit(0)
         assert "--tie-points" not in rgb_call
         assert "--tie-points" in th_call
 
-        # 2. Caso con force_rgb_refinement=True
+        # 2. Caso con force_rgb_refinement=True (con directorio de salida separado)
         log_file.unlink()
+        out_forced = tmp_path / "out_forced"
         summary_forced = run_zenith_25d(
-            source_dir=src, output_dir=out, pose_refinement="flexglue", force_rgb_refinement=True
+            source_dir=src, output_dir=out_forced, pose_refinement="flexglue", force_rgb_refinement=True, is_rtk=True
         )
         assert summary_forced["ok"] is True
         assert summary_forced["force_rgb_refinement"] is True
+        assert summary_forced["rgb_refinement_resolved"] == "flexglue"
+        assert summary_forced["thermal_refinement_resolved"] == "flexglue"
         calls_forced = log_file.read_text().strip().splitlines()
         ortho_calls_forced = [c for c in calls_forced if "ortho-" in c and "--help" not in c]
         rgb_call_forced = [c for c in ortho_calls_forced if "ortho-rgb" in c][0]
         assert "--tie-points" in rgb_call_forced
+
+
+def test_detect_rtk_from_images(tmp_path):
+    """Verifica la detección rápida de etiquetas RTK en encabezados JPEG."""
+    img_dir = tmp_path / "imgs"
+    img_dir.mkdir()
+
+    # Sin imágenes
+    assert _detect_rtk_from_images(img_dir) is False
+
+    # Imagen estándar sin RTK
+    (img_dir / "DJI_0001.JPG").write_bytes(b"\xff\xd8\xff\xe1" + b"standard_exif_no_rtk" * 100)
+    assert _detect_rtk_from_images(img_dir) is False
+
+    # Imagen DJI con RtkFlag="50"
+    (img_dir / "DJI_0002.JPG").write_bytes(b"\xff\xd8\xff\xe1" + b'xmp drone-dji:RtkFlag="50" data')
+    assert _detect_rtk_from_images(img_dir) is True
+
+    # Lista explícita de rutas
+    no_rtk_img = img_dir / "DJI_0001.JPG"
+    rtk_img = img_dir / "DJI_0002.JPG"
+    assert _detect_rtk_from_images([no_rtk_img]) is False
+    assert _detect_rtk_from_images([rtk_img]) is True
 
 
 @pytest.mark.parametrize(
@@ -807,13 +847,13 @@ sys.exit(0)
         ("sift", "thermal", True, False, "sift"),
         ("sift", "rgb", True, False, "sift"),
         ("flexglue", "thermal", True, False, "flexglue"),
-        ("flexglue", "rgb", True, False, "none"),
+        ("flexglue", "rgb", True, False, "flexglue"),  # R2: respeta selección explícita con warning
         ("flexglue", "rgb", True, True, "flexglue"),
         ("flexglue", "rgb", False, False, "flexglue"),
         ("auto", "thermal", True, False, "flexglue"),
         ("auto", "rgb", True, False, "none"),
-        ("auto", "rgb", True, True, "flexglue"),
-        ("auto", "rgb", False, False, "flexglue"),
+        ("auto", "rgb", True, True, "sift"),  # R2: auto en RGB forza SIFT si force_rgb
+        ("auto", "rgb", False, False, "sift"),  # R2: auto en RGB usa SIFT en vuelos no-RTK
         (None, "thermal", True, False, "none"),
     ],
 )
@@ -828,7 +868,8 @@ def test_resolve_pose_refinement_fallback(monkeypatch):
     assert isinstance(is_flexglue_available(), bool)
     monkeypatch.setattr("core.zenith_runner.is_flexglue_available", lambda: False)
     assert resolve_pose_refinement("auto", "thermal") == "none"
-    assert resolve_pose_refinement("auto", "rgb", is_rtk=False) == "none"
+    assert resolve_pose_refinement("flexglue", "thermal") == "none"
+    assert resolve_pose_refinement("flexglue", "rgb") == "none"
 
 
 def test_resolve_pose_refinement_invalid():

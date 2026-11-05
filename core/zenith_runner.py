@@ -19,7 +19,7 @@ import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 logger = logging.getLogger(__name__)
 
@@ -408,6 +408,52 @@ def is_flexglue_available() -> bool:
         return False
 
 
+def _detect_rtk_from_images(target: Union[Path, str, List[Union[Path, str]]]) -> bool:
+    """Inspecciona los primeros encabezados JPEG para detectar banderas de posicionamiento RTK de DJI.
+
+    Lee los primeros 64 KB de hasta 3 imágenes buscando etiquetas XMP como:
+    drone-dji:RtkFlag="50", RtkFlag="16", RtkFlag="34" o GpsStatus="RTK".
+    """
+    candidates: List[Path] = []
+    if isinstance(target, (list, tuple)):
+        candidates = [Path(p) for p in target if Path(p).suffix.lower() in (".jpg", ".jpeg")]
+    else:
+        p_target = Path(target)
+        if p_target.is_dir():
+            candidates = sorted(
+                list(p_target.glob("*.JPG")) + list(p_target.glob("*.jpg")) + list(p_target.glob("*.jpeg"))
+            )
+        elif p_target.is_file():
+            candidates = [p_target]
+
+    if not candidates:
+        return False
+
+    rtk_indicators = (
+        b'drone-dji:RtkFlag="50"',
+        b'drone-dji:RtkFlag="16"',
+        b'drone-dji:RtkFlag="34"',
+        b'RtkFlag="50"',
+        b'RtkFlag="16"',
+        b'RtkFlag="34"',
+        b'GpsStatus="RTK"',
+        b'drone-dji:GpsStatus="RTK"',
+    )
+
+    for img_path in candidates[:3]:
+        try:
+            with open(img_path, "rb") as f:
+                header = f.read(65536)
+                for indicator in rtk_indicators:
+                    if indicator in header:
+                        logger.info("RTK detectado en imagen %s (%s)", img_path.name, indicator.decode(errors="ignore"))
+                        return True
+        except Exception as exc:
+            logger.debug("Error leyendo encabezado de %s: %s", img_path, exc)
+
+    return False
+
+
 def resolve_pose_refinement(
     pose_refinement: Optional[str],
     modality: str,
@@ -423,9 +469,9 @@ def resolve_pose_refinement(
     modality : str
         Modalidad del sensor ('rgb', 'ortho-rgb', 'thermal', 'ortho-thermal').
     is_rtk : bool, default True
-        Indica si las imágenes provienen de una misión con navegación RTK de alta precisión.
+        Indica si las imágenes provienen de una navegación RTK de alta precisión.
     force_rgb_refinement : bool, default False
-        Fuerza la activación de refinamiento en RGB incluso en misiones RTK o modo 'auto'.
+        Fuerza la activación de refinamiento en RGB incluso en vuelos RTK o modo 'auto'.
 
     Retorna
     -------
@@ -448,18 +494,32 @@ def resolve_pose_refinement(
         return "none"
 
     if mode == "none":
-        resolved = "none"
-    elif mode == "sift":
-        resolved = "sift"
-    elif mode == "flexglue":
-        if is_rgb and not force_rgb_refinement and is_rtk:
-            # Según hallazgo empírico multicámara (Caldas/Quitasol), en RGB RTK el refinamiento
-            # visual induce deriva por paralaje en copas de árboles (0.36m -> 1.54m), por lo que
-            # por defecto se preserva la proyección RTK directa a menos que force_rgb_refinement sea True.
-            resolved = "none"
-        else:
-            resolved = "flexglue"
-    elif mode == "auto":
+        return "none"
+
+    if mode == "sift":
+        if is_rgb and is_rtk and not force_rgb_refinement:
+            logger.warning(
+                "Refinamiento explícito 'sift' en RGB con navegación RTK: puede inducir deriva por paralaje "
+                "en copas de árboles. Use '--pose-refinement auto' para restringir refinamiento a térmico."
+            )
+        return "sift"
+
+    if mode == "flexglue":
+        if not is_flexglue_available():
+            logger.warning(
+                "Refinamiento explícito 'flexglue' solicitado pero onnxruntime/cv2 no están disponibles. "
+                "Fallback a 'none'."
+            )
+            return "none"
+        if is_rgb and is_rtk and not force_rgb_refinement:
+            logger.warning(
+                "Refinamiento explícito 'flexglue' en RGB con navegación RTK: puede inducir deriva por paralaje "
+                "en copas de árboles (0.36m -> 1.54m en Caldas). Se respeta selección explícita. "
+                "Recomendado: '--pose-refinement auto' para restringir refinamiento exclusivamente a térmico."
+            )
+        return "flexglue"
+
+    if mode == "auto":
         if is_thermal:
             # Para ortomosaicos térmicos, FlexGlue aporta el mayor beneficio (+0.093 F1, -47% MAE)
             if is_flexglue_available():
@@ -471,14 +531,17 @@ def resolve_pose_refinement(
                 )
                 resolved = "none"
         else:
-            # Para RGB, en misiones RTK se desactiva por defecto para prevenir deriva de copa arbórea
+            # Para RGB, en misiones RTK se desactiva por defecto para prevenir deriva de copa arbórea.
+            # En misiones no-RTK o si se fuerza, se usa SIFT que superó a FlexGlue en sensores de alta resolución.
             if force_rgb_refinement or not is_rtk:
-                resolved = "flexglue" if is_flexglue_available() else "none"
+                resolved = "sift"
             else:
                 resolved = "none"
 
-    logger.info("Pose refinement resuelto: %s -> %s (modality=%s, is_rtk=%s)", mode, resolved, modality, is_rtk)
-    return resolved
+        logger.info("Pose refinement resuelto: %s -> %s (modality=%s, is_rtk=%s)", mode, resolved, modality, is_rtk)
+        return resolved
+
+    return "none"
 
 
 def _get_feature_matcher_module():
@@ -865,6 +928,7 @@ def run_zenith_25d(
     crs: Optional[str] = None,
     pose_refinement: Optional[str] = None,
     force_rgb_refinement: bool = False,
+    is_rtk: Optional[bool] = None,
 ) -> Dict:
     """Ejecuta el pipeline completo de ortorrectificación directa 2.5D con Zenith."""
     if hasattr(sys.stdout, "reconfigure"):
@@ -885,26 +949,36 @@ def run_zenith_25d(
     if pose_refinement not in ("none", "sift", "flexglue", "auto"):
         raise ValueError(f"pose_refinement inválido: '{pose_refinement}'. Opciones: 'none', 'sift', 'flexglue', 'auto'")
 
+    # 1. Clasificación de imágenes
+    all_jpgs = sorted(glob.glob(str(source_dir / "*.jpg")) + glob.glob(str(source_dir / "*.JPG")))
+    thermal_jpgs = [p for p in all_jpgs if Path(p).stem.endswith("_T") or "_T_" in Path(p).stem]
+    rgb_jpgs = [p for p in all_jpgs if p not in thermal_jpgs]
+
+    # Detección de navegación RTK
+    if is_rtk is None:
+        if rgb_jpgs:
+            is_rtk = _detect_rtk_from_images(rgb_jpgs)
+        elif all_jpgs:
+            is_rtk = _detect_rtk_from_images(all_jpgs)
+        else:
+            is_rtk = _detect_rtk_from_images(source_dir)
+    logger.info("Navegación RTK: %s (source_dir=%s)", is_rtk, source_dir)
+
     # Determinar modo de refinamiento efectivo por sensor
     rgb_refinement = resolve_pose_refinement(
         pose_refinement,
         modality="rgb",
-        is_rtk=True,
+        is_rtk=is_rtk,
         force_rgb_refinement=force_rgb_refinement,
     )
     thermal_refinement = resolve_pose_refinement(
         pose_refinement,
         modality="thermal",
-        is_rtk=True,
+        is_rtk=is_rtk,
         force_rgb_refinement=force_rgb_refinement,
     )
 
     thermal_cfg = resolve_thermal_params(emissivity, humidity, distance, reflection)
-
-    # 1. Clasificación de imágenes
-    all_jpgs = sorted(glob.glob(str(source_dir / "*.jpg")) + glob.glob(str(source_dir / "*.JPG")))
-    thermal_jpgs = [p for p in all_jpgs if Path(p).stem.endswith("_T") or "_T_" in Path(p).stem]
-    rgb_jpgs = [p for p in all_jpgs if p not in thermal_jpgs]
 
     print("════════════════════════════════════════════════════════════")
     print("  RAPTOR MODO 2.5D (ZENITH DIRECT ORTHO ENGINE)")
@@ -1080,10 +1154,7 @@ def run_zenith_25d(
                 refined_rgb_poses=refined_rgb_poses_file,
             )
 
-        pose_refinement_applied = bool(
-            (rgb_ok and refined_rgb_poses_file is not None)
-            or (thermal_ok and not rgb_jpgs and thermal_refinement != "none")
-        )
+        pass
     else:
         # Orden clásico backward-compatible: Térmico primero (con refinamiento nativo si aplica), luego RGB
         if thermal_jpgs:
@@ -1124,7 +1195,45 @@ def run_zenith_25d(
                 zenith_manifests=zenith_manifests,
                 pose_refinement="none",
             )
-        pose_refinement_applied = bool(thermal_ok and thermal_refinement != "none")
+
+    # Determinar si el refinamiento fue efectivamente aplicado
+    rgb_refinement_applied = False
+    if rgb_ok and rgb_refinement != "none":
+        refined_poses_file = prep_dir / "refined_poses_rgb.json"
+        rgb_tp_file = prep_dir / "rgb_tie_points.json"
+        if refined_poses_file.exists():
+            try:
+                poses_data = json.loads(refined_poses_file.read_text(encoding="utf-8"))
+                if poses_data.get("applied") is True or bool(poses_data.get("poses")) or bool(poses_data.get("frames")):
+                    rgb_refinement_applied = True
+            except Exception:
+                pass
+        if not rgb_refinement_applied and rgb_tp_file.exists():
+            try:
+                tp_data = json.loads(rgb_tp_file.read_text(encoding="utf-8"))
+                if bool(tp_data.get("matches")):
+                    rgb_refinement_applied = True
+            except Exception:
+                pass
+
+    thermal_refinement_applied = False
+    if thermal_ok and thermal_refinement != "none":
+        th_tp_file = prep_dir / "thermal_tie_points.json"
+        if th_tp_file.exists():
+            try:
+                th_data = json.loads(th_tp_file.read_text(encoding="utf-8"))
+                if (
+                    bool(th_data.get("matches"))
+                    or bool(th_data.get("pose_overrides"))
+                    or bool(th_data.get("poses"))
+                    or bool(th_data.get("frames"))
+                    or th_data.get("applied") is True
+                ):
+                    thermal_refinement_applied = True
+            except Exception:
+                pass
+
+    pose_refinement_applied = bool(rgb_refinement_applied or thermal_refinement_applied)
 
     if not thermal_ok and not rgb_ok:
         raise RuntimeError("Zenith no pudo generar ningún ortomosaico (RGB ni térmico).")
@@ -1201,8 +1310,13 @@ def run_zenith_25d(
         "zenith_manifests": zenith_manifests,
         "thermal_params": thermal_cfg,
         "pose_refinement": pose_refinement,
+        "rgb_refinement_resolved": rgb_refinement,
+        "thermal_refinement_resolved": thermal_refinement,
+        "rgb_refinement_applied": rgb_refinement_applied,
+        "thermal_refinement_applied": thermal_refinement_applied,
         "pose_refinement_applied": pose_refinement_applied,
         "force_rgb_refinement": force_rgb_refinement,
+        "is_rtk": is_rtk,
     }
 
     summary_path = output_dir / "run_summary.json"

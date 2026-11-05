@@ -44,6 +44,19 @@ def main():
         default=False,
         help="Fuerza el refinamiento de poses también en el sensor visual RGB (por defecto desactivado para prevenir deriva por paralaje en dosel arbóreo)",
     )
+    parser.add_argument(
+        "--rtk",
+        dest="is_rtk",
+        action="store_true",
+        default=None,
+        help="Indica navegación RTK de alta precisión (por defecto auto-detectado de los metadatos XMP)",
+    )
+    parser.add_argument(
+        "--no-rtk",
+        dest="is_rtk",
+        action="store_false",
+        help="Indica navegación no-RTK",
+    )
 
     args = parser.parse_args()
 
@@ -93,6 +106,10 @@ def main():
         or args.force_rgb_refinement
     )
 
+    is_rtk = args.is_rtk
+    if is_rtk is None and "RAPTOR_IS_RTK" in os.environ:
+        is_rtk = os.environ["RAPTOR_IS_RTK"].strip().lower() in ("1", "true", "yes")
+
     try:
         run_zenith_25d(
             source_dir=source_dir,
@@ -108,6 +125,7 @@ def main():
             crs=crs,
             pose_refinement=pose_refinement,
             force_rgb_refinement=force_rgb_refinement,
+            is_rtk=is_rtk,
         )
     except Exception as e:
         print(f"❌ ERROR en pipeline Zenith 2.5D: {e}", file=sys.stderr)
