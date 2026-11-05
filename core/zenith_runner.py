@@ -408,11 +408,17 @@ def is_flexglue_available() -> bool:
         return False
 
 
-def _detect_rtk_from_images(target: Union[Path, str, List[Union[Path, str]]]) -> bool:
-    """Inspecciona los primeros encabezados JPEG para detectar banderas de posicionamiento RTK de DJI.
+def _detect_rtk_from_images(
+    target: Union[Path, str, List[Union[Path, str]]],
+    accept_rtk_float: bool = False,
+) -> bool:
+    """Inspecciona los encabezados JPEG (APP1 XMP) para detectar posicionamiento RTK Fixed de DJI.
 
-    Lee los primeros 64 KB de hasta 3 imágenes buscando etiquetas XMP como:
-    drone-dji:RtkFlag="50", RtkFlag="16", RtkFlag="34" o GpsStatus="RTK".
+    En metadatos XMP de DJI:
+      - RtkFlag="0"  -> Sin posicionamiento
+      - RtkFlag="16" -> GNSS de punto simple (NO es RTK)
+      - RtkFlag="34" -> RTK Float (opcional si accept_rtk_float=True)
+      - RtkFlag="50" -> RTK Fixed
     """
     candidates: List[Path] = []
     if isinstance(target, (list, tuple)):
@@ -429,21 +435,27 @@ def _detect_rtk_from_images(target: Union[Path, str, List[Union[Path, str]]]) ->
     if not candidates:
         return False
 
-    rtk_indicators = (
+    rtk_indicators = [
         b'drone-dji:RtkFlag="50"',
-        b'drone-dji:RtkFlag="16"',
-        b'drone-dji:RtkFlag="34"',
         b'RtkFlag="50"',
-        b'RtkFlag="16"',
-        b'RtkFlag="34"',
+        b"<drone-dji:RtkFlag>50</drone-dji:RtkFlag>",
         b'GpsStatus="RTK"',
         b'drone-dji:GpsStatus="RTK"',
-    )
+        b"<drone-dji:GpsStatus>RTK</drone-dji:GpsStatus>",
+    ]
+    if accept_rtk_float:
+        rtk_indicators.extend(
+            [
+                b'drone-dji:RtkFlag="34"',
+                b'RtkFlag="34"',
+                b"<drone-dji:RtkFlag>34</drone-dji:RtkFlag>",
+            ]
+        )
 
     for img_path in candidates[:3]:
         try:
             with open(img_path, "rb") as f:
-                header = f.read(65536)
+                header = f.read(262144)
                 for indicator in rtk_indicators:
                     if indicator in header:
                         logger.info("RTK detectado en imagen %s (%s)", img_path.name, indicator.decode(errors="ignore"))
@@ -521,7 +533,8 @@ def resolve_pose_refinement(
 
     if mode == "auto":
         if is_thermal:
-            # Para ortomosaicos térmicos, FlexGlue aporta el mayor beneficio (+0.093 F1, -47% MAE)
+            # Para ortomosaicos térmicos LWIR (640x512), FlexGlue mejora el solape de focos térmicos
+            # (+0.093 Hotspot F1 en Barbosa, +0.033 Hotspot F1 en Envigado con humo activo)
             if is_flexglue_available():
                 resolved = "flexglue"
             else:
@@ -1196,19 +1209,19 @@ def run_zenith_25d(
                 pose_refinement="none",
             )
 
-    # Determinar si el refinamiento fue efectivamente aplicado
+    # Determinar si el refinamiento fue efectivamente aplicado en esta corrida
     rgb_refinement_applied = False
     if rgb_ok and rgb_refinement != "none":
-        refined_poses_file = prep_dir / "refined_poses_rgb.json"
+        refined_poses_file = prep_dir / "refined_rgb_poses.json"
         rgb_tp_file = prep_dir / "rgb_tie_points.json"
-        if refined_poses_file.exists():
+        if refined_poses_file.exists() and refined_poses_file.stat().st_mtime >= t0 - 1.0:
             try:
                 poses_data = json.loads(refined_poses_file.read_text(encoding="utf-8"))
                 if poses_data.get("applied") is True or bool(poses_data.get("poses")) or bool(poses_data.get("frames")):
                     rgb_refinement_applied = True
             except Exception:
                 pass
-        if not rgb_refinement_applied and rgb_tp_file.exists():
+        elif rgb_tp_file.exists() and rgb_tp_file.stat().st_mtime >= t0 - 1.0 and not refined_poses_file.exists():
             try:
                 tp_data = json.loads(rgb_tp_file.read_text(encoding="utf-8"))
                 if bool(tp_data.get("matches")):
@@ -1219,17 +1232,18 @@ def run_zenith_25d(
     thermal_refinement_applied = False
     if thermal_ok and thermal_refinement != "none":
         th_tp_file = prep_dir / "thermal_tie_points.json"
-        if th_tp_file.exists():
+        if th_tp_file.exists() and th_tp_file.stat().st_mtime >= t0 - 1.0:
             try:
                 th_data = json.loads(th_tp_file.read_text(encoding="utf-8"))
-                if (
-                    bool(th_data.get("matches"))
-                    or bool(th_data.get("pose_overrides"))
-                    or bool(th_data.get("poses"))
-                    or bool(th_data.get("frames"))
-                    or th_data.get("applied") is True
-                ):
-                    thermal_refinement_applied = True
+                if "pose_overrides" in th_data:
+                    thermal_refinement_applied = bool(th_data.get("pose_overrides")) or bool(th_data.get("matches"))
+                else:
+                    thermal_refinement_applied = (
+                        bool(th_data.get("matches"))
+                        or bool(th_data.get("poses"))
+                        or bool(th_data.get("frames"))
+                        or th_data.get("applied") is True
+                    )
             except Exception:
                 pass
 

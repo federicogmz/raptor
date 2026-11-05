@@ -817,20 +817,27 @@ sys.exit(0)
 
 
 def test_detect_rtk_from_images(tmp_path):
-    """Verifica la detección rápida de etiquetas RTK en encabezados JPEG."""
+    """Verifica la detección rápida de etiquetas RTK Fixed (50) en encabezados JPEG y rechazo de GPS simple (16)."""
     img_dir = tmp_path / "imgs"
     img_dir.mkdir()
 
     # Sin imágenes
     assert _detect_rtk_from_images(img_dir) is False
 
-    # Imagen estándar sin RTK
-    (img_dir / "DJI_0001.JPG").write_bytes(b"\xff\xd8\xff\xe1" + b"standard_exif_no_rtk" * 100)
+    # Imagen estándar sin RTK (RtkFlag="16" es GNSS de punto simple, NO RTK; RtkFlag="0" es sin posicionamiento)
+    (img_dir / "DJI_0001.JPG").write_bytes(
+        b"\xff\xd8\xff\xe1" + b'drone-dji:RtkFlag="16" RtkFlag="0" standard_exif_no_rtk'
+    )
     assert _detect_rtk_from_images(img_dir) is False
 
-    # Imagen DJI con RtkFlag="50"
+    # Imagen DJI con RtkFlag="50" (RTK Fixed)
     (img_dir / "DJI_0002.JPG").write_bytes(b"\xff\xd8\xff\xe1" + b'xmp drone-dji:RtkFlag="50" data')
     assert _detect_rtk_from_images(img_dir) is True
+
+    # Formato elemento XML <drone-dji:RtkFlag>50</drone-dji:RtkFlag>
+    xml_img = img_dir / "DJI_0003.JPG"
+    xml_img.write_bytes(b"\xff\xd8\xff\xe1" + b"<drone-dji:RtkFlag>50</drone-dji:RtkFlag>")
+    assert _detect_rtk_from_images([xml_img]) is True
 
     # Lista explícita de rutas
     no_rtk_img = img_dir / "DJI_0001.JPG"
