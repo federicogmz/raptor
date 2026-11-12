@@ -12,7 +12,7 @@ import numpy as np
 from PIL import Image
 import pytest
 
-from scripts.benchmark_multisensor_validation import (
+from tools.benchmark_multisensor_validation import (
     ResourceMonitor,
     compute_sobel_gradient_magnitude,
     delta_e_cie76,

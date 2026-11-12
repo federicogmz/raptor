@@ -39,9 +39,13 @@ scratch*
 screenshot*
 take_screenshots*
 
-# Asistentes / IDEs
-.claude/
-.agents/
+# Asistentes / IDEs / directorios ocultos locales
+.*
+!.gitignore
+!.dockerignore
+!.github/
+!.github/**
+!docs/.nojekyll
 
 # SDK (se incluye extraído pero no el zip)
 *.zip

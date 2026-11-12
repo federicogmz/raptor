@@ -34,24 +34,25 @@ jobs:
 
   test:
     name: Unit Tests (Decoupled)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: "pip"
-
-      - name: Install base test dependencies
+      - name: Install system dependencies (GDAL)
         run: |
-          python -m pip install --upgrade pip
-          pip install pytest pytest-cov fastapi uvicorn numpy matplotlib httpx python-multipart
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gdal-bin python3-gdal python3-venv python3-pip
+
+      - name: Set up virtual environment with system site packages
+        run: |
+          python3 -m venv --system-site-packages .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install pytest pytest-cov fastapi uvicorn numpy scipy Pillow matplotlib httpx python-multipart
+          .venv/bin/python3 -c "from osgeo import gdal; print('GDAL version:', gdal.__version__)"
 
       - name: Run unit tests
         env:
           RAPTOR_APP_DIR: ${{ github.workspace }}
         run: |
-          pytest -m "not docker and not gpu" -v --cov=core --cov=webapp
+          .venv/bin/pytest -m "not docker and not gpu" -v --cov=core --cov=webapp

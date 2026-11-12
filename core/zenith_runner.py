@@ -25,7 +25,9 @@ from core.thermal_params import (
     SIATA_EMISSIVITY,
     SIATA_HUMIDITY,
     SIATA_REFLECTION,
+    build_dji_irp_cmd,
     resolve_thermal_params,
+    run_dji_irp_extract,
 )
 
 _BASE_DIR = Path(__file__).resolve().parent.parent
@@ -45,34 +47,7 @@ ZENITH_THERMAL_STAGE = "Zenith THERMAL"
 IMAGE_HEIGHT = 512
 IMAGE_WIDTH = 640
 
-
-def _build_dji_irp_cmd(
-    src_jpg: str,
-    dst_raw: str,
-    emissivity: float,
-    humidity: float,
-    distance: float,
-    reflection: float,
-) -> List[str]:
-    return [
-        str(DJI_IRP),
-        "-s",
-        src_jpg,
-        "-a",
-        "measure",
-        "-o",
-        dst_raw,
-        "--measurefmt",
-        "float32",
-        "--emissivity",
-        str(emissivity),
-        "--humidity",
-        str(humidity),
-        "--distance",
-        str(distance),
-        "--reflection",
-        str(reflection),
-    ]
+_build_dji_irp_cmd = build_dji_irp_cmd
 
 
 def _emit_progress(
@@ -223,19 +198,50 @@ def write_zenith_flight_quality(
     status = "ok" if (has_thermal or has_rgb) else "degraded"
 
     gsds = []
+    gsd_cm = {}
     if "gsd_m" in thermal_m and thermal_m["gsd_m"]:
         try:
-            gsds.append(float(thermal_m["gsd_m"]))
+            val_m = float(thermal_m["gsd_m"])
+            gsds.append(val_m)
+            gsd_cm["thermal"] = round(val_m * 100.0, 2)
         except (ValueError, TypeError):
             pass
     if "gsd_m" in rgb_m and rgb_m["gsd_m"]:
         try:
-            gsds.append(float(rgb_m["gsd_m"]))
+            val_m = float(rgb_m["gsd_m"])
+            gsds.append(val_m)
+            gsd_cm["rgb"] = round(val_m * 100.0, 2)
         except (ValueError, TypeError):
             pass
 
     effective_gsd_cm = round(min(gsds) * 100.0, 2) if gsds else None
     crs = thermal_m.get("crs") or rgb_m.get("crs") or "EPSG:4326"
+
+    # Photo counts: mapped nadir frames and total frames
+    reconstruccion = {}
+    thermal_mapped = thermal_m.get("frames_nadir_mapped", thermal_m.get("images_count", 0))
+    thermal_total = thermal_m.get("frames_total", thermal_mapped)
+    if has_thermal:
+        pct_th = round(100.0 * thermal_mapped / thermal_total, 1) if thermal_total > 0 else 0.0
+        reconstruccion["thermal"] = {"usadas": thermal_mapped, "total": thermal_total, "pct": pct_th}
+
+    rgb_mapped = rgb_m.get("frames_nadir_mapped", rgb_m.get("images_count", 0))
+    rgb_total = rgb_m.get("frames_total", rgb_mapped)
+    if has_rgb:
+        pct_rgb = round(100.0 * rgb_mapped / rgb_total, 1) if rgb_total > 0 else 0.0
+        reconstruccion["rgb"] = {"usadas": rgb_mapped, "total": rgb_total, "pct": pct_rgb}
+
+    # Calidad cualitativa ("buena" / "regular" / "baja")
+    if reconstruccion:
+        min_pct = min(v["pct"] for v in reconstruccion.values())
+        if min_pct < 70:
+            calidad = "baja"
+        elif min_pct < 90:
+            calidad = "regular"
+        else:
+            calidad = "buena"
+    else:
+        calidad = "baja" if status == "degraded" else "buena"
 
     quality_report = {
         "schema_version": "1.0",
@@ -248,16 +254,22 @@ def write_zenith_flight_quality(
         "sensors": {
             "thermal": {
                 "processed": has_thermal,
-                "photos_count": thermal_m.get("images_count", 0),
+                "photos_count": thermal_mapped,
                 "manifest": thermal_m,
             },
             "rgb": {
                 "processed": has_rgb,
-                "photos_count": rgb_m.get("images_count", 0),
+                "photos_count": rgb_mapped,
                 "manifest": rgb_m,
             },
         },
         "flight_path_available": flight_path_json is not None and Path(flight_path_json).exists(),
+        "gsd_cm": gsd_cm,
+        "reconstruccion": reconstruccion,
+        "solape_p50": None,
+        "velocidad_media_ms": None,
+        "velocidad_max_ms": None,
+        "calidad": calidad,
     }
 
     with tempfile.NamedTemporaryFile("w", dir=str(output_dir), delete=False, encoding="utf-8") as tmp:
@@ -277,36 +289,17 @@ def _extract_one_raw(
     distance: float = DISTANCE,
     reflection: float = REFLECTION,
 ) -> Tuple[bool, float]:
-    try:
-        cmd = _build_dji_irp_cmd(src_jpg, dst_raw, emissivity, humidity, distance, reflection)
-        res = subprocess.run(
-            cmd,
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        eff_humidity = float(humidity)
-        # Sensores R-JPEG v1 (ej. Zenmuse H20T) imponen rango [20, 100] en dirp_set_measurement_params (rc -3 / 253)
-        if (
-            res.returncode != 0
-            and float(humidity) < 20.0
-            and (res.returncode == 253 or "dirp_set_measurement_params" in (res.stdout + res.stderr))
-        ):
-            eff_humidity = 20.0
-            cmd_fallback = _build_dji_irp_cmd(src_jpg, dst_raw, emissivity, 20.0, distance, reflection)
-            res = subprocess.run(
-                cmd_fallback,
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-        ok = res.returncode == 0 and os.path.exists(dst_raw) and os.path.getsize(dst_raw) > 0
-        return ok, eff_humidity
-    except Exception as e:
-        print(f"  ⚠ Fallo al extraer {os.path.basename(src_jpg)}: {e}", file=sys.stderr)
-        return False, float(humidity)
+    return run_dji_irp_extract(
+        src_jpg,
+        dst_raw,
+        emissivity=emissivity,
+        humidity=humidity,
+        distance=distance,
+        reflection=reflection,
+        env=env,
+        dji_irp_bin=str(DJI_IRP),
+        run_fn=subprocess.run,
+    )
 
 
 def extract_thermal_raw_batch(
@@ -392,6 +385,57 @@ def extract_thermal_raw_batch(
         print(f"  ⚠ Aviso al escribir thermal_params.json: {exc}")
 
     return ok_count, fail_count
+
+
+def _run_postprocess_step(
+    step_name: str,
+    cmd: List[str],
+    cwd: Path,
+    zenith_log: Path,
+    postprocess_errors: List[dict],
+) -> bool:
+    zenith_log.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        with open(zenith_log, "a", encoding="utf-8") as lf:
+            lf.write(f"\n--- Postproceso: {step_name} ({' '.join(cmd)}) ---\n")
+            if proc.stdout:
+                lf.write(proc.stdout)
+            if proc.stderr:
+                lf.write(proc.stderr)
+        if proc.returncode != 0:
+            err_msg = f"{step_name} falló con código {proc.returncode}: {(proc.stderr or proc.stdout)[:300]}"
+            print(f"  ❌ {err_msg}", file=sys.stderr)
+            postprocess_errors.append(
+                {
+                    "step": step_name,
+                    "cmd": cmd,
+                    "returncode": proc.returncode,
+                    "error": err_msg,
+                }
+            )
+            return False
+        return True
+    except Exception as exc:
+        err_msg = f"{step_name} lanzó excepción: {exc}"
+        print(f"  ❌ {err_msg}", file=sys.stderr)
+        with open(zenith_log, "a", encoding="utf-8") as lf:
+            lf.write(f"\n--- Postproceso ERROR: {err_msg} ---\n")
+        postprocess_errors.append(
+            {
+                "step": step_name,
+                "cmd": cmd,
+                "returncode": -1,
+                "error": err_msg,
+            }
+        )
+        return False
 
 
 def run_zenith_25d(
@@ -768,6 +812,8 @@ def run_zenith_25d(
     if not thermal_ok and not rgb_ok:
         raise RuntimeError("Zenith no pudo generar ningún ortomosaico (RGB ni térmico).")
 
+    postprocess_errors: List[dict] = []
+
     # 4. Post-procesamiento estándar y generación de teselas
     _emit_progress(progress_file, "start", "hotspots", "Detección de focos de calor y análisis situacional")
     print("\n── [4/4] Ejecutando análisis cruzado y generación de teselas ──")
@@ -775,12 +821,24 @@ def run_zenith_25d(
     # Hotspots térmicos
     th_script = _BASE_DIR / "scripts" / "compute_thermal_hotspot.py"
     if thermal_ok and th_script.exists():
-        subprocess.run([sys.executable, str(th_script)], cwd=str(_BASE_DIR), check=False)
+        _run_postprocess_step(
+            "compute_thermal_hotspot",
+            [sys.executable, str(th_script)],
+            _BASE_DIR,
+            zenith_log,
+            postprocess_errors,
+        )
 
     # Resumen de situación
     sit_script = _BASE_DIR / "scripts" / "compute_situation_summary.py"
     if thermal_ok and sit_script.exists():
-        subprocess.run([sys.executable, str(sit_script)], cwd=str(_BASE_DIR), check=False)
+        _run_postprocess_step(
+            "compute_situation_summary",
+            [sys.executable, str(sit_script)],
+            _BASE_DIR,
+            zenith_log,
+            postprocess_errors,
+        )
 
     _emit_progress(progress_file, "done", "hotspots", "Detección de focos de calor y análisis situacional")
 
@@ -789,12 +847,24 @@ def run_zenith_25d(
     # Teselas para geovisor Leaflet
     tiles_script = _BASE_DIR / "scripts" / "generate_tiles.py"
     if tiles_script.exists():
-        subprocess.run([sys.executable, str(tiles_script)], cwd=str(_BASE_DIR), check=False)
+        _run_postprocess_step(
+            "generate_tiles",
+            [sys.executable, str(tiles_script)],
+            _BASE_DIR,
+            zenith_log,
+            postprocess_errors,
+        )
 
     # Exportación COG
     cog_script = _BASE_DIR / "scripts" / "export_cog.py"
     if cog_script.exists() and products_generated:
-        subprocess.run([sys.executable, str(cog_script)] + products_generated, cwd=str(_BASE_DIR), check=False)
+        _run_postprocess_step(
+            "export_cog",
+            [sys.executable, str(cog_script)] + products_generated,
+            _BASE_DIR,
+            zenith_log,
+            postprocess_errors,
+        )
 
     _emit_progress(progress_file, "done", "tiles", "Generación de teselas cartográficas")
 
@@ -829,8 +899,9 @@ def run_zenith_25d(
     _emit_progress(progress_file, "done", "pipeline", "Misión 2.5D completada")
 
     elapsed = time.time() - t0
+    ok = len(postprocess_errors) == 0
     run_summary = {
-        "ok": True,
+        "ok": ok,
         "mode": "2.5d",
         "engine": "Zenith 2.5D Direct Photogrammetry",
         "elapsed_seconds": round(elapsed, 2),
@@ -839,11 +910,16 @@ def run_zenith_25d(
         "rgb_processed": rgb_ok,
         "zenith_manifests": zenith_manifests,
         "thermal_params": thermal_cfg,
+        "postprocess_errors": postprocess_errors,
     }
 
     summary_path = output_dir / "run_summary.json"
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(run_summary, f, indent=2, ensure_ascii=False)
+
+    if not ok:
+        err_details = "; ".join(e["error"] for e in postprocess_errors)
+        raise RuntimeError(f"Falla en postprocesamiento de Zenith 2.5D: {err_details}")
 
     print("\n════════════════════════════════════════════════════════════")
     print(f"  ✅ RAPTOR MODO 2.5D COMPLETADO EN {elapsed:.1f} s")

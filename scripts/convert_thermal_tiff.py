@@ -31,7 +31,9 @@ from core.thermal_params import (  # noqa: E402
     SIATA_EMISSIVITY,
     SIATA_HUMIDITY,
     SIATA_REFLECTION,
+    build_dji_irp_cmd,
     resolve_thermal_params,
+    run_dji_irp_extract,
 )
 
 # Cada imagen es una llamada a dji_irp + exiftool sobre su propio archivo
@@ -66,33 +68,7 @@ IMAGE_HEIGHT = 512
 IMAGE_WIDTH = 640
 
 
-def _build_dji_irp_cmd(
-    src_jpg: str,
-    raw_path: str,
-    emissivity: float,
-    humidity: float,
-    distance: float,
-    reflection: float,
-):
-    return [
-        DJI_IRP,
-        "-s",
-        src_jpg,
-        "-a",
-        "measure",
-        "-o",
-        raw_path,
-        "--measurefmt",
-        "float32",
-        "--emissivity",
-        str(emissivity),
-        "--humidity",
-        str(humidity),
-        "--distance",
-        str(distance),
-        "--reflection",
-        str(reflection),
-    ]
+_build_dji_irp_cmd = build_dji_irp_cmd
 
 
 def _jpeg_size(path):
@@ -115,9 +91,16 @@ def thermal_size(src_jpg, n_floats):
 
     Devuelve (w, h) o None si no se puede determinar con certeza.
     """
-    w, h = _jpeg_size(src_jpg)
-    if w * h == n_floats:
-        return w, h
+    try:
+        w, h = _jpeg_size(src_jpg)
+    except Exception:
+        w, h = None, None
+
+    if w is not None and h is not None:
+        if w * h == n_floats:
+            return w, h
+        return None
+
     if n_floats == IMAGE_WIDTH * IMAGE_HEIGHT:
         return IMAGE_WIDTH, IMAGE_HEIGHT
     if n_floats == 1280 * 1024:
@@ -148,43 +131,18 @@ def convert_one(
 
     try:
         # 1. Extraer raw float32 con dji_irp homologado con parámetros SIATA:
-        # EMISSIVITY=0.96, HUMIDITY=15, DISTANCE=25, REFLECTION=19.
-        try:
-            result = subprocess.run(
-                _build_dji_irp_cmd(src_jpg, raw_path, emissivity, humidity, distance, reflection),
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if (
-                result.returncode != 0
-                and float(humidity) < 20.0
-                and (result.returncode == 253 or "dirp_set_measurement_params" in (result.stdout + result.stderr))
-            ):
-                result = subprocess.run(
-                    _build_dji_irp_cmd(src_jpg, raw_path, emissivity, 20.0, distance, reflection),
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    timeout=30,
-                )
-        except subprocess.TimeoutExpired:
-            # Bug real, reportado en vivo: sin este catch, un solo dji_irp
-            # colgado (SDK externo, no algo que este script controle)
-            # tumbaba TODA la conversión — la excepción se escapaba sin
-            # atajar hasta fut.result() en main(), que la relanza y aborta
-            # el ThreadPoolExecutor entero en vez de contar esta imagen como
-            # UNA falla más (que es lo que ya hace el resto de esta función
-            # para cualquier otro tipo de error de dji_irp).
-            print(f"  ❌ dji_irp no respondió en 30s para {os.path.basename(src_jpg)} — se salta esta imagen")
-            return False
-        if result.returncode != 0:
-            print(f"  ❌ dji_irp error: {result.stderr[:200]}")
-            return False
-
-        if not os.path.exists(raw_path) or os.path.getsize(raw_path) == 0:
-            print("  ❌ dji_irp no produjo salida")
+        ok, _eff_h = run_dji_irp_extract(
+            src_jpg,
+            raw_path,
+            emissivity=emissivity,
+            humidity=humidity,
+            distance=distance,
+            reflection=reflection,
+            env=env,
+            dji_irp_bin=DJI_IRP,
+            run_fn=subprocess.run,
+        )
+        if not ok:
             return False
 
         # 2. Leer raw y envolver en GeoTIFF. La resolución se infiere de la

@@ -30,8 +30,9 @@ from osgeo import gdal
 gdal.UseExceptions()
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from raster_classify import classify, write_class_tif  # noqa: E402
+from raster_classify import _sieve_mmu, classify  # noqa: E402
 
+STRIP_ROWS = int(os.environ.get("RAPTOR_STRIP_ROWS", 1024))
 TH_PATH = "outputs/thermal_orthomosaic.tif"
 OUT_PATH = "outputs/termico_hotspot_class.tif"
 LABELS = ["normal", "elevado", "caliente", "foco activo"]
@@ -45,25 +46,45 @@ def main():
 
     ds = gdal.Open(TH_PATH)
     gt, proj = ds.GetGeoTransform(), ds.GetProjection()
-    band = ds.GetRasterBand(1)
-    temp = band.ReadAsArray()
-    nodata = band.GetNoDataValue()
+    W, H = ds.RasterXSize, ds.RasterYSize
+    in_band = ds.GetRasterBand(1)
+    nodata = in_band.GetNoDataValue()
+
+    drv = gdal.GetDriverByName("GTiff")
+    out = drv.Create(OUT_PATH, W, H, 1, gdal.GDT_Byte, ["COMPRESS=LZW", "TILED=YES"])
+    out.SetGeoTransform(gt)
+    out.SetProjection(proj)
+    out_band = out.GetRasterBand(1)
+    out_band.SetNoDataValue(0)
+
+    class_counts = {i: 0 for i in range(1, len(LABELS) + 1)}
+    total_valid = 0
+
+    for yoff in range(0, H, STRIP_ROWS):
+        num_rows = min(STRIP_ROWS, H - yoff)
+        temp_strip = in_band.ReadAsArray(0, yoff, W, num_rows)
+        valid_strip = np.isfinite(temp_strip)
+        if nodata is not None:
+            valid_strip &= ~np.isclose(temp_strip, nodata) & (temp_strip > -1e30) & (temp_strip < 1e30)
+        else:
+            valid_strip &= (temp_strip > -1e30) & (temp_strip < 1e30)
+
+        thc_strip = classify(temp_strip, TERM_BREAKS, valid_strip)
+        out_band.WriteArray(thc_strip, 0, yoff)
+
+        total_valid += int(valid_strip.sum())
+        for i in range(1, len(LABELS) + 1):
+            class_counts[i] += int((thc_strip == i).sum())
+
     ds = None
 
-    valid = np.isfinite(temp)
-    if nodata is not None:
-        valid &= ~np.isclose(temp, nodata) & (temp > -1e30) & (temp < 1e30)
-    else:
-        valid &= (temp > -1e30) & (temp < 1e30)
-    n_valid = int(valid.sum())
-    thc = classify(temp, TERM_BREAKS, valid)
-
     for i, lbl in enumerate(LABELS, 1):
-        n = int((thc == i).sum())
-        pct = 100 * n / n_valid if n_valid else 0
+        n = class_counts[i]
+        pct = 100 * n / total_valid if total_valid else 0
         print(f"  térmico {lbl}: {n:,} px ({pct:.1f}%)")
 
-    write_class_tif(OUT_PATH, thc, gt, proj)
+    _sieve_mmu(out_band, gt, os.path.basename(OUT_PATH))
+    out = None
     print(f"✅ {OUT_PATH} (hotspot térmico sobre toda la cobertura)")
 
 

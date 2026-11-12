@@ -20,8 +20,8 @@ entregas/
 sessions/
 projects/
 *.png
-.freebuff/
-.pytest_cache/
-.claude/
-.agents/
+.*
+!.zenith-bin
 node_modules/
+tools/
+scratch/

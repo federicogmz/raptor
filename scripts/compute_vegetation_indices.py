@@ -26,6 +26,7 @@ from osgeo import gdal
 
 gdal.UseExceptions()
 
+STRIP_ROWS = int(os.environ.get("RAPTOR_STRIP_ROWS", 1024))
 MS_PATH = "outputs/multispectral_orthomosaic.tif"
 OUT_DIR = "outputs/indices"
 
@@ -82,33 +83,71 @@ def main():
             band_idx[logical] = idx
     print(f"Bandas identificadas: { {k: ds.GetRasterBand(v).GetDescription() for k, v in band_idx.items()} }")
 
-    # Máscara de validez real: alpha=0 (última banda) es la única señal
-    # confiable de "fuera de cobertura" — ODM rellena ahí con un valor
-    # arbitrario en las bandas de dato (visto: 2**32 exacto e IDÉNTICO en
-    # las 4 bandas espectrales de una corrida real), lo que hace que
-    # (a-b)/(a+b) dé 0.0 "válido" en vez de NaN — un piso artificial en
-    # el índice, no vegetación real. abs(a+b)>1e-4 solo no alcanza porque
-    # 2**32+2**32 es un número enorme, no cercano a cero.
-    footprint_valid = None
+    has_alpha = False
+    alpha_idx = None
     if ds.RasterCount >= max(band_idx.values(), default=0) + 1:
-        alpha_idx = ds.RasterCount
-        if ds.GetRasterBand(alpha_idx).GetColorInterpretation() == gdal.GCI_AlphaBand:
-            footprint_valid = ds.GetRasterBand(alpha_idx).ReadAsArray() > 0
+        cand_idx = ds.RasterCount
+        if ds.GetRasterBand(cand_idx).GetColorInterpretation() == gdal.GCI_AlphaBand:
+            has_alpha = True
+            alpha_idx = cand_idx
 
     os.makedirs(OUT_DIR, exist_ok=True)
     drv = gdal.GetDriverByName("GTiff")
 
-    def write_index(name, idx_arr):
+    def compute_and_write_index(name, a_idx, b_idx, is_msavi2=False):
         out_path = os.path.join(OUT_DIR, f"{name}.tif")
         out = drv.Create(out_path, W, H, 1, gdal.GDT_Float32, ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
         out.SetGeoTransform(gt)
         out.SetProjection(proj)
-        out.GetRasterBand(1).WriteArray(idx_arr)
-        out.GetRasterBand(1).SetNoDataValue(float("nan"))
+        out_band = out.GetRasterBand(1)
+        out_band.SetNoDataValue(float("nan"))
+
+        band_a = ds.GetRasterBand(a_idx)
+        band_b = ds.GetRasterBand(b_idx)
+        alpha_band = ds.GetRasterBand(alpha_idx) if has_alpha else None
+
+        min_val = float("inf")
+        max_val = float("-inf")
+        sample_vals = []
+        MAX_SAMPLES = 1_000_000
+        total_valid = 0
+
+        for yoff in range(0, H, STRIP_ROWS):
+            num_rows = min(STRIP_ROWS, H - yoff)
+            a = band_a.ReadAsArray(0, yoff, W, num_rows).astype(np.float32)
+            b = band_b.ReadAsArray(0, yoff, W, num_rows).astype(np.float32)
+
+            valid = np.isfinite(a) & np.isfinite(b) & (np.abs(a + b) > 1e-4)
+            if alpha_band is not None:
+                footprint_strip = alpha_band.ReadAsArray(0, yoff, W, num_rows) > 0
+                valid &= footprint_strip
+
+            with np.errstate(invalid="ignore", divide="ignore"):
+                if is_msavi2:
+                    idx_strip = np.where(valid, _msavi2(a, b), np.nan)
+                else:
+                    idx_strip = np.where(valid, (a - b) / (a + b), np.nan)
+
+            out_band.WriteArray(idx_strip, 0, yoff)
+
+            fin = idx_strip[np.isfinite(idx_strip)]
+            if fin.size:
+                c_min = float(np.min(fin))
+                c_max = float(np.max(fin))
+                if c_min < min_val:
+                    min_val = c_min
+                if c_max > max_val:
+                    max_val = c_max
+                total_valid += fin.size
+                if len(sample_vals) < MAX_SAMPLES:
+                    sample_vals.extend(fin[:: max(1, fin.size // 10000)].tolist())
+
+        out_band = None
         out = None
-        vals = idx_arr[np.isfinite(idx_arr)]
-        if vals.size:
-            print(f"  ✅ {out_path}: {name.upper()} {vals.min():.2f}..{vals.max():.2f} (mediana {np.median(vals):.2f})")
+
+        if total_valid > 0:
+            med = float(np.median(sample_vals))
+            print(f"  ✅ {out_path}: {name.upper()} {min_val:.2f}..{max_val:.2f} (mediana {med:.2f})")
         else:
             print(f"  ⚠ {out_path}: sin píxeles válidos")
 
@@ -116,28 +155,10 @@ def main():
         if a_name not in band_idx or b_name not in band_idx:
             print(f"  ⚠ {name.upper()}: falta banda '{a_name}' o '{b_name}' — omitido")
             continue
-        a = ds.GetRasterBand(band_idx[a_name]).ReadAsArray().astype(np.float32)
-        b = ds.GetRasterBand(band_idx[b_name]).ReadAsArray().astype(np.float32)
-        # Reflectancias (camera+sun) rondan 0-0.15 en este sensor — un
-        # denominador (a+b) apenas distinto de 0 (ruido de calibración, no
-        # "!= 0" exacto) ya dispara valores absurdos (verificado: sin este
-        # piso, NDVI salía hasta ±14000 en <0.01% de los píxeles). 1e-4 es
-        # dos órdenes de magnitud menor que el p1 real de cualquier banda.
-        valid = np.isfinite(a) & np.isfinite(b) & (np.abs(a + b) > 1e-4)
-        if footprint_valid is not None:
-            valid &= footprint_valid
-        with np.errstate(invalid="ignore", divide="ignore"):
-            idx_arr = np.where(valid, (a - b) / (a + b), np.nan)
-        write_index(name, idx_arr)
+        compute_and_write_index(name, band_idx[a_name], band_idx[b_name], is_msavi2=False)
 
     if "nir" in band_idx and "red" in band_idx:
-        nir = ds.GetRasterBand(band_idx["nir"]).ReadAsArray().astype(np.float32)
-        red = ds.GetRasterBand(band_idx["red"]).ReadAsArray().astype(np.float32)
-        valid = np.isfinite(nir) & np.isfinite(red) & (np.abs(nir + red) > 1e-4)
-        if footprint_valid is not None:
-            valid &= footprint_valid
-        msavi2_arr = np.where(valid, _msavi2(nir, red), np.nan)
-        write_index("msavi2", msavi2_arr)
+        compute_and_write_index("msavi2", band_idx["nir"], band_idx["red"], is_msavi2=True)
     else:
         print("  ⚠ MSAVI2: falta banda 'nir' o 'red' — omitido")
 

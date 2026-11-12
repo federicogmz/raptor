@@ -87,7 +87,7 @@ else
   done <<< "$RGB_FILES")
   COPIED=$(echo "$TO_COPY" | grep -c . || true)
   if [[ "$COPIED" -gt 0 ]]; then
-    echo "$TO_COPY" | xargs -P "$NPROCS" -I{} cp --reflink=auto {} "$DATA_DIR/rgb_mosaico/"
+    printf '%s\n' "$TO_COPY" | xargs -r -d '\n' -P "$NPROCS" -I{} cp --reflink=auto -- "{}" "$DATA_DIR/rgb_mosaico/"
   fi
   echo "  ✅ $COPIED copiadas a data/rgb_mosaico/"
 fi
@@ -111,7 +111,7 @@ else
   done <<< "$TH_FILES")
   COPIED=$(echo "$TO_COPY" | grep -c . || true)
   if [[ "$COPIED" -gt 0 ]]; then
-    echo "$TO_COPY" | xargs -P "$NPROCS" -I{} cp --reflink=auto {} "$DATA_DIR/termica_mosaico/"
+    printf '%s\n' "$TO_COPY" | xargs -r -d '\n' -P "$NPROCS" -I{} cp --reflink=auto -- "{}" "$DATA_DIR/termica_mosaico/"
   fi
   echo "  ✅ $COPIED copiadas a data/termica_mosaico/"
 fi

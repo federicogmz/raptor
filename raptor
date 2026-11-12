@@ -384,7 +384,7 @@ cmd_run() {
     [[ "$reuse" -eq 0 ]] || morir "--subsample no aplica con --reuse-odm (no se reconstruye nada)"
   fi
 
-  local args=(--rm -e "MODE=$mode" -e "SKIP_ODM=$reuse" -e "VERBOSE=$verbose" -e "PRESET=$preset" -e "TERRENO=$terreno" -e "SUB_SAMPLE=$subsample")
+  local args=(--rm --init -e "MODE=$mode" -e "SKIP_ODM=$reuse" -e "VERBOSE=$verbose" -e "PRESET=$preset" -e "TERRENO=$terreno" -e "SUB_SAMPLE=$subsample")
   [[ -n "$concurrency" ]] && args+=(-e "MAX_CONCURRENCY=$concurrency")
 
   if [[ -n "$input" ]]; then
@@ -522,7 +522,7 @@ EOF
   if [[ "$fg" -eq 1 ]]; then
     echo "🌐 http://localhost:${port} (primer plano, sin --restart)"
     # shellcheck disable=SC2046
-    docker run --rm "${args[@]}" $(gpu_args) "$IMAGE" webapp
+    docker run --rm --init "${args[@]}" $(gpu_args) "$IMAGE" webapp
     return $?
   fi
 
@@ -533,7 +533,7 @@ EOF
     echo "🔁 Reemplazando contenedor previo «${name}»…"
     docker rm -f "$name" >/dev/null
   fi
-  args+=(-d --name "$name" --restart unless-stopped)
+  args+=(-d --init --name "$name" --restart unless-stopped)
   # shellcheck disable=SC2046
   docker run "${args[@]}" $(gpu_args) "$IMAGE" webapp >/dev/null
   echo "🌐 http://localhost:${port}  (persistente — sobrevive reinicios de la máquina si Docker arranca solo)"
@@ -569,7 +569,30 @@ cmd_status() {
 # ── Configuración persistente (carpeta de entrega + puerto), una sola vez
 # en la vida de la instalación, para que start/restart no necesiten flags —
 # la alternativa a repetir --export/--port en cada despliegue manual. ──
-RAPTOR_CONFIG="$HOME/.raptor/config"
+RAPTOR_CONFIG="${RAPTOR_CONFIG:-$HOME/.raptor/config}"
+
+_load_raptor_config() {
+  local cfg="${1:-$RAPTOR_CONFIG}"
+  [[ -f "$cfg" ]] || return 1
+  local key val
+  while IFS='=' read -r key val || [[ -n "$key" ]]; do
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+    [[ -z "$key" || "$key" =~ ^# ]] && continue
+    val="${val#"${val%%[![:space:]]*}"}"
+    val="${val%"${val##*[![:space:]]}"}"
+    if [[ ${#val} -ge 2 ]]; then
+      if [[ ("$val" == \"* && "$val" == *\" ) || ( "$val" == \'* && "$val" == *\' ) ]]; then
+        val="${val:1:${#val}-2}"
+      fi
+    fi
+    case "$key" in
+      RAPTOR_EXPORT_DIR) RAPTOR_EXPORT_DIR="$val" ;;
+      RAPTOR_PORT)       RAPTOR_PORT="$val" ;;
+      RAPTOR_RUNS_DIR)   RAPTOR_RUNS_DIR="$val" ;;
+    esac
+  done < "$cfg"
+}
 
 cmd_init() {
   echo "Configuremos RAPTOR (podés volver a correr esto cuando quieras para cambiarlo)."
@@ -581,6 +604,7 @@ cmd_init() {
   fi
   export_dir="${export_dir:-$default_export}"
   export_dir="$(abs "$export_dir")"
+  [[ "$export_dir" == *$'\n'* ]] && morir "export_dir no puede contener saltos de línea"
   mkdir -p "$export_dir" 2>/dev/null || morir "no se pudo crear la carpeta de entregas: $export_dir"
 
   if [[ -t 0 ]]; then
@@ -590,14 +614,16 @@ cmd_init() {
   [[ "$port" =~ ^[0-9]+$ ]] || morir "puerto inválido: $port"
 
   local runs_dir="$HOME/.raptor/runs"
+  [[ "$runs_dir" == *$'\n'* ]] && morir "runs_dir no puede contener saltos de línea"
   mkdir -p "$runs_dir"
 
   mkdir -p "$(dirname "$RAPTOR_CONFIG")"
-  cat > "$RAPTOR_CONFIG" <<EOF
-RAPTOR_EXPORT_DIR=$export_dir
-RAPTOR_PORT=$port
-RAPTOR_RUNS_DIR=$runs_dir
-EOF
+  {
+    printf '%s=%s\n' "RAPTOR_EXPORT_DIR" "$export_dir"
+    printf '%s=%s\n' "RAPTOR_PORT" "$port"
+    printf '%s=%s\n' "RAPTOR_RUNS_DIR" "$runs_dir"
+  } > "$RAPTOR_CONFIG"
+  chmod 600 "$RAPTOR_CONFIG"
   echo "✅ Guardado en $RAPTOR_CONFIG"
   echo "   Entregas: $export_dir"
   echo "   Puerto:   $port"
@@ -605,8 +631,7 @@ EOF
 
 cmd_start() {
   [[ -f "$RAPTOR_CONFIG" ]] || morir "todavía no hay configuración — corré «raptor init» primero (o «raptor install» si es la primera vez)."
-  # shellcheck disable=SC1090
-  source "$RAPTOR_CONFIG"
+  _load_raptor_config "$RAPTOR_CONFIG"
   cmd_webapp --export "$RAPTOR_EXPORT_DIR" --runs "$RAPTOR_RUNS_DIR" --port "$RAPTOR_PORT" "$@"
 }
 

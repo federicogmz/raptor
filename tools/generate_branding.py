@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-scripts/generate_branding.py
+tools/generate_branding.py
 ============================
 Deterministic generator for RAPTOR visual branding and documentation data:
   1. docs/assets/logo.svg      - Crisp pixel-art wide banner (840x240, dark card #0b1017)

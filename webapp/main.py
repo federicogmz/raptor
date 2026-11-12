@@ -30,6 +30,7 @@ import math
 import os
 import shutil
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -435,6 +436,7 @@ class RunState:
 # la pantalla de progreso —o al log de error— tras recargar el navegador, en
 # vez de perder el motivo de la falla y tener que rearrancar a ciegas.
 _state: RunState | None = None
+_start_lock = asyncio.Lock()
 
 
 def _mission_dir(name, create=False):
@@ -483,30 +485,45 @@ def _sample_raster(path: Path, lat: float, lon: float, band_idx: int = 1):
     """Lee UN valor de un GeoTIFF en (lat, lon) WGS84 — para la ficha 'qué
     significa este punto' del geovisor. None si el archivo no existe, el
     punto cae fuera del raster o es nodata — nunca se inventa un valor."""
-    if not path.is_file():
+    if gdal is None or not path.is_file():
         return None
-    ds = gdal.Open(str(path))
-    gt = ds.GetGeoTransform()
-    inv = gdal.InvGeoTransform(gt)
-    if inv is None:
+    ds = None
+    try:
+        ds = gdal.Open(str(path))
+        if ds is None:
+            return None
+        gt = ds.GetGeoTransform()
+        if gt is None:
+            return None
+        inv = gdal.InvGeoTransform(gt)
+        if inv is None:
+            return None
+        proj = ds.GetProjection()
+        if not proj:
+            return None
+        raster_srs = osr.SpatialReference(wkt=proj)
+        wgs84 = osr.SpatialReference()
+        wgs84.ImportFromEPSG(4326)
+        wgs84.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
+        mx, my, _ = osr.CoordinateTransformation(wgs84, raster_srs).TransformPoint(lon, lat)
+        px, py = (int(v) for v in gdal.ApplyGeoTransform(inv, mx, my))
+        if px < 0 or py < 0 or px >= ds.RasterXSize or py >= ds.RasterYSize:
+            return None
+        band = ds.GetRasterBand(band_idx)
+        if band is None:
+            return None
+        arr = band.ReadAsArray(px, py, 1, 1)
+        if arr is None:
+            return None
+        v = float(arr[0, 0])
+        nodata = band.GetNoDataValue()
+        if (nodata is not None and abs(v - nodata) < 1e-6) or not math.isfinite(v):
+            return None
+        return v
+    except Exception:
         return None
-    raster_srs = osr.SpatialReference(wkt=ds.GetProjection())
-    wgs84 = osr.SpatialReference()
-    wgs84.ImportFromEPSG(4326)
-    wgs84.SetAxisMappingStrategy(osr.OAMS_TRADITIONAL_GIS_ORDER)
-    mx, my, _ = osr.CoordinateTransformation(wgs84, raster_srs).TransformPoint(lon, lat)
-    px, py = (int(v) for v in gdal.ApplyGeoTransform(inv, mx, my))
-    if px < 0 or py < 0 or px >= ds.RasterXSize or py >= ds.RasterYSize:
-        return None
-    band = ds.GetRasterBand(band_idx)
-    arr = band.ReadAsArray(px, py, 1, 1)
-    if arr is None:
-        return None
-    v = float(arr[0, 0])
-    nodata = band.GetNoDataValue()
-    if (nodata is not None and abs(v - nodata) < 1e-6) or not math.isfinite(v):
-        return None
-    return v
+    finally:
+        ds = None
 
 
 # Umbral de "misma zona": dos misiones cuyo centro cae a menos de esta
@@ -1342,71 +1359,72 @@ async def start_mission(
     thermal_reflection: Optional[str] = Form(None),
 ):
     global _state
-    if _state is not None and not _state.done:
-        raise HTTPException(409, f"Ya hay una misión procesándose: {_state.mission_name}")
+    async with _start_lock:
+        if _state is not None and not _state.done:
+            raise HTTPException(409, f"Ya hay una misión procesándose: {_state.mission_name}")
 
-    try:
-        resolved_thermal = resolve_thermal_params(
-            thermal_emissivity,
-            thermal_humidity,
-            thermal_distance,
-            thermal_reflection,
-        )
-    except ValueError as exc:
-        raise HTTPException(400, f"Parámetros térmicos inválidos: {exc}")
-
-    safe, mission_dir = _mission_dir(mission, create=True)
-    uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k)) for k in UPLOAD_KINDS}
-    has_rgb = uploads["rgb_thermal"]["rgb"] > 0
-    has_thermal = uploads["rgb_thermal"]["thermal"] > 0
-    norm_mode = normalize_mode(mode)
-    errors = _validate(norm_mode, has_multispectral, uploads)
-    if norm_mode == "3d":
         try:
-            # Valida preset Y terreno contra la tabla real (scripts/hardware.py)
-            hw_preset(preset, terreno=terreno)
+            resolved_thermal = resolve_thermal_params(
+                thermal_emissivity,
+                thermal_humidity,
+                thermal_distance,
+                thermal_reflection,
+            )
         except ValueError as exc:
-            errors.append(str(exc))
-        # Modo urgencia: procesar 1 de cada N fotos (ver scripts/subsample_photos.py).
-        if subsample and not (2 <= subsample <= 10):
-            errors.append(f"Submuestreo inválido: {subsample} (tiene que ser 0, o un entero 2-10).")
-    if errors:
-        raise HTTPException(400, " ".join(errors))
+            raise HTTPException(400, f"Parámetros térmicos inválidos: {exc}")
 
-    # Directorios de entrada
-    source_dir = mission_dir / "raw" / "rgb_thermal"
-    source_dir.mkdir(parents=True, exist_ok=True)
-    ms_source_dir = mission_dir / "raw" / "multispectral" if has_multispectral else None
+        safe, mission_dir = _mission_dir(mission, create=True)
+        uploads = {k: classify_files(_listdir_names(mission_dir / "raw" / k)) for k in UPLOAD_KINDS}
+        has_rgb = uploads["rgb_thermal"]["rgb"] > 0
+        has_thermal = uploads["rgb_thermal"]["thermal"] > 0
+        norm_mode = normalize_mode(mode)
+        errors = _validate(norm_mode, has_multispectral, uploads)
+        if norm_mode == "3d":
+            try:
+                # Valida preset Y terreno contra la tabla real (scripts/hardware.py)
+                hw_preset(preset, terreno=terreno)
+            except ValueError as exc:
+                errors.append(str(exc))
+            # Modo urgencia: procesar 1 de cada N fotos (ver scripts/subsample_photos.py).
+            if subsample and not (2 <= subsample <= 10):
+                errors.append(f"Submuestreo inválido: {subsample} (tiene que ser 0, o un entero 2-10).")
+        if errors:
+            raise HTTPException(400, " ".join(errors))
 
-    activate_mission(mission_dir)
-    progress_file = mission_dir / "progress.ndjson"
-    run_obj = PipelineRun(
-        mode=norm_mode,
-        source_dir=source_dir,
-        ms_source_dir=ms_source_dir,
-        port=8080,
-        progress_file=progress_file,
-        export={},
-        preset=preset,
-        dband=dband,
-        terreno=terreno,
-        subsample=subsample,
-        mission_name=safe,
-        thermal_params=resolved_thermal,
-    )
-    await run_obj.start()
-    _state = RunState(
-        safe,
-        mission_dir,
-        run_obj,
-        norm_mode,
-        has_multispectral,
-        dband,
-        has_rgb=has_rgb,
-        has_thermal=has_thermal,
-    )
-    asyncio.create_task(_state.consume())
-    return {"ok": True, "mission": safe}
+        # Directorios de entrada
+        source_dir = mission_dir / "raw" / "rgb_thermal"
+        source_dir.mkdir(parents=True, exist_ok=True)
+        ms_source_dir = mission_dir / "raw" / "multispectral" if has_multispectral else None
+
+        activate_mission(mission_dir)
+        progress_file = mission_dir / "progress.ndjson"
+        run_obj = PipelineRun(
+            mode=norm_mode,
+            source_dir=source_dir,
+            ms_source_dir=ms_source_dir,
+            port=8080,
+            progress_file=progress_file,
+            export={},
+            preset=preset,
+            dband=dband,
+            terreno=terreno,
+            subsample=subsample,
+            mission_name=safe,
+            thermal_params=resolved_thermal,
+        )
+        await run_obj.start()
+        _state = RunState(
+            safe,
+            mission_dir,
+            run_obj,
+            norm_mode,
+            has_multispectral,
+            dband,
+            has_rgb=has_rgb,
+            has_thermal=has_thermal,
+        )
+        asyncio.create_task(_state.consume())
+        return {"ok": True, "mission": safe}
 
 
 # ── Progreso en vivo (SSE): lee el mismo PROGRESS_FILE que escribe
@@ -1598,10 +1616,22 @@ def sample_point(mission: str, lat: float, lon: float):
     }
 
 
+def _atomic_write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile("w", dir=str(path.parent), delete=False, encoding="utf-8") as tf:
+        tmp_name = tf.name
+        tf.write(content)
+        tf.flush()
+        os.fsync(tf.fileno())
+    os.replace(tmp_name, str(path))
+
+
 # ── Guardar Área Afectada Oficial (delimitada en el geovisor) ──
 @app.post("/api/missions/{mission}/save-area")
 async def save_mission_area(mission: str, data: dict = Body(...)):
-    safe, mission_dir = _mission_dir(mission)
+    safe, mission_dir = _mission_dir(mission, create=False)
+    if not mission_dir.is_dir():
+        raise HTTPException(404, f"La misión «{safe}» no existe.")
     outputs_dir = mission_dir / "outputs"
     outputs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1649,29 +1679,16 @@ async def save_mission_area(mission: str, data: dict = Body(...)):
     gj["properties"]["origen"] = "Delimitación interactiva en Geovisor RAPTOR"
     gj["properties"]["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
 
-    # Guardar en outputs/ y en raíz de la misión
+    # Guardar en outputs/ y en raíz de la misión de forma atómica
+    content = json.dumps(gj, indent=2, ensure_ascii=False)
     exp_file = outputs_dir / "area_afectada_experto.geojson"
-    exp_file.write_text(json.dumps(gj, indent=2, ensure_ascii=False), encoding="utf-8")
+    _atomic_write_text(exp_file, content)
 
     root_exp = mission_dir / "area_afectada_experto.geojson"
     try:
-        root_exp.write_text(json.dumps(gj, indent=2, ensure_ascii=False), encoding="utf-8")
+        _atomic_write_text(root_exp, content)
     except Exception:
         pass
-
-    # Si está en el benchmark, actualizarlo también
-    bench_dir = Path(os.environ.get("RAPTOR_BENCHMARK_DIR", "/mnt/f/raptor_benchmark_runs"))
-    for bd in bench_dir.iterdir() if bench_dir.exists() else []:
-        if bd.is_dir() and (bd.name.lower().startswith(safe.lower()) or safe.lower().startswith(bd.name.lower())):
-            try:
-                (bd / "outputs/area_afectada_experto.geojson").write_text(
-                    json.dumps(gj, indent=2, ensure_ascii=False), encoding="utf-8"
-                )
-                (bd / "area_afectada_experto.geojson").write_text(
-                    json.dumps(gj, indent=2, ensure_ascii=False), encoding="utf-8"
-                )
-            except Exception:
-                pass
 
     return {
         "ok": True,

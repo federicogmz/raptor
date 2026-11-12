@@ -123,6 +123,7 @@ sys.exit(0)
         mock_zenith_path.write_text(mock_script)
         mock_zenith_path.chmod(0o755)
         monkeypatch.setenv("ZENITH_BIN", str(mock_zenith_path))
+        monkeypatch.setattr("core.zenith_runner._BASE_DIR", tmp_path)
 
         # 2. Mockear extracción de DJI Thermal SDK para no requerir el binario nativo
         def fake_extract_one(src_jpg: str, dst_raw: str, env: dict, *args) -> bool:
@@ -248,6 +249,69 @@ sys.exit(0)
         assert "--blend-mode micro-feather" in log_content
         assert "--feather-px 25.0" in log_content
         assert f"--dem {tmp_path / 'DEM_VA' / 'dem_VA.tif'}" in log_content
+
+    def test_run_zenith_25d_propagates_postprocess_failure(self, tmp_path, monkeypatch):
+        """Verifica que run_zenith_25d propague errores de postproceso y marque ok=False en run_summary.json."""
+        mock_zenith_path = tmp_path / "zenith"
+        mock_script = """#!/usr/bin/env python3
+import sys
+from pathlib import Path
+args = sys.argv[1:]
+if "--help" in args:
+    print("Zenith CLI supported")
+    sys.exit(0)
+if "ortho-rgb" in args or "ortho-thermal" in args:
+    out_idx = args.index("--output") if "--output" in args else -1
+    if out_idx != -1 and out_idx + 1 < len(args):
+        raw_out = Path(args[out_idx + 1])
+        raw_out.parent.mkdir(parents=True, exist_ok=True)
+        tif_out = raw_out.with_suffix(".tif")
+        tif_out.write_bytes(b"TIFF_DATA_MOCK")
+    sys.exit(0)
+sys.exit(0)
+"""
+        mock_zenith_path.write_text(mock_script)
+        mock_zenith_path.chmod(0o755)
+        monkeypatch.setenv("ZENITH_BIN", str(mock_zenith_path))
+        monkeypatch.setattr("core.zenith_runner._BASE_DIR", tmp_path)
+
+        def fake_extract_one(src_jpg: str, dst_raw: str, env: dict, *args) -> bool:
+            p = Path(dst_raw)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(b"FLOAT32_MOCK")
+            return True
+
+        monkeypatch.setattr("core.zenith_runner._extract_one_raw", fake_extract_one)
+
+        mock_scripts_dir = tmp_path / "scripts"
+        mock_scripts_dir.mkdir(parents=True, exist_ok=True)
+        failing_tiles = mock_scripts_dir / "generate_tiles.py"
+        failing_tiles.write_text("""#!/usr/bin/env python3
+import sys
+sys.stderr.write("Simulated generate_tiles failure\\n")
+sys.exit(42)
+""")
+        failing_tiles.chmod(0o755)
+
+        source_dir = tmp_path / "input_photos"
+        source_dir.mkdir()
+        (source_dir / "DJI_0001_W.JPG").write_bytes(b"FAKE_RGB_JPG")
+        output_dir = tmp_path / "outputs"
+
+        with pytest.raises(RuntimeError, match="Falla en postprocesamiento"):
+            run_zenith_25d(
+                source_dir=source_dir,
+                output_dir=output_dir,
+                dem_source="copernicus30",
+            )
+
+        summary_file = output_dir / "run_summary.json"
+        assert summary_file.exists()
+        summary = json.loads(summary_file.read_text(encoding="utf-8"))
+        assert summary["ok"] is False
+        assert len(summary["postprocess_errors"]) == 1
+        assert summary["postprocess_errors"][0]["returncode"] == 42
+        assert "Simulated generate_tiles failure" in summary["postprocess_errors"][0]["error"]
 
     def test_extract_thermal_raw_batch_writes_sidecar(self, tmp_path, monkeypatch):
         """Verifica los parámetros SIATA por defecto (0.96, 15, 25, 19) y generación de thermal_params.json."""

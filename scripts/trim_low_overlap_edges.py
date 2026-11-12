@@ -51,6 +51,7 @@ THNAT_RECON = os.path.join(ODM_THNAT_DIR, "opensfm/reconstruction.json")
 # Solo RESPALDO, para el caso de un raster sin proyección legible: la CRS real
 # se deriva del propio raster que se está recortando (ver _target_crs).
 UTM_EPSG = 32618
+STRIP_ROWS = int(os.environ.get("RAPTOR_STRIP_ROWS", 1024))
 
 # Cascos convexos exportados como GeoJSON (ver _footprint_hull_mask), una
 # capa más del geovisor (grupo "🛩️ Vuelo") — permite validar a simple vista
@@ -573,15 +574,20 @@ def trim_rgb():
     src = RGB_ODM_SRC if os.path.isfile(RGB_ODM_SRC) else RGB_PATH
     ds = gdal.Open(src)
     gt, proj = ds.GetGeoTransform(), ds.GetProjection()
-    full = ds.ReadAsArray()
-    a = full[:3]
     W, H = ds.RasterXSize, ds.RasterYSize
-    if full.shape[0] >= 4:
-        valid = full[3] == 255
-    else:
-        valid = a.mean(axis=0) >= 10  # respaldo si no hay alpha disponible
-    before = int(valid.sum())
+    has_alpha = ds.RasterCount >= 4
 
+    # Pass 1: construir máscara booleana en tiras (1 byte/px en vez de 16-20 bytes/px)
+    valid = np.zeros((H, W), dtype=bool)
+    for yoff in range(0, H, STRIP_ROWS):
+        num_rows = min(STRIP_ROWS, H - yoff)
+        if has_alpha:
+            valid[yoff : yoff + num_rows] = ds.GetRasterBand(4).ReadAsArray(0, yoff, W, num_rows) == 255
+        else:
+            strip_rgb = np.stack([ds.GetRasterBand(b + 1).ReadAsArray(0, yoff, W, num_rows) for b in range(3)], axis=0)
+            valid[yoff : yoff + num_rows] = strip_rgb.mean(axis=0) >= 10
+
+    before = int(valid.sum())
     valid = _apply_hull(valid, RGB_RECON, gt, W, H, proj, "RGB", geojson_out=HULL_RGB_PATH)
     after = int(valid.sum())
     print(
@@ -590,21 +596,29 @@ def trim_rgb():
         f"recortado={100 * (before - after) / max(before, 1):.2f}%"
     )
 
+    # Pass 2: escribir tiras al archivo temporal con SetColorInterpretation previo
+    tmp_path = RGB_PATH + ".tmp.tif"
     drv = gdal.GetDriverByName("GTiff")
-    out = drv.Create(RGB_PATH, W, H, 4, gdal.GDT_Byte, ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
+    out = drv.Create(tmp_path, W, H, 4, gdal.GDT_Byte, ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
     out.SetGeoTransform(gt)
     out.SetProjection(proj)
-    # libtiff congela tags baseline como ExtraSamples apenas se escribe la
-    # primera strip/tile del archivo — SetColorInterpretation(alpha) tiene
-    # que ir ANTES de cualquier WriteArray, no después (si no, falla con
-    # "Cannot modify tag ... while writing" en formatos sin heurística RGBA
-    # implícita; acá funciona por casualidad porque GDAL asume alpha en la
-    # 4ta banda Byte de un GeoTIFF de 4 bandas, ver trim_multispectral()).
     out.GetRasterBand(4).SetColorInterpretation(gdal.GCI_AlphaBand)
-    for b in range(3):
-        out.GetRasterBand(b + 1).WriteArray(a[b])
-    out.GetRasterBand(4).WriteArray((valid * 255).astype(np.uint8))
+
+    band_rgb = [ds.GetRasterBand(b + 1) for b in range(3)]
+    out_rgb = [out.GetRasterBand(b + 1) for b in range(3)]
+    out_alpha = out.GetRasterBand(4)
+
+    for yoff in range(0, H, STRIP_ROWS):
+        num_rows = min(STRIP_ROWS, H - yoff)
+        strip_valid = valid[yoff : yoff + num_rows]
+        for b in range(3):
+            strip_b = band_rgb[b].ReadAsArray(0, yoff, W, num_rows)
+            out_rgb[b].WriteArray(strip_b, 0, yoff)
+        out_alpha.WriteArray((strip_valid * 255).astype(np.uint8), 0, yoff)
+
     out = None
+    ds = None
+    os.replace(tmp_path, RGB_PATH)
     print(f"✅ {RGB_PATH} (RGBA)")
 
 
@@ -625,25 +639,26 @@ def trim_multispectral():
     ds = gdal.Open(MS_ODM_SRC)
     gt, proj = ds.GetGeoTransform(), ds.GetProjection()
     W, H = ds.RasterXSize, ds.RasterYSize
-    full = ds.ReadAsArray().astype(np.float32)
-    if full.ndim == 2:
-        full = full[np.newaxis, ...]
-    n_total = full.shape[0]
-
+    n_total = ds.RasterCount
     has_alpha = n_total > 1 and (ds.GetRasterBand(n_total).GetColorInterpretation() == gdal.GCI_AlphaBand)
+    nb = (n_total - 1) if has_alpha else n_total
 
-    # Igual que en RGB, ignoramos el alpha estricto de ODM para evitar fragmentación
-    # en modo urgencia, basando la validez puramente en que existan datos espectrales.
-    if has_alpha:
-        spectral = full[:-1]
-    else:
-        spectral = full
-    valid = np.isfinite(spectral).all(axis=0) & (np.nanmean(spectral, axis=0) > 0)
+    band_names = [ds.GetRasterBand(i + 1).GetDescription() or f"band{i + 1}" for i in range(nb)]
 
-    band_names = [ds.GetRasterBand(i + 1).GetDescription() or f"band{i + 1}" for i in range(spectral.shape[0])]
-    ds = None
+    # Pass 1: construir máscara booleana en tiras (1 byte/px)
+    valid = np.zeros((H, W), dtype=bool)
+    in_bands = [ds.GetRasterBand(i + 1) for i in range(nb)]
+
+    for yoff in range(0, H, STRIP_ROWS):
+        num_rows = min(STRIP_ROWS, H - yoff)
+        strip_spectral = np.stack(
+            [in_bands[i].ReadAsArray(0, yoff, W, num_rows).astype(np.float32) for i in range(nb)], axis=0
+        )
+        valid[yoff : yoff + num_rows] = np.isfinite(strip_spectral).all(axis=0) & (
+            np.nanmean(strip_spectral, axis=0) > 0
+        )
+
     before = int(valid.sum())
-
     valid = _apply_hull(valid, MS_RECON, gt, W, H, proj, "MS", geojson_out=HULL_MS_PATH, agl_hint_m=_reference_agl_m())
     after = int(valid.sum())
     print(
@@ -652,26 +667,35 @@ def trim_multispectral():
         f"recortado={100 * (before - after) / max(before, 1):.2f}%"
     )
 
+    # Pass 2: escribir tiras a .tmp.tif con SetColorInterpretation previo
+    tmp_path = MS_PATH + ".tmp.tif"
     drv = gdal.GetDriverByName("GTiff")
-    nb = spectral.shape[0]
-    out = drv.Create(MS_PATH, W, H, nb + 1, gdal.GDT_Float32, ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
+    out = drv.Create(tmp_path, W, H, nb + 1, gdal.GDT_Float32, ["COMPRESS=LZW", "TILED=YES", "BIGTIFF=IF_NEEDED"])
     out.SetGeoTransform(gt)
     out.SetProjection(proj)
-    # SetColorInterpretation(alpha) tiene que ir ANTES de cualquier WriteArray:
-    # libtiff congela tags baseline como ExtraSamples apenas se escribe la
-    # primera strip/tile, y después falla con "Cannot modify tag ExtraSamples
-    # while writing". Un GeoTIFF Float32 de 5 bandas no tiene la heurística
-    # RGBA implícita que GDAL sí aplica a uno Byte de 4 bandas, así que acá el
-    # orden no perdona.
+
     for b in range(nb):
         out.GetRasterBand(b + 1).SetDescription(band_names[b])
         out.GetRasterBand(b + 1).SetNoDataValue(float("nan"))
     alpha_band = out.GetRasterBand(nb + 1)
     alpha_band.SetColorInterpretation(gdal.GCI_AlphaBand)
-    for b in range(nb):
-        out.GetRasterBand(b + 1).WriteArray(np.where(valid, spectral[b], np.nan))
-    alpha_band.WriteArray((valid * 255).astype(np.float32))
+
+    out_bands = [out.GetRasterBand(b + 1) for b in range(nb)]
+
+    for yoff in range(0, H, STRIP_ROWS):
+        num_rows = min(STRIP_ROWS, H - yoff)
+        strip_valid = valid[yoff : yoff + num_rows]
+        strip_spectral = np.stack(
+            [in_bands[i].ReadAsArray(0, yoff, W, num_rows).astype(np.float32) for i in range(nb)], axis=0
+        )
+        for b in range(nb):
+            masked_band = np.where(strip_valid, strip_spectral[b], np.nan)
+            out_bands[b].WriteArray(masked_band, 0, yoff)
+        alpha_band.WriteArray((strip_valid * 255).astype(np.float32), 0, yoff)
+
     out = None
+    ds = None
+    os.replace(tmp_path, MS_PATH)
     print(f"✅ {MS_PATH} ({nb} bandas + alpha: {', '.join(band_names)})")
 
 

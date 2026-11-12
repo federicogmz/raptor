@@ -60,4 +60,3 @@ inside the container (see "Advanced use" in the top-level README).
 * **`check_deps.py`**: Verifies the dependencies inherited from the ODM base image (GDAL, pyproj, scipy).
 * **`print_timings.py`**: Per-stage timing summary from `outputs/logs/timings.json`.
 * **`progress.py` / `progress.sh`**: Progress bars and the structured progress channel consumed by the webapp.
-* **`debug/thermal_diag.py`**: Thermal mosaic diagnostics.

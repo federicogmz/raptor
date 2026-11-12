@@ -16,10 +16,19 @@ ningún filtro propio) y cruza las dos.
 Salida: outputs/confidence_mask.tif.
 """
 
+import os
+import sys
+
 import numpy as np
 from osgeo import gdal
 
 gdal.UseExceptions()
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from gdal_open_retry import gdal_open_retry
+except ImportError:
+    from scripts.gdal_open_retry import gdal_open_retry
 
 RGB_PATH = "outputs/rgb_orthomosaic.tif"
 TH_PATH = "outputs/thermal_orthomosaic.tif"
@@ -31,7 +40,7 @@ def _pct_of(num, den):
 
 
 def _leer_valido_rgb():
-    ds = gdal.Open(RGB_PATH)
+    ds = gdal_open_retry(RGB_PATH)
     gt = ds.GetGeoTransform()
     W, H = ds.RasterXSize, ds.RasterYSize
     valid = ds.GetRasterBand(4).ReadAsArray() == 255
@@ -40,7 +49,7 @@ def _leer_valido_rgb():
 
 
 def _leer_valido_thermal():
-    ds = gdal.Open(TH_PATH)
+    ds = gdal_open_retry(TH_PATH)
     gt = ds.GetGeoTransform()
     W, H = ds.RasterXSize, ds.RasterYSize
     valid = np.isfinite(ds.GetRasterBand(1).ReadAsArray())
@@ -72,7 +81,9 @@ def build_confidence(rgb_valid, rgb_gt, rgb_w, rgb_h, th_valid, th_gt, th_w, th_
     drv = gdal.GetDriverByName("GTiff")
     out_ds = drv.Create(CONF_PATH, th_w, th_h, 1, gdal.GDT_Byte, ["COMPRESS=LZW", "TILED=YES"])
     out_ds.SetGeoTransform(th_gt)
-    srs = gdal.Open(TH_PATH).GetProjection()
+    th_ds = gdal_open_retry(TH_PATH)
+    srs = th_ds.GetProjection()
+    th_ds = None
     out_ds.SetProjection(srs)
     out_ds.GetRasterBand(1).WriteArray((confidence * 255).astype(np.uint8))
     out_ds.GetRasterBand(1).SetNoDataValue(0)

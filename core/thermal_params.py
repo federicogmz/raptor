@@ -7,7 +7,13 @@ con precedencia estricta: argumento explícito > variable de entorno > SIATA.
 
 import math
 import os
-from typing import Any, Dict, Optional
+from pathlib import Path
+import subprocess
+import sys
+from typing import Any, Dict, List, Optional, Tuple
+
+_BASE_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_DJI_IRP = _BASE_DIR / "dji_thermal_sdk" / "utility" / "bin" / "linux" / "release_x64" / "dji_irp"
 
 # Parámetros ambientales estándar SIATA para emergencias e incendios de cobertura vegetal.
 # Distancia 25m: cota superior de DJI Thermal SDK [1, 25] m para evitar la compresión de
@@ -106,3 +112,111 @@ def resolve_thermal_params(
 
     resolved["source"] = "custom" if is_custom else "default_siata"
     return resolved
+
+
+def build_dji_irp_cmd(
+    src_jpg: str,
+    dst_raw: str,
+    emissivity: float,
+    humidity: float,
+    distance: float,
+    reflection: float,
+    dji_irp_bin: Optional[str] = None,
+) -> List[str]:
+    bin_path = str(dji_irp_bin) if dji_irp_bin else str(DEFAULT_DJI_IRP)
+    return [
+        bin_path,
+        "-s",
+        str(src_jpg),
+        "-a",
+        "measure",
+        "-o",
+        str(dst_raw),
+        "--measurefmt",
+        "float32",
+        "--emissivity",
+        str(emissivity),
+        "--humidity",
+        str(humidity),
+        "--distance",
+        str(distance),
+        "--reflection",
+        str(reflection),
+    ]
+
+
+def run_dji_irp_extract(
+    src_jpg: str,
+    dst_raw: str,
+    emissivity: float,
+    humidity: float,
+    distance: float,
+    reflection: float,
+    env: Optional[dict] = None,
+    dji_irp_bin: Optional[str] = None,
+    timeout: int = 30,
+    run_fn=None,
+) -> Tuple[bool, float]:
+    """Extrae datos float32 con dji_irp aplicando fallback para H20T si humidity < 20.0.
+
+    Retorna (ok: bool, effective_humidity: float).
+    """
+    if run_fn is None:
+        run_fn = subprocess.run
+    eff_humidity = float(humidity)
+    cmd = build_dji_irp_cmd(
+        src_jpg,
+        dst_raw,
+        emissivity=emissivity,
+        humidity=humidity,
+        distance=distance,
+        reflection=reflection,
+        dji_irp_bin=dji_irp_bin,
+    )
+    try:
+        res = run_fn(
+            cmd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if (
+            res.returncode != 0
+            and eff_humidity < 20.0
+            and (res.returncode == 253 or "dirp_set_measurement_params" in ((res.stdout or "") + (res.stderr or "")))
+        ):
+            eff_humidity = 20.0
+            cmd_fallback = build_dji_irp_cmd(
+                src_jpg,
+                dst_raw,
+                emissivity=emissivity,
+                humidity=20.0,
+                distance=distance,
+                reflection=reflection,
+                dji_irp_bin=dji_irp_bin,
+            )
+            res = run_fn(
+                cmd_fallback,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        if res.returncode != 0:
+            err = (res.stderr or "").strip()
+            if err:
+                print(f"  ❌ dji_irp error ({os.path.basename(src_jpg)}): {err[:200]}", file=sys.stderr)
+            return False, eff_humidity
+
+        if not os.path.exists(dst_raw) or os.path.getsize(dst_raw) == 0:
+            print(f"  ❌ dji_irp no produjo salida para {os.path.basename(src_jpg)}", file=sys.stderr)
+            return False, eff_humidity
+
+        return True, eff_humidity
+    except subprocess.TimeoutExpired:
+        print(f"  ❌ dji_irp no respondió en {timeout}s para {os.path.basename(src_jpg)}", file=sys.stderr)
+        return False, eff_humidity
+    except Exception as exc:
+        print(f"  ⚠ Fallo al extraer {os.path.basename(src_jpg)}: {exc}", file=sys.stderr)
+        return False, eff_humidity

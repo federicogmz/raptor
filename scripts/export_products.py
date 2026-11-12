@@ -71,6 +71,11 @@ CATALOG = {
         + [f"{OUTPUTS}/indices/{n}_class.tif" for n in ("ndvi", "gndvi", "ndre", "msavi2")],
     ),
     "confidence": ("Máscara de confianza", "raster_discreto", [f"{OUTPUTS}/confidence_mask.tif"]),
+    "area": (
+        "Área afectada delimitada",
+        "vector",
+        [f"{OUTPUTS}/area_afectada_experto.geojson", f"{OUTPUTS}/area_afectada.geojson"],
+    ),
     "flight_path": ("Ruta de vuelo", "vector", [f"{OUTPUTS}/flight_path.geojson"]),
     "situation": ("Resumen de situación (JSON)", "copia", [f"{OUTPUTS}/situation.json"]),
     "pointclouds": (
@@ -275,6 +280,8 @@ def main():
     for key in keys:
         label, kind, sources = CATALOG[key]
         presentes = [s for s in sources if os.path.isfile(s)]
+        if key == "area":
+            presentes = presentes[:1]
         if not presentes:
             print(f"  – {label}: no generado en esta misión, omitido")
             n_skip += 1
