@@ -23,7 +23,6 @@ desincronizados de la fuente.
 
 import os
 import subprocess
-import pytest
 
 ENTRYPOINT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docker", "entrypoint.sh")
 
@@ -76,7 +75,6 @@ python3() {{
 """
 
 
-@pytest.mark.docker
 class TestDosFasesDeODM:
     def test_corre_dos_invocaciones_con_concurrencias_distintas(self, tmp_path):
         registro = tmp_path / "llamadas.txt"

@@ -55,4 +55,4 @@ jobs:
         env:
           RAPTOR_APP_DIR: ${{ github.workspace }}
         run: |
-          .venv/bin/pytest -m "not docker and not gpu" -v --cov=core --cov=webapp
+          .venv/bin/pytest -v --cov=core --cov=webapp
