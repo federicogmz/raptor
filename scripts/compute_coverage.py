@@ -97,7 +97,7 @@ def _valid_mask(ds):
 
 def _rasterizar(hull, gt, proj, W, H):
     """Hull (en el CRS del raster) → máscara booleana sobre la grilla."""
-    mem = ogr.GetDriverByName("MEM").CreateDataSource("mem")
+    mem = (ogr.GetDriverByName("MEM") or ogr.GetDriverByName("Memory")).CreateDataSource("mem")
     srs = osr.SpatialReference(wkt=proj)
     lay = mem.CreateLayer("hull", srs, ogr.wkbPolygon)
     feat = ogr.Feature(lay.GetLayerDefn())

@@ -42,14 +42,16 @@ jobs:
       - name: Install system dependencies (GDAL)
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends gdal-bin python3-gdal python3-venv python3-pip
+          sudo apt-get install -y --no-install-recommends \
+            gdal-bin proj-data python3-gdal python3-pyproj python3-numpy python3-scipy python3-pil \
+            python3-venv python3-pip
 
       - name: Set up virtual environment with system site packages
         run: |
           python3 -m venv --system-site-packages .venv
           .venv/bin/pip install --upgrade pip
-          .venv/bin/pip install pytest pytest-cov fastapi uvicorn numpy scipy Pillow matplotlib httpx python-multipart
-          .venv/bin/python3 -c "from osgeo import gdal; print('GDAL version:', gdal.__version__)"
+          .venv/bin/pip install --no-cache-dir -r requirements.txt pytest-cov
+          .venv/bin/python3 -c "import numpy, pyproj; from osgeo import gdal, gdal_array; print('GDAL:', gdal.__version__, 'NumPy:', numpy.__version__, 'pyproj:', pyproj.__version__)"
 
       - name: Run unit tests
         env:

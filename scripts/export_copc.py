@@ -68,13 +68,6 @@ def _al_dia(src, dst):
 
 
 def main():
-    pdal = _pdal()
-    if pdal is None:
-        print("❌ pdal no encontrado (ni en PATH ni en SuperBuild)")
-        sys.exit(1)
-
-    os.makedirs(OUTPUTS, exist_ok=True)
-
     # Argumentos = nombres de sensor (modo por sensor, sin salteo por
     # idempotencia — si se lo llama explícitamente es porque se sabe que la
     # nube recién quedó lista). Sin argumentos = las 4, saltando las que ya
@@ -84,6 +77,13 @@ def main():
     if desconocidos:
         print(f"❌ sensor(es) desconocido(s): {', '.join(desconocidos)} (válidos: {', '.join(PROJECTS)})")
         sys.exit(1)
+
+    pdal = _pdal()
+    if pdal is None:
+        print("❌ pdal no encontrado (ni en PATH ni en SuperBuild)")
+        sys.exit(1)
+
+    os.makedirs(OUTPUTS, exist_ok=True)
 
     pendientes = []
     for sensor in pedidos:

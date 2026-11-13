@@ -522,7 +522,7 @@ def _footprint_hull_mask(
         except OSError:
             pass
 
-    mem_ds = ogr.GetDriverByName("MEM").CreateDataSource("hull")
+    mem_ds = (ogr.GetDriverByName("MEM") or ogr.GetDriverByName("Memory")).CreateDataSource("hull")
     srs = osr.SpatialReference(wkt=target_wkt)
     layer = mem_ds.CreateLayer("hull", srs, ogr.wkbPolygon)
     feat = ogr.Feature(layer.GetLayerDefn())

@@ -37,6 +37,7 @@ def _bloque_run_odm():
 STUBS = r"""
 set -uo pipefail
 safe_concurrency() { echo "9"; }
+cd() { [[ "$1" == "/code" ]] && return 0; builtin cd "$@"; }
 mkdir -p outputs/logs
 """
 
