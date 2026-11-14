@@ -215,14 +215,28 @@ case "${1:-run}" in
     # solo contar, y así no interfiere si después se corre `run` de verdad
     # sobre el mismo montaje). Lo usa ./raptor run para mostrar el mensaje
     # antes de lanzar la corrida real.
+    SF_SCRIPT="scripts/source_filter.py"
+    [[ -f "$SF_SCRIPT" ]] || SF_SCRIPT="$(dirname "$0")/../scripts/source_filter.py"
     if [[ -d "$SOURCE_DIR" ]]; then
-      N_RGB=$(find -L "$SOURCE_DIR" -type f \( -iname "*_V.JPG" -o -iname "*_W.JPG" \) 2>/dev/null | wc -l)
-      if [[ "$N_RGB" -eq 0 ]]; then
-        N_RGB=$(find -L "$SOURCE_DIR" -type f \( -iname "*.JPG" -o -iname "*.JPEG" -o -iname "*.PNG" \) ! -iname "*_T.*" ! -iname "*_D.*" ! -iname "*_MS_*" 2>/dev/null | wc -l)
+      if [[ -f "$SF_SCRIPT" ]] && SF_RGB=$(python3 "$SF_SCRIPT" "$SOURCE_DIR" rgb 2>/dev/null); then
+        N_RGB=$(printf '%s\n' "$SF_RGB" | grep -c . || true)
+      else
+        N_RGB=$(find -L "$SOURCE_DIR" -type f \( -iname "*_V.JPG" -o -iname "*_W.JPG" \) 2>/dev/null | grep -c . || true)
+        [[ "$N_RGB" -eq 0 ]] && N_RGB=$(find -L "$SOURCE_DIR" -type f \( -iname "*.JPG" -o -iname "*.JPEG" \) ! -iname "*_T.*" ! -iname "*_D.*" ! -iname "*_MS_*" 2>/dev/null | grep -c . || true)
+      fi
+      if [[ -f "$SF_SCRIPT" ]] && SF_TH=$(python3 "$SF_SCRIPT" "$SOURCE_DIR" thermal 2>/dev/null); then
+        N_TH=$(printf '%s\n' "$SF_TH" | grep -c . || true)
+      else
+        N_TH=$(find -L "$SOURCE_DIR" -type f -iname "*_T.JPG" 2>/dev/null | grep -c . || true)
       fi
     fi
-    [[ -d "$SOURCE_DIR" ]] && N_TH=$(find -L "$SOURCE_DIR" -type f -iname "*_T.JPG" 2>/dev/null | wc -l)
-    [[ -d "$MS_SOURCE_DIR" ]] && N_MS=$(find -L "$MS_SOURCE_DIR" -type f -iname "*_MS_NIR.TIF" 2>/dev/null | wc -l)
+    if [[ -d "$MS_SOURCE_DIR" ]]; then
+      if [[ -f "$SF_SCRIPT" ]] && SF_MS=$(python3 "$SF_SCRIPT" "$MS_SOURCE_DIR" ms_nir 2>/dev/null); then
+        N_MS=$(printf '%s\n' "$SF_MS" | grep -c . || true)
+      else
+        N_MS=$(find -L "$MS_SOURCE_DIR" -type f -iname "*_MS_NIR.TIF" 2>/dev/null | grep -c . || true)
+      fi
+    fi
     # Modo urgencia (SUB_SAMPLE=N): ODM va a procesar 1 de cada N, así que la
     # estimación usa el conteo REAL de lo que correrá, no el de la tarjeta.
     # Multiespectral NO se submuestrea (ver el comentario grande junto a

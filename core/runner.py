@@ -175,7 +175,14 @@ class PipelineRun:
         # Se limpian SIEMPRE las EXPORT_* heredadas del proceso padre antes de
         # aplicar las de esta corrida: si no, una misión configurada sin
         # exportación heredaría el destino de otra corrida y escribiría ahí.
-        for k in ("EXPORT_DIR", "EXPORT_PRODUCTS", "EXPORT_RASTER_FORMAT", "EXPORT_VECTOR_FORMAT", "EXPORT_EPSG"):
+        for k in (
+            "EXPORT_DIR",
+            "EXPORT_PRODUCTS",
+            "EXPORT_RASTER_FORMAT",
+            "EXPORT_VECTOR_FORMAT",
+            "EXPORT_EPSG",
+            "EXPORT_VERTICAL_DATUM",
+        ):
             env.pop(k, None)
         env.update({k: str(v) for k, v in self.export.items() if v})
 

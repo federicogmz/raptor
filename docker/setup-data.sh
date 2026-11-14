@@ -14,6 +14,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 DATA_DIR="$REPO_DIR/data"
+SOURCE_FILTER="$REPO_DIR/scripts/source_filter.py"
 # Ver el comentario largo en docker/setup-data-multispectral.sh: cp
 # secuencial uno por uno es el cuello de botella real, PERO paralelizarlo a
 # lo bruto con todos los núcleos (sin mirar RAM) coincidió con un crash por
@@ -59,12 +60,19 @@ mkdir -p "$DATA_DIR/rgb_mosaico" "$DATA_DIR/termica_mosaico"
 #
 # ── RGB ────────────────────────────────────────────────────────────
 echo "Buscando imágenes RGB (*_V.JPG, *_W.JPG o genéricas) ..."
-RGB_FILES=$(find -L "$SRC" -type f \( -iname "*_V.JPG" -o -iname "*_W.JPG" \) 2>/dev/null || true)
-RGB_COUNT=$(echo "$RGB_FILES" | grep -c "JPG" || true)
+if [[ -f "$SOURCE_FILTER" ]] && SF_OUT=$(python3 "$SOURCE_FILTER" "$SRC" rgb 2>/dev/null); then
+  RGB_FILES="$SF_OUT"
+  RGB_COUNT=$(printf '%s\n' "$RGB_FILES" | grep -c . || true)
+else
+  [[ -f "$SOURCE_FILTER" ]] && echo "  ⚠ Falló source_filter.py — usando find de respaldo sin poda" \
+    || echo "  ⚠ source_filter.py no disponible — usando find sin poda de subcarpetas"
+  RGB_FILES=$(find -L "$SRC" -type f \( -iname "*_V.JPG" -o -iname "*_W.JPG" \) 2>/dev/null || true)
+  RGB_COUNT=$(echo "$RGB_FILES" | grep -c "JPG" || true)
 
-if [[ "$RGB_COUNT" -eq 0 ]]; then
-  RGB_FILES=$(find -L "$SRC" -type f \( -iname "*.JPG" -o -iname "*.JPEG" -o -iname "*.PNG" -o -iname "*.TIF" -o -iname "*.TIFF" \) ! -iname "*_T.*" ! -iname "*_D.*" ! -iname "*_MS_*" 2>/dev/null || true)
-  RGB_COUNT=$(echo "$RGB_FILES" | grep -c -E "\.(JPG|JPEG|PNG|TIF|TIFF|jpg|jpeg|png|tif|tiff)" || true)
+  if [[ "$RGB_COUNT" -eq 0 ]]; then
+    RGB_FILES=$(find -L "$SRC" -type f \( -iname "*.JPG" -o -iname "*.JPEG" -o -iname "*.PNG" -o -iname "*.TIF" -o -iname "*.TIFF" \) ! -iname "*_T.*" ! -iname "*_D.*" ! -iname "*_MS_*" 2>/dev/null || true)
+    RGB_COUNT=$(echo "$RGB_FILES" | grep -c -E "\.(JPG|JPEG|PNG|TIF|TIFF|jpg|jpeg|png|tif|tiff)" || true)
+  fi
 fi
 
 if [[ "$RGB_COUNT" -eq 0 ]]; then
@@ -95,8 +103,13 @@ fi
 # ── Térmicas ───────────────────────────────────────────────────────
 echo ""
 echo "Buscando imágenes térmicas (*_T.JPG) ..."
-TH_FILES=$(find -L "$SRC" -type f -iname "*_T.JPG" 2>/dev/null || true)
-TH_COUNT=$(echo "$TH_FILES" | grep -c "JPG" || true)
+if [[ -f "$SOURCE_FILTER" ]] && SF_TH=$(python3 "$SOURCE_FILTER" "$SRC" thermal 2>/dev/null); then
+  TH_FILES="$SF_TH"
+  TH_COUNT=$(printf '%s\n' "$TH_FILES" | grep -c . || true)
+else
+  TH_FILES=$(find -L "$SRC" -type f -iname "*_T.JPG" 2>/dev/null || true)
+  TH_COUNT=$(echo "$TH_FILES" | grep -c "JPG" || true)
+fi
 
 if [[ "$TH_COUNT" -eq 0 ]]; then
   echo "  ⚠ No se encontraron imágenes térmicas."
@@ -114,6 +127,32 @@ else
     printf '%s\n' "$TO_COPY" | xargs -r -d '\n' -P "$NPROCS" -I{} cp --reflink=auto -- "{}" "$DATA_DIR/termica_mosaico/"
   fi
   echo "  ✅ $COPIED copiadas a data/termica_mosaico/"
+fi
+
+# ── Logs DJI RTK/PPK (*Timestamp.MRK) en carpeta aislada ───────────
+# Se limpia data/mrk/rgb/ en cada corrida para no mezclar efemérides de otra
+# misión previa, y se mantiene separado de data/*_mosaico/ para no alterar los
+# conteos de imágenes ni competir con setup-data-multispectral.sh.
+rm -rf "$DATA_DIR/mrk/rgb"
+if [[ -f "$SOURCE_FILTER" ]]; then
+  MRK_FILES=$(python3 "$SOURCE_FILTER" "$SRC" mrk 2>/dev/null || true)
+  MRK_COUNT=$(printf '%s\n' "$MRK_FILES" | grep -c . || true)
+  if [[ "$MRK_COUNT" -gt 0 ]]; then
+    mkdir -p "$DATA_DIR/mrk/rgb"
+    mrk_idx=0
+    while IFS= read -r f; do
+      [[ -z "$f" ]] && continue
+      base="$(basename "$f")"
+      dst="$DATA_DIR/mrk/rgb/$base"
+      while [[ -e "$dst" ]]; do
+        mrk_idx=$((mrk_idx + 1))
+        dst="$DATA_DIR/mrk/rgb/${mrk_idx}_$base"
+      done
+      cp --reflink=auto -- "$f" "$dst"
+    done <<< "$MRK_FILES"
+    echo ""
+    echo "  🛰️  $MRK_COUNT archivo(s) Timestamp.MRK copiado(s) a data/mrk/rgb/"
+  fi
 fi
 
 echo ""

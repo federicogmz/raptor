@@ -30,6 +30,7 @@ _override = os.environ.get("MAX_CONCURRENCY")
 NPROCS = safe_concurrency(5, override=int(_override) if _override else None)
 
 D_JPG_DIR = "data/dband_mosaico"
+MRK_DIR = os.environ.get("RAPTOR_MRK_DBAND_DIR", "data/mrk/dband")
 OUTPUT_DIR = "processing/dband_odm"
 IMAGES_DIR = os.path.join(OUTPUT_DIR, "images")
 GEO_TXT = os.path.join(OUTPUT_DIR, "geo.txt")
@@ -52,7 +53,7 @@ def main():
     print(f"  Imágenes encontradas: {len(nombres)}")
 
     rutas = [os.path.join(IMAGES_DIR, f) for f in nombres]
-    con_gps, _ = escribir_geo_txt(rutas, GEO_TXT, NPROCS, etiqueta="imágenes")
+    con_gps, _ = escribir_geo_txt(rutas, GEO_TXT, NPROCS, etiqueta="imágenes", mrk_dir=MRK_DIR)
 
     print(f"\n✅ {con_gps}/{len(nombres)} imágenes con GPS")
     print(f"   Directorio ODM: {OUTPUT_DIR}/")

@@ -37,6 +37,9 @@ def _correr(script_real, src, cwd):
     copia = docker_dir / os.path.basename(script_real)
     shutil.copy(script_real, copia)
     copia.chmod(0o755)
+    scripts_dir = cwd / "scripts"
+    scripts_dir.mkdir(exist_ok=True)
+    shutil.copy(os.path.join(REPO, "scripts", "source_filter.py"), scripts_dir / "source_filter.py")
     return subprocess.run([str(copia), str(src)], cwd=str(cwd), capture_output=True, text=True, timeout=30)
 
 
@@ -148,3 +151,92 @@ class TestSetupDataReanudaSinCrashear:
         r2 = _correr(SETUP_DATA_MS, real, cwd)
         assert r2.returncode == 0, r2.stdout + r2.stderr
         assert "✅ 0 copiadas a data/multiespectral_mosaico/" in r2.stdout, r2.stdout
+
+
+class TestFiltradoYMrk:
+    def test_poda_subcarpetas_no_cartograficas_y_separa_mrk_sin_inflar_conteo(self, tmp_path):
+        src = tmp_path / "mision"
+        carto = src / "20260803_raw" / "M3T"
+        carto.mkdir(parents=True)
+        (carto / "DJI_20260803120000_0001_W.JPG").write_bytes(b"rgb1")
+        (carto / "DJI_20260803120005_0002_W.JPG").write_bytes(b"rgb2")
+        (carto / "DJI_20260803120000_0001_T.JPG").write_bytes(b"th1")
+        (carto / "100_0001_Timestamp.MRK").write_text("1\t0\n", encoding="utf-8")
+
+        vuelo2 = src / "20260803_raw" / "M3T_vuelo2"
+        vuelo2.mkdir()
+        (vuelo2 / "100_0001_Timestamp.MRK").write_text("2\t0\n", encoding="utf-8")
+
+        for excluido, nombre_w in (
+            (src / "20260803_audiovisual" / "panoramicas", "pano_01_W.JPG"),
+            (src / "rgb_panoramicas", "pano_02_W.JPG"),
+            (src / "rgb_360", "esfera_W.JPG"),
+        ):
+            excluido.mkdir(parents=True)
+            (excluido / nombre_w).write_bytes(b"decoy")
+        (src / "20260803_audiovisual" / "panoramicas" / "pano_01_T.JPG").write_bytes(b"decoy_t")
+        (src / "20260803_audiovisual" / "panoramicas" / "pano_Timestamp.MRK").write_text("1\t0\n", encoding="utf-8")
+
+        cwd = tmp_path / "repo"
+        cwd.mkdir()
+        (cwd / "data").mkdir()
+
+        r = _correr(SETUP_DATA, src, cwd)
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert sorted(os.listdir(cwd / "data" / "rgb_mosaico")) == [
+            "DJI_20260803120000_0001_W.JPG",
+            "DJI_20260803120005_0002_W.JPG",
+        ]
+        assert sorted(os.listdir(cwd / "data" / "termica_mosaico")) == ["DJI_20260803120000_0001_T.JPG"]
+        assert sorted(os.listdir(cwd / "data" / "mrk" / "rgb")) == [
+            "100_0001_Timestamp.MRK",
+            "1_100_0001_Timestamp.MRK",
+        ]
+        assert "2 copiadas a data/rgb_mosaico/" in r.stdout, r.stdout
+        assert "RGB:     2 imágenes" in r.stdout, r.stdout
+        assert "3 copiadas" not in r.stdout
+
+    def test_import_local_symlink_raiz_panoramicas_se_preserva_pero_poda_audiovisual_interno(self, tmp_path):
+        user_src = tmp_path / "carpeta_usuario_panoramicas"
+        (user_src / "audiovisual").mkdir(parents=True)
+        (user_src / "DJI_20260803120000_0001_W.JPG").write_bytes(b"carto")
+        (user_src / "audiovisual" / "clip_W.JPG").write_bytes(b"clip")
+
+        raw_rgb = tmp_path / "raw_rgb"
+        raw_rgb.mkdir()
+        (raw_rgb / "panoramicas_vuelo").symlink_to(user_src)
+
+        cwd = tmp_path / "repo"
+        cwd.mkdir()
+        (cwd / "data").mkdir()
+
+        r = _correr(SETUP_DATA, raw_rgb, cwd)
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert sorted(os.listdir(cwd / "data" / "rgb_mosaico")) == ["DJI_20260803120000_0001_W.JPG"]
+
+    def test_paridad_con_webapp_listdir_names(self, tmp_path, monkeypatch):
+        import importlib
+        from core import scan
+        from source_filter import iter_source_files
+
+        monkeypatch.setenv("RAPTOR_RUNS_ROOT", str(tmp_path / "runs"))
+        importlib.reload(scan)
+        from webapp import main as webapp_main
+
+        importlib.reload(webapp_main)
+        _listdir_names = webapp_main._listdir_names
+
+        user_src = tmp_path / "origen_importado"
+        (user_src / "audiovisual").mkdir(parents=True)
+        (user_src / "DJI_20260803120000_0001_W.JPG").write_bytes(b"ok")
+        (user_src / "audiovisual" / "extra_W.JPG").write_bytes(b"no")
+
+        raw_rgb = tmp_path / "raw_rgb"
+        (raw_rgb / "20260803_audiovisual").mkdir(parents=True)
+        (raw_rgb / "20260803_audiovisual" / "pano_W.JPG").write_bytes(b"no2")
+        (raw_rgb / "panoramicas_vuelo").symlink_to(user_src)
+
+        esperados = {os.path.basename(p) for p in iter_source_files(raw_rgb)}
+        obtenidos = {os.path.basename(p) for p in _listdir_names(raw_rgb)}
+        assert esperados == {"DJI_20260803120000_0001_W.JPG"}
+        assert obtenidos == esperados

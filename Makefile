@@ -75,10 +75,10 @@ define run_quiet
 	fi
 endef
 
-# ── 1. Preparación de imágenes (GPS lo lee ODM directo del EXIF — sin
-# geo.txt: nunca se demostró necesario, ver paper/COMPARATIVA_ODM_VANILLA_VS_RAPTOR.md,
-# y una corrida real mostró que puede degradar la escala de la reconstrucción) ──
-# Copia + limpieza de EXIF ahora en scripts/prepare_rgb_odm.py (ver ese
+# ── 1. Preparación de imágenes (EXIF/XMP RTK + geo.txt condicional cuando
+# hay PPK/.MRK o bloque con RtkFlag degradado/mixto; vuelos 100 % FIX siguen el
+# lector XMP nativo de ODM, ver scripts/prepare_rgb_odm.py) ──
+# Copia + limpieza de EXIF en scripts/prepare_rgb_odm.py (ver ese
 # docstring para el porqué de -exif:all + -xmp-drone-dji:all específicamente,
 # y por qué es copia real y no hardlink) — se saltea lo que ya esté copiado
 # de una corrida anterior de la misma misión, en vez de recopiar + re-limpiar

@@ -183,29 +183,7 @@ def convert_one(
         # radiométrico ya escrito arriba sigue siendo válido igual).
         try:
             subprocess.run(
-                [
-                    "exiftool",
-                    "-overwrite_original",
-                    "-tagsfromfile",
-                    src_jpg,
-                    "-gps:all",
-                    "-GimbalYawDegree",
-                    "-GimbalPitchDegree",
-                    "-GimbalRollDegree",
-                    "-FlightYawDegree",
-                    "-FlightPitchDegree",
-                    "-FlightRollDegree",
-                    "-RelativeAltitude",
-                    "-Make",
-                    "-Model",
-                    "-FocalLength",
-                    "-FocalLengthIn35mmFormat",
-                    "-ExifImageWidth",
-                    "-ExifImageHeight",
-                    "-DateTimeOriginal",
-                    "-SubSecTimeOriginal",
-                    dst_tif,
-                ],
+                _build_exiftool_cmd(src_jpg, dst_tif),
                 capture_output=True,
                 text=True,
                 timeout=15,
@@ -218,6 +196,37 @@ def convert_one(
     finally:
         if os.path.exists(raw_path):
             os.unlink(raw_path)
+
+
+_EXIF_COPY_TAGS = [
+    "-gps:all",
+    "-xmp-drone-dji:all",
+    "-GimbalYawDegree",
+    "-GimbalPitchDegree",
+    "-GimbalRollDegree",
+    "-FlightYawDegree",
+    "-FlightPitchDegree",
+    "-FlightRollDegree",
+    "-RelativeAltitude",
+    "-Make",
+    "-Model",
+    "-FocalLength",
+    "-FocalLengthIn35mmFormat",
+    "-ExifImageWidth",
+    "-ExifImageHeight",
+    "-DateTimeOriginal",
+    "-SubSecTimeOriginal",
+]
+
+
+def _build_exiftool_cmd(src_spec, dst_tif=None):
+    """Construye comando exiftool conservando `@drone-dji:*` como atributos."""
+    cmd = ["exiftool", "-api", "Compact=Shorthand", "-overwrite_original", "-tagsfromfile", src_spec] + _EXIF_COPY_TAGS
+    if dst_tif is not None:
+        cmd.append(dst_tif)
+    else:
+        cmd.extend(["-@", "-"])
+    return cmd
 
 
 def main():
@@ -269,6 +278,7 @@ def main():
     # tiene sentido ocupar un hilo en abrir con GDAL un .tif que ni se va a
     # tocar.
     pendientes = []
+    reused_paths = []
     for jpg in jpgs:
         stem = os.path.basename(jpg).replace(".JPG", "")
         dst = os.path.join(dst_dir, f"{stem}.tif")
@@ -276,10 +286,30 @@ def main():
             ds = gdal.Open(dst)
             if ds is not None:
                 skip += 1
+                reused_paths.append(dst)
                 ds = None
                 continue
             os.remove(dst)  # corrupto: se regenera
         pendientes.append((jpg, dst))
+
+    stamp_path = os.path.join(dst_dir, ".rtk_xmp_v2")
+    backfill_ok = True
+    if reused_paths and not os.path.isfile(stamp_path):
+        print(f"🏷️  Actualizando XMP RTK en {len(reused_paths)} TIFF térmicos existentes …")
+        try:
+            r = subprocess.run(
+                _build_exiftool_cmd(os.path.join(src_dir, "%f.JPG")),
+                input="\n".join(reused_paths),
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            if r.returncode != 0:
+                backfill_ok = False
+                print(f"  ⚠ No se pudo actualizar XMP RTK en existentes: {r.stderr[:250]}")
+        except Exception as exc:
+            backfill_ok = False
+            print(f"  ⚠ No se pudo actualizar XMP RTK en existentes: {exc}")
 
     with ThreadPoolExecutor(max_workers=NPROCS) as pool:
         futuros = {
@@ -311,6 +341,9 @@ def main():
 
     if fail > 0:
         sys.exit(1)
+    if backfill_ok:
+        with open(stamp_path, "w", encoding="utf-8") as fh:
+            fh.write("v2\n")
 
 
 if __name__ == "__main__":

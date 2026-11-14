@@ -26,6 +26,9 @@ def _correr_setup(src, cwd):
     copia = docker_dir / "setup-data-multispectral.sh"
     shutil.copy(SETUP_DATA_MS, copia)
     copia.chmod(0o755)
+    scripts_dir = cwd / "scripts"
+    scripts_dir.mkdir(exist_ok=True)
+    shutil.copy(os.path.join(REPO, "scripts", "source_filter.py"), scripts_dir / "source_filter.py")
     return subprocess.run([str(copia), str(src)], cwd=str(cwd), capture_output=True, text=True, timeout=30)
 
 
