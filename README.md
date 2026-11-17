@@ -552,6 +552,9 @@ Useful environment variables (`-e VAR=value`):
 | `EXPORT_RASTER_FORMAT` | `cog` | `cog` \| `gtiff` |
 | `EXPORT_VECTOR_FORMAT` | `geojson` | `geojson` \| `gpkg` \| `shp` \| `kml` |
 | `EXPORT_EPSG` | `source` | Output EPSG, or `source` to skip reprojecting |
+| `EXPORT_VERTICAL_DATUM` | `ellipsoidal` | `ellipsoidal` \| `egm96` (EGM96 shifts Z/DSM to orthometric when geo-referenced) |
+| `RAPTOR_OPTIMIZE_DISK` | `1` | `1` = pass `--optimize-disk-space` (Phase 2 / `--fast-orthophoto`) + purge intermediates after export (`prepare_dband_odm.py` stages MakerNote-stripped copies via `cp --reflink=auto`, zero-cost CoW on btrfs/XFS or full copy on ext4); `0` = keep all ODM intermediates (rebuilds cleanly if prior run was purged) |
+| `RAPTOR_FORCE_ODM` | `0` | `1` = ignore `.raptor_odm_ok` reuse signature and force ODM rebuild |
 
 ### Delivering the products
 

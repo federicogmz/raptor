@@ -1,26 +1,23 @@
 #!/usr/bin/env python3
 """Poblar el directorio images/ de un proyecto ODM y armar su geo.txt.
 
-Lo comparten prepare_multispectral_odm.py, prepare_dband_odm.py,
-prepare_thermal_native_odm.py y (en modo condicional) prepare_rgb_odm.py.
+Lo comparten prepare_multispectral_odm.py (``poblar_images`` por hardlink) y
+prepare_rgb_odm.py / prepare_dband_odm.py (``copiar_y_limpiar_exif`` por copia
+reflink + limpieza de MakerNotes con ``exiftool``).
 
-POR QUÉ ENLAZA EN VEZ DE COPIAR. Hasta acá cada foto se copiaba DOS veces:
-de la fuente a data/<sensor>_mosaico/ (docker/setup-data*.sh) y de ahí a
-processing/<proyecto>/images/. En la misión barbosa-picodegallo son 2340
-bandas multiespectrales más 585 imágenes de banda D: del orden de 23 GB
-escritos dos veces, y la etapa de preparación entera tardó 20 min. ODM solo
-LEE processing/<proyecto>/images/, así que un hardlink alcanza y cuesta
-prácticamente cero.
+POR QUÉ ``poblar_images`` ENLAZA EN VEZ DE COPIAR. Para las 4 bandas
+multiespectrales `.TIF` (2340 archivos en barbosa-picodegallo, sin MakerNotes
+propietarios de DJI), ODM solo LEE `processing/<proyecto>/images/`, así que un
+hardlink cuesta prácticamente cero.
 
-Ojo con generalizarlo: `Makefile::prepare-rgb` NO puede usar hardlink porque
-corre `exiftool -overwrite_original` sobre las copias, y con un hardlink eso
-modificaría también el archivo de data/. Los preparadores que usan
-`poblar_images` solo leen metadata (exiftool sin -overwrite_original), por eso
-acá sí es seguro.
-
-Si el hardlink no se puede hacer (fuente y destino en filesystems distintos,
-que es lo normal cuando data/ y processing/ son volúmenes separados) se cae a
-copy2 sin decir nada: el resultado es el mismo, solo más lento.
+POR QUÉ RGB Y BANDA D USAN ``copiar_y_limpiar_exif``. Los `.JPG` de cámara
+visible DJI (``_V``, ``_W`` y banda ``_D`` del M3M) traen `MakerNote` binario
+que en tomas reales dispara `IndexError` dentro de `exifread.decode_maker_note`
+(etapa `dataset` de ODM 3.6.2). Por eso se copian a `.tmp_<archivo>` y se limpian
+con `exiftool -overwrite_original` sin tocar los originales de `data/`. Al
+reemplazar imágenes limpias se invalida `images.json` (si existe) para que ODM
+relea la metadata; un `opensfm/exif/` ya generado se mantiene compatible porque
+`Make`, `Model`, focal y GPS quedan intactos.
 """
 
 import json
@@ -49,6 +46,7 @@ H_ACC_RTK_FLOAT = 0.30
 V_ACC_RTK_FLOAT = 0.60
 
 EXIF_CACHE_SCHEMA = 2
+EXIF_CLEAN_SCHEMA = 1
 _GPS_EPOCH_TS = 315964800.0  # 1980-01-06T00:00:00Z
 _GPS_UTC_LEAP_S = 18.0
 _DJI_RE = re.compile(r"DJI_(\d{14})_(\d{4})", re.IGNORECASE)
@@ -94,6 +92,138 @@ def poblar_images(src_dir, images_dir, sufijos, nprocs, etiqueta="archivos"):
     with ThreadPoolExecutor(max_workers=nprocs) as pool:
         list(pool.map(lambda f: enlazar_o_copiar(os.path.join(src_dir, f), os.path.join(images_dir, f)), pendientes))
     return nombres
+
+
+def copiar_y_limpiar_exif(
+    src_dir,
+    images_dir,
+    nombres,
+    nprocs,
+    lote=100,
+    etiqueta="imágenes RGB",
+    sufijos_limpieza=(".JPG", ".JPEG", ".PNG", ".TIF", ".TIFF"),
+):
+    """Copia `nombres` con ``cp --reflink=auto`` y limpia ``MakerNotes`` vía ``exiftool``.
+
+    Detecta imágenes sin copiar, hardlinks previos (``os.path.samefile``) o
+    archivos cuya firma ``(size, mtime_ns)`` en ``src_dir`` difiera de la
+    guardada en ``<proj_dir>/.exif_limpio_v1.json``. El manifiesto solo se
+    escribe si todos los lotes de ``exiftool`` y reemplazos atómicos terminan
+    sin excepción.
+    """
+    os.makedirs(images_dir, exist_ok=True)
+    if not nombres:
+        return []
+
+    sufijos = tuple(s.upper() for s in sufijos_limpieza)
+    nombres_set = set(nombres)
+    existentes = os.listdir(images_dir)
+    for f in existentes:
+        if f.startswith(".tmp_"):
+            p_tmp = os.path.join(images_dir, f)
+            if os.path.isfile(p_tmp):
+                os.remove(p_tmp)
+
+    viejos = [
+        f for f in existentes if not f.startswith(".tmp_") and f.upper().endswith(sufijos) and f not in nombres_set
+    ]
+    if viejos:
+        print(f"🧹 Limpiando {len(viejos)} de otra misión/corrida …")
+        for f in viejos:
+            os.remove(os.path.join(images_dir, f))
+
+    proj_dir = os.path.dirname(os.path.abspath(images_dir))
+    manifest_path = os.path.join(proj_dir, ".exif_limpio_v1.json")
+    manifest_entries = _leer_cache_json(manifest_path, EXIF_CLEAN_SCHEMA)
+
+    src_sigs = {}
+    pendientes = []
+    for f in nombres:
+        src = os.path.join(src_dir, f)
+        dst = os.path.join(images_dir, f)
+        sig = _file_sig(src)
+        src_sigs[f] = sig
+        if not os.path.exists(dst):
+            pendientes.append(f)
+            continue
+        try:
+            mismo_inodo = os.path.samefile(src, dst)
+        except OSError:
+            mismo_inodo = False
+        if mismo_inodo or manifest_entries.get(f) != sig:
+            pendientes.append(f)
+
+    ya = len(nombres) - len(pendientes)
+    if not pendientes:
+        print(f"✅ {ya} {etiqueta} ya estaban preparadas, nada que copiar")
+        return list(nombres)
+
+    print(
+        f"📋 Copiando {len(pendientes)} {etiqueta} nuevas con {nprocs} en paralelo"
+        + (f" ({ya} ya existentes, reutilizadas) …" if ya else " …")
+    )
+
+    def _tmp_path(f):
+        return os.path.join(images_dir, f".tmp_{f}")
+
+    def _copiar(f):
+        subprocess.run(
+            ["cp", "--reflink=auto", os.path.join(src_dir, f), _tmp_path(f)],
+            check=True,
+        )
+
+    def _limpiar_lote(lote_nombres):
+        lote_tmp = [_tmp_path(f) for f in lote_nombres]
+        r = subprocess.run(
+            [
+                "exiftool",
+                "-api",
+                "Compact=Shorthand",
+                "-all=",
+                "-tagsfromfile",
+                "@",
+                "-exif:all",
+                "-xmp-drone-dji:all",
+                "-overwrite_original",
+                "-q",
+                "-@",
+                "-",
+            ],
+            input="\n".join(lote_tmp),
+            capture_output=True,
+            text=True,
+            timeout=max(600, len(lote_nombres) * 6),
+        )
+        if r.returncode != 0:
+            for p in lote_tmp:
+                if os.path.exists(p):
+                    os.remove(p)
+            raise RuntimeError(f"exiftool falló limpiando lote {etiqueta}: {r.stderr[:300]}")
+
+    try:
+        with ThreadPoolExecutor(max_workers=nprocs) as pool:
+            list(pool.map(_copiar, pendientes))
+
+        print(f"🏷️  Limpiando EXIF/XMP del dron en {len(pendientes)} imágenes nuevas …")
+        lotes = [pendientes[i : i + lote] for i in range(0, len(pendientes), lote)]
+        with ThreadPoolExecutor(max_workers=nprocs) as pool:
+            list(pool.map(_limpiar_lote, lotes))
+
+        for f in pendientes:
+            os.replace(_tmp_path(f), os.path.join(images_dir, f))
+    finally:
+        for f in pendientes:
+            tmp_p = _tmp_path(f)
+            if os.path.exists(tmp_p):
+                os.remove(tmp_p)
+
+    _guardar_cache_json(manifest_path, EXIF_CLEAN_SCHEMA, src_sigs, tmp_prefix=".exif_limpio_")
+    images_json = os.path.join(proj_dir, "images.json")
+    if os.path.isfile(images_json):
+        os.remove(images_json)
+
+    print(f"✅ {len(pendientes)} {etiqueta} preparadas" + (f", {ya} reutilizadas" if ya else ""))
+    return list(nombres)
 
 
 def _lotes(lista, n):
@@ -148,9 +278,8 @@ def _exif_cache_path(geo_txt):
     return f"{geo_txt}.exif_cache.json"
 
 
-def _leer_exif_cache(geo_txt):
-    """Lee `<geo_txt>.exif_cache.json` versionado; devuelve `{nombre: entry}`."""
-    path = _exif_cache_path(geo_txt)
+def _leer_cache_json(path, schema):
+    """Lee un caché JSON versionado `{schema, entries}`; devuelve `{}` si no coincide."""
     if not os.path.isfile(path):
         return {}
     try:
@@ -158,25 +287,34 @@ def _leer_exif_cache(geo_txt):
             data = json.load(fh)
     except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return {}
-    if not isinstance(data, dict) or data.get("schema") != EXIF_CACHE_SCHEMA:
+    if not isinstance(data, dict) or data.get("schema") != schema:
         return {}
     entries = data.get("entries")
     return entries if isinstance(entries, dict) else {}
 
 
-def _guardar_exif_cache(geo_txt, entries):
-    """Persiste el caché EXIF crudo de forma atómica (tmp + os.replace)."""
-    path = _exif_cache_path(geo_txt)
+def _guardar_cache_json(path, schema, entries, tmp_prefix=".cache_"):
+    """Persiste un caché JSON `{schema, entries}` de forma atómica (tmp + os.replace)."""
     parent = os.path.dirname(path) or "."
     os.makedirs(parent, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(prefix=".exif_cache_", suffix=".tmp", dir=parent)
+    fd, tmp_path = tempfile.mkstemp(prefix=tmp_prefix, suffix=".tmp", dir=parent)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump({"schema": EXIF_CACHE_SCHEMA, "entries": entries}, fh)
+            json.dump({"schema": schema, "entries": entries}, fh, sort_keys=True)
         os.replace(tmp_path, path)
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
+
+def _leer_exif_cache(geo_txt):
+    """Lee `<geo_txt>.exif_cache.json` versionado; devuelve `{nombre: entry}`."""
+    return _leer_cache_json(_exif_cache_path(geo_txt), EXIF_CACHE_SCHEMA)
+
+
+def _guardar_exif_cache(geo_txt, entries):
+    """Persiste el caché EXIF crudo de forma atómica (tmp + os.replace)."""
+    _guardar_cache_json(_exif_cache_path(geo_txt), EXIF_CACHE_SCHEMA, entries, tmp_prefix=".exif_cache_")
 
 
 def _to_float(val):

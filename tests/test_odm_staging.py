@@ -514,3 +514,52 @@ class TestRtkFlagYMrk:
         ]
         assert intentos["exiftool"] == 2
         assert len(intentos["limpiados"]) == 2
+
+    def test_copiar_y_limpiar_exif_fallo_parcial_lotes_no_escribe_manifiesto(self, tmp_path, monkeypatch):
+        import shutil
+        from odm_staging import copiar_y_limpiar_exif
+
+        src_dir = tmp_path / "data_rgb"
+        proj_dir = tmp_path / "rgb_odm"
+        images_dir = proj_dir / "images"
+        src_dir.mkdir()
+        (src_dir / "A_0001_W.JPG").write_bytes(b"img1")
+        (src_dir / "A_0002_W.JPG").write_bytes(b"img2")
+        (proj_dir).mkdir(parents=True, exist_ok=True)
+        (proj_dir / "images.json").write_text("[]", encoding="utf-8")
+
+        batch_calls = {"n": 0}
+
+        def _fake_run(cmd, **kw):
+            if cmd[0] == "cp":
+                shutil.copy2(cmd[-2], cmd[-1])
+                return subprocess.CompletedProcess(cmd, 0, "", "")
+            if cmd[0] == "exiftool":
+                batch_calls["n"] += 1
+                if batch_calls["n"] == 2:
+                    return subprocess.CompletedProcess(cmd, 1, "", "batch 2 failure")
+                return subprocess.CompletedProcess(cmd, 0, "", "")
+            raise AssertionError(f"comando inesperado: {cmd}")
+
+        monkeypatch.setattr(subprocess, "run", _fake_run)
+
+        nombres = ["A_0001_W.JPG", "A_0002_W.JPG"]
+        with pytest.raises(RuntimeError, match="exiftool falló"):
+            copiar_y_limpiar_exif(str(src_dir), str(images_dir), nombres, nprocs=1, lote=1)
+
+        manifest = proj_dir / ".exif_limpio_v1.json"
+        assert not manifest.exists(), "Un fallo parcial de lotes NO debe persistir .exif_limpio_v1.json"
+        assert os.listdir(images_dir) == [], "No deben quedar .tmp_* ni archivos promovidos a medias"
+
+        copiar_y_limpiar_exif(str(src_dir), str(images_dir), nombres, nprocs=1, lote=1)
+        assert manifest.is_file()
+        assert not (proj_dir / "images.json").exists(), "images.json previo debe invalidarse tras limpiar"
+        assert sorted(os.listdir(images_dir)) == nombres
+
+        # Si cambia el mtime de una foto fuente, debe re-copiarla y limpiarla aunque coincidan nombre y tamaño
+        calls_before = batch_calls["n"]
+        img1 = src_dir / "A_0001_W.JPG"
+        st = img1.stat()
+        os.utime(img1, (st.st_atime + 3600, st.st_mtime + 3600))
+        copiar_y_limpiar_exif(str(src_dir), str(images_dir), nombres, nprocs=1, lote=1)
+        assert batch_calls["n"] == calls_before + 1

@@ -123,6 +123,90 @@ class TestPrepareDbandOdm:
         assert r.returncode != 0
         assert "no se encontraron" in (r.stdout + r.stderr).lower()
 
+    def test_reemplaza_hardlink_previo_sin_mutar_fuente_y_es_idempotente(self, repo_falso):
+        import sys
+
+        src_dir = repo_falso / "data" / "dband_mosaico"
+        img_dir = repo_falso / "processing" / "dband_odm" / "images"
+        img_dir.mkdir(parents=True, exist_ok=True)
+
+        src1 = src_dir / "DJI_20260816124040_0001_D.JPG"
+        src2 = src_dir / "DJI_20260816124042_0002_D.JPG"
+        src1.write_bytes(b"orig_jpeg_bytes_1")
+        src2.write_bytes(b"orig_jpeg_bytes_2")
+        dst1 = img_dir / src1.name
+        dst2 = img_dir / src2.name
+        # Simula hardlink previo dejado por una corrida con poblar_images
+        os.link(src1, dst1)
+        assert os.path.samefile(src1, dst1)
+
+        bin_dir = repo_falso / "fake_bin"
+        bin_dir.mkdir()
+        calls_log = repo_falso / "exiftool_calls.log"
+        stub = bin_dir / "exiftool"
+        stub.write_text(
+            f"#!{sys.executable}\n"
+            "import json, sys\n"
+            "args = sys.argv[1:]\n"
+            "files = [ln.strip() for ln in sys.stdin.read().splitlines() if ln.strip()]\n"
+            f"log_path = {str(calls_log)!r}\n"
+            'with open(log_path, "a", encoding="utf-8") as fh:\n'
+            '    mode = "clean" if "-overwrite_original" in args else "read"\n'
+            '    fh.write(f"{mode}:{len(files)}\\n")\n'
+            'if "-overwrite_original" in args:\n'
+            "    for p in files:\n"
+            '        with open(p, "ab") as fh:\n'
+            '            fh.write(b"|CLEANED")\n'
+            'elif "-j" in args:\n'
+            "    out = []\n"
+            "    for p in files:\n"
+            "        out.append({\n"
+            '            "SourceFile": p,\n'
+            '            "GPSLatitude": 6.223,\n'
+            '            "GPSLongitude": -75.562,\n'
+            '            "AbsoluteAltitude": 1803.5,\n'
+            '            "RtkFlag": 50,\n'
+            '            "RtkStdLat": 0.01,\n'
+            '            "RtkStdLon": 0.01,\n'
+            '            "RtkStdHgt": 0.02,\n'
+            '            "GimbalYawDegree": -90.0,\n'
+            '            "GimbalPitchDegree": -90.0,\n'
+            '            "GimbalRollDegree": 0.0,\n'
+            "        })\n"
+            "    print(json.dumps(out))\n",
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["MAX_CONCURRENCY"] = "1"
+
+        script = os.path.join(REPO, "scripts", "prepare_dband_odm.py")
+        r1 = subprocess.run(
+            [sys.executable, script], cwd=str(repo_falso), env=env, capture_output=True, text=True, timeout=20
+        )
+        assert r1.returncode == 0, r1.stdout + r1.stderr
+
+        assert src1.read_bytes() == b"orig_jpeg_bytes_1", "El archivo fuente no debe mutarse"
+        assert src2.read_bytes() == b"orig_jpeg_bytes_2"
+        assert not os.path.samefile(src1, dst1), "Hardlink previo debe reemplazarse por copia independiente"
+        assert dst1.read_bytes() == b"orig_jpeg_bytes_1|CLEANED"
+        assert dst2.read_bytes() == b"orig_jpeg_bytes_2|CLEANED"
+        assert not any(f.startswith(".tmp_") for f in os.listdir(img_dir))
+        assert (repo_falso / "processing" / "dband_odm" / ".exif_limpio_v1.json").is_file()
+        assert (repo_falso / "processing" / "dband_odm" / "geo.txt").is_file()
+        assert "clean:2" in calls_log.read_text(encoding="utf-8")
+
+        calls_before = len([ln for ln in calls_log.read_text(encoding="utf-8").splitlines() if ln.startswith("clean:")])
+        r2 = subprocess.run(
+            [sys.executable, script], cwd=str(repo_falso), env=env, capture_output=True, text=True, timeout=20
+        )
+        assert r2.returncode == 0, r2.stdout + r2.stderr
+        assert "ya estaban preparadas" in r2.stdout
+        calls_after = len([ln for ln in calls_log.read_text(encoding="utf-8").splitlines() if ln.startswith("clean:")])
+        assert calls_after == calls_before, "Segunda corrida idempotente no debe re-ejecutar limpieza exiftool"
+
 
 class TestConteoDeEtapasConBandaD:
     """docker/entrypoint.sh: DO_DBAND tiene que sumar exactamente una etapa

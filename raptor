@@ -386,6 +386,8 @@ cmd_run() {
 
   local args=(--rm --init -e "MODE=$mode" -e "SKIP_ODM=$reuse" -e "VERBOSE=$verbose" -e "PRESET=$preset" -e "TERRENO=$terreno" -e "SUB_SAMPLE=$subsample")
   [[ -n "$concurrency" ]] && args+=(-e "MAX_CONCURRENCY=$concurrency")
+  [[ -n "${RAPTOR_OPTIMIZE_DISK:-}" ]] && args+=(-e "RAPTOR_OPTIMIZE_DISK=${RAPTOR_OPTIMIZE_DISK}")
+  [[ -n "${RAPTOR_FORCE_ODM:-}" ]] && args+=(-e "RAPTOR_FORCE_ODM=${RAPTOR_FORCE_ODM}")
 
   if [[ -n "$input" ]]; then
     input="$(abs "$input")"
@@ -496,6 +498,8 @@ EOF
   asegurar_docker
   runs="$(abs "$runs")"; mkdir -p "$runs"
   local args=(-p "${port}:${port}" -v "$runs:$C_RUNS" -e "PORT=$port")
+  [[ -n "${RAPTOR_OPTIMIZE_DISK:-}" ]] && args+=(-e "RAPTOR_OPTIMIZE_DISK=${RAPTOR_OPTIMIZE_DISK}")
+  [[ -n "${RAPTOR_FORCE_ODM:-}" ]] && args+=(-e "RAPTOR_FORCE_ODM=${RAPTOR_FORCE_ODM}")
   if [[ -n "$export_dir" ]]; then
     export_dir="$(abs "$export_dir")"
     mkdir -p "$export_dir" 2>/dev/null || morir "no se pudo crear la carpeta de entrega: $export_dir"
