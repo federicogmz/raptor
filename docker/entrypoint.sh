@@ -41,7 +41,9 @@
 # compartida con la webapp y el CLI.
 # ═══════════════════════════════════════════════════════════════════
 set -euo pipefail
-cd /app
+# RAPTOR_APP_DIR pensado para tests aislados de `quality-estimate`; los caminos
+# de ejecución completa (`run`, `webapp`, `serve`) asumen el layout `/app` del contenedor.
+cd "${RAPTOR_APP_DIR:-/app}"
 
 # Tiempos por etapa: registrados desde acá, impresos + escritos a JSON al
 # final (ver el resumen antes de "Pipeline completo" más abajo) — sin esto,
@@ -215,6 +217,7 @@ case "${1:-run}" in
     # solo contar, y así no interfiere si después se corre `run` de verdad
     # sobre el mismo montaje). Lo usa ./raptor run para mostrar el mensaje
     # antes de lanzar la corrida real.
+    N_RGB=0; N_TH=0; N_MS=0
     SF_SCRIPT="scripts/source_filter.py"
     [[ -f "$SF_SCRIPT" ]] || SF_SCRIPT="$(dirname "$0")/../scripts/source_filter.py"
     if [[ -d "$SOURCE_DIR" ]]; then

@@ -240,3 +240,104 @@ class TestFiltradoYMrk:
         obtenidos = {os.path.basename(p) for p in _listdir_names(raw_rgb)}
         assert esperados == {"DJI_20260803120000_0001_W.JPG"}
         assert obtenidos == esperados
+
+
+def test_quality_estimate_sin_multiespectral_no_falla_con_set_u(tmp_path):
+    """quality-estimate no debe fallar con set -u cuando falta MS_SOURCE_DIR o SOURCE_DIR."""
+    import json
+
+    entrypoint = os.path.join(REPO, "docker", "entrypoint.sh")
+
+    app_dir = tmp_path / "app"
+    scripts_dir = app_dir / "scripts"
+    scripts_dir.mkdir(parents=True)
+    # Stub hermético de scripts/hardware.py: responde a `preset ... --shell` (10 líneas)
+    # y registra el argumento exacto de `por_sensor` recibido desde bash.
+    (scripts_dir / "hardware.py").write_text(
+        "import json, os, sys\n"
+        "if len(sys.argv) > 1 and sys.argv[1] == 'preset':\n"
+        "    print('\\n'.join(['cartografico', 'Cartográfico', 'medium', 'high', '4', '8000', '8', 'incremental', '1', '0']))\n"
+        "def estimate_message(preset, n_imgs, terreno='plano', por_sensor=None):\n"
+        "    expected = json.loads(os.environ['EXPECTED_POR_SENSOR'])\n"
+        "    assert por_sensor == expected, f'{por_sensor} != {expected}'\n"
+        "    return {\n"
+        "        'hardware': {'cores': 4, 'mem_available_mb': 8192, 'gpu': False, 'gpu_name': None},\n"
+        "        'modelo_texto': 'modelo ok',\n"
+        "        'resolucion_texto': 'resolucion ok',\n"
+        "        'tiempo_texto': 'tiempo ok',\n"
+        "    }\n",
+        encoding="utf-8",
+    )
+
+    rgb_src = tmp_path / "input_rgb"
+    rgb_src.mkdir()
+    for i in (1, 2):
+        (rgb_src / f"DJI_2026081612000{i}_000{i}_V.JPG").write_bytes(b"rgb")
+        (rgb_src / f"DJI_2026081612000{i}_000{i}_T.JPG").write_bytes(b"th")
+
+    ms_src = tmp_path / "input_ms"
+    ms_src.mkdir()
+    (ms_src / "DJI_20260816120001_0001_MS_NIR.TIF").write_bytes(b"ms")
+
+    casos = [
+        # Sin multiespectral (N_MS=0), con SUB_SAMPLE apagado y encendido
+        (
+            {
+                "SOURCE_DIR": str(rgb_src),
+                "MS_SOURCE_DIR": str(tmp_path / "no_ms"),
+                "MODE": "rgb+thermal",
+                "PRESET": "cartografico",
+            },
+            {"rgb": 2, "thermal": 2, "multispectral": 0},
+        ),
+        (
+            {
+                "SOURCE_DIR": str(rgb_src),
+                "MS_SOURCE_DIR": str(tmp_path / "no_ms"),
+                "MODE": "rgb+thermal",
+                "PRESET": "cartografico",
+                "SUB_SAMPLE": "2",
+            },
+            {"rgb": 1, "thermal": 1, "multispectral": 0},
+        ),
+        # Sin vuelo RGB/térmico (N_RGB=0, N_TH=0) con MODE=none y MODE=rgb+thermal
+        (
+            {
+                "SOURCE_DIR": str(tmp_path / "no_rgb"),
+                "MS_SOURCE_DIR": str(ms_src),
+                "MODE": "none",
+                "PRESET": "cartografico",
+            },
+            {"rgb": 0, "thermal": 0, "multispectral": 4},
+        ),
+        (
+            {
+                "SOURCE_DIR": str(tmp_path / "no_rgb"),
+                "MS_SOURCE_DIR": str(ms_src),
+                "MODE": "rgb+thermal",
+                "PRESET": "cartografico",
+            },
+            {"rgb": 0, "thermal": 0, "multispectral": 4},
+        ),
+    ]
+
+    vars_pipeline = {"SUB_SAMPLE", "TERRENO", "QUALITY", "PRESET", "DBAND", "SKIP_ODM", "MODE"}
+    base_env = {k: v for k, v in os.environ.items() if k not in vars_pipeline}
+    for extra_env, expected in casos:
+        env = {
+            **base_env,
+            "RAPTOR_APP_DIR": str(app_dir),
+            "EXPECTED_POR_SENSOR": json.dumps(expected),
+            **extra_env,
+        }
+        res = subprocess.run(
+            ["bash", entrypoint, "quality-estimate"],
+            cwd=app_dir,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert res.returncode == 0, res.stderr
+        assert "📐 resolucion ok" in res.stdout, res.stdout
+        assert "⏱️  tiempo ok" in res.stdout, res.stdout
