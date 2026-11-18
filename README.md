@@ -913,6 +913,14 @@ docker run --rm -p 8080:8080 -v $PWD/geovisor/tiles:/app/geovisor/tiles \
 
 ---
 
+## Future Development
+
+- **Ground Control Points (GCPs):** Ingest surveyed ground targets (`gcp_list.txt`) alongside direct camera RTK/MRK poses during 3D bundle adjustment.
+- **Raw RINEX PPK Post-Processing:** Run kinematic base/rover post-processing directly from `.obs`/`.nav` RINEX logs when flights lack real-time `RtkFlag=50` EXIF/XMP or pre-solved `Q=50` `*Timestamp.MRK` camera solutions.
+- **Covariance-Weighted 2.5D Adjustment (`Zenith`):** Propagate per-frame RTK/PPK accuracy weights into Level 1 `Zenith` 2.5D pose refinement (currently applied in the Level 2 3D OpenDroneMap bundle adjustment).
+
+---
+
 ## Technical documentation
 
 See `docs/PIPELINE.md` for:
