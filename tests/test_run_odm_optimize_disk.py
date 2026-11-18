@@ -42,6 +42,7 @@ def _cargar_funciones_disk() -> str:
     txt = ENTRYPOINT.read_text(encoding="utf-8")
     partes = [
         _extraer_funcion(txt, "_firma_proyecto_odm"),
+        _extraer_funcion(txt, "_verificar_semilla_camara"),
         _extraer_funcion(txt, "run_odm"),
         _extraer_funcion(txt, "_purgar_intermedios_odm"),
     ]
@@ -453,3 +454,231 @@ _odm_invocar() {
                 "--optimize-disk-space" not in c
                 for c in (tmp_path / "calls.log").read_text(encoding="utf-8").splitlines()
             )
+
+    def test_camseed_se_pasa_en_ambas_fases_y_controla_reuso(self, tmp_path):
+        import json
+
+        proj = _preparar_proyecto(tmp_path)
+        seed_path = proj / ".raptor_camera_seed.json"
+        cam_full = {
+            "dji m3t 4000 3000 brown 0.6666": {
+                "projection_type": "brown",
+                "width": 4000,
+                "height": 3000,
+                "focal_x": 0.7225,
+                "focal_y": 0.7225,
+                "c_x": 0.0,
+                "c_y": 0.0,
+                "k1": 0.17285197,
+                "k2": -0.42744389,
+                "p1": -0.00014433,
+                "p2": -0.00014340,
+                "k3": 0.21868222,
+            }
+        }
+        seed_path.write_text(json.dumps(cam_full) + "\n", encoding="utf-8")
+        stub = (
+            STUB_INVOCAR_COMPLETO
+            + r"""
+_orig_odm_invocar="$(declare -f _odm_invocar)"
+eval "${_orig_odm_invocar/_odm_invocar/_odm_base}"
+_odm_invocar() {
+  _odm_base "$@"
+  local p="processing/$1"
+  cat > "$p/opensfm/camera_models.json" <<'CM'
+{"v2 dji m3t 4000 3000 brown 0.6666": {"focal_x": 0.7225}}
+CM
+  cat > "$p/opensfm/reconstruction.json" <<'REC'
+[{"cameras": {"v2 dji m3t 4000 3000 brown 0.6666": {"focal_x": 0.7210}}, "shots": {}}]
+REC
+}
+"""
+        )
+        r1 = _correr_bash(tmp_path, stub + "\nrun_odm rgb rgb_odm 8 4 --dsm\n")
+        assert r1.returncode == 0, r1.stdout + r1.stderr
+        calls = (tmp_path / "calls.log").read_text(encoding="utf-8").splitlines()
+        assert len(calls) == 2
+        expected_arg = f"--cameras {seed_path}"
+        assert expected_arg in calls[0]
+        assert expected_arg in calls[1]
+        assert "Semilla intrínseca aplicada en OpenSfM" in r1.stdout
+        assert "focal_x final SfM=0.7210" in r1.stdout
+
+        # Reuso inmediato (firma incluye camseed)
+        (tmp_path / "calls.log").unlink()
+        r_reuse = _correr_bash(tmp_path, stub + "\nrun_odm rgb rgb_odm 8 4 --dsm\n")
+        assert r_reuse.returncode == 0, r_reuse.stdout + r_reuse.stderr
+        assert not (tmp_path / "calls.log").exists()
+        assert "reusando" in r_reuse.stdout
+
+        # Cambio en .raptor_camera_seed.json (o firma vieja sin camseed=) invalida .raptor_odm_ok
+        (proj / ".raptor_odm_ok").write_text("firma_legacy_sin_camseed\n", encoding="utf-8")
+        r_legacy = _correr_bash(tmp_path, stub + "\nrun_odm rgb rgb_odm 8 4 --dsm\n")
+        assert r_legacy.returncode == 0, r_legacy.stdout + r_legacy.stderr
+        assert (tmp_path / "calls.log").exists()
+
+        # Al desaparecer la semilla (cambio de cámara) con .raptor_odm_ok ya ausente, limpia opensfm/ previo
+        (proj / ".raptor_odm_ok").unlink()
+        seed_path.unlink()
+        (proj / "opensfm" / "image_list.txt").write_text("seeded_old\n", encoding="utf-8")
+        (tmp_path / "calls.log").unlink()
+        stub_no_stale = (
+            stub
+            + r"""
+_orig2="$(declare -f _odm_invocar)"
+eval "${_orig2/_odm_invocar/_odm_base2}"
+_odm_invocar() {
+  local p="processing/$1"
+  if [[ "$5" == "" ]]; then
+    [[ ! -e "$p/opensfm/image_list.txt" ]] || return 94
+  fi
+  _odm_base2 "$@"
+}
+"""
+        )
+        r_removed = _correr_bash(tmp_path, stub_no_stale + "\nrun_odm rgb rgb_odm 8 4 --dsm\n")
+        assert r_removed.returncode == 0, r_removed.stdout + r_removed.stderr
+        assert (proj / ".raptor_camseed_used").read_text(encoding="utf-8").strip() == "none"
+
+        # Vuelve a sembrar y prueba divergencia + RAPTOR_CAMERA_SEED=0
+        cam_diff = json.loads(json.dumps(cam_full))
+        cam_diff["dji m3t 4000 3000 brown 0.6666"]["focal_x"] = 0.7235
+        seed_path.write_text(json.dumps(cam_diff) + "\n", encoding="utf-8")
+        (tmp_path / "calls.log").unlink()
+        r_chg = _correr_bash(tmp_path, stub + "\nrun_odm rgb rgb_odm 8 4 --dsm\n")
+        assert r_chg.returncode == 0, r_chg.stdout + r_chg.stderr
+        assert "divergió de semilla" in r_chg.stdout
+
+        (tmp_path / "calls.log").unlink()
+        r_off = _correr_bash(
+            tmp_path,
+            stub + "\nrun_odm rgb rgb_odm 8 4 --dsm\n",
+            env_extra={"RAPTOR_CAMERA_SEED": "0"},
+        )
+        assert r_off.returncode == 0, r_off.stdout + r_off.stderr
+        calls_off = (tmp_path / "calls.log").read_text(encoding="utf-8").splitlines()
+        assert len(calls_off) == 2
+        assert all("--cameras" not in c for c in calls_off)
+
+    def test_camseed_limpia_opensfm_parcial_si_cambia_semilla_sin_ok_marker(self, tmp_path):
+        proj = _preparar_proyecto(tmp_path)
+        # Simula corrida previa interrumpida sin .raptor_odm_ok ni .raptor_purgado
+        (proj / "opensfm").mkdir(parents=True)
+        (proj / "opensfm" / "image_list.txt").write_text("stale\n", encoding="utf-8")
+        (proj / "cameras.json").write_text("stale", encoding="utf-8")
+        (proj / "images.json").write_text("stale", encoding="utf-8")
+
+        seed_path = proj / ".raptor_camera_seed.json"
+        seed_path.write_text('{"dji m3t 4000 3000 brown 0.6666": {"focal_x": 0.7225}}\n', encoding="utf-8")
+
+        stub = (
+            STUB_INVOCAR_COMPLETO
+            + r"""
+_orig_odm_invocar="$(declare -f _odm_invocar)"
+eval "${_orig_odm_invocar/_odm_invocar/_odm_base}"
+_odm_invocar() {
+  local p="processing/$1"
+  local resume="$5"
+  if [[ "$resume" == "" ]]; then
+    [[ ! -e "$p/opensfm/image_list.txt" ]] || { echo "STALE_IMAGE_LIST" >&2; return 91; }
+    [[ ! -e "$p/cameras.json" ]] || { echo "STALE_CAMERAS" >&2; return 92; }
+    [[ ! -e "$p/images.json" ]] || { echo "STALE_IMAGES" >&2; return 93; }
+  fi
+  _odm_base "$@"
+}
+"""
+        )
+        r = _correr_bash(tmp_path, stub + "\nrun_odm rgb rgb_odm 8 4 --dsm\n")
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert (proj / ".raptor_camseed_used").is_file()
+        assert (proj / ".raptor_camseed_used").read_text(encoding="utf-8").strip() != "none"
+
+    def test_camseed_fast_orthophoto_usuario_cameras_y_preserva_parcial_sin_semilla(self, tmp_path):
+        proj = _preparar_proyecto(tmp_path, name="thermal_native_odm")
+        # Proyecto parcial sin semilla ni ok_marker (p. ej. térmico) NO debe borrarse
+        (proj / "opensfm").mkdir(parents=True)
+        (proj / "opensfm" / "reconstruction.json").write_text('[{"shots": {}}]', encoding="utf-8")
+        (proj / "opensfm" / "tracks.csv").write_text("0\t1\t2\t3\n" * 5, encoding="utf-8")
+
+        stub = (
+            STUB_INVOCAR_COMPLETO
+            + r"""
+_orig_odm_invocar="$(declare -f _odm_invocar)"
+eval "${_orig_odm_invocar/_odm_invocar/_odm_base}"
+_odm_invocar() {
+  local p="processing/$1"
+  [[ -s "$p/opensfm/tracks.csv" ]] || return 95
+  _odm_base "$@"
+}
+"""
+        )
+        r_th = _correr_bash(tmp_path, stub + "\nrun_odm thermal thermal_native_odm 4 2\n")
+        assert r_th.returncode == 0, r_th.stdout + r_th.stderr
+
+        # En --fast-orthophoto con semilla se pasa --cameras y corre la verificación
+        proj2 = _preparar_proyecto(tmp_path, name="dband_odm")
+        seed2 = proj2 / ".raptor_camera_seed.json"
+        seed2.write_text(
+            '{"dji m3m 5280 3956 brown 0.6666": {"projection_type": "brown", "width": 5280, "height": 3956, "focal_x": 0.7033, "focal_y": 0.7033, "c_x": 0.0, "c_y": 0.0, "k1": -0.11, "k2": 0.01, "p1": 0.0, "p2": 0.0, "k3": -0.02}}\n',
+            encoding="utf-8",
+        )
+        stub2 = (
+            STUB_INVOCAR_COMPLETO
+            + r"""
+_orig_odm_invocar="$(declare -f _odm_invocar)"
+eval "${_orig_odm_invocar/_odm_invocar/_odm_base}"
+_odm_invocar() {
+  _odm_base "$@"
+  local p="processing/$1"
+  cat > "$p/opensfm/camera_models.json" <<'CM'
+{"v2 dji m3m 5280 3956 brown 0.6666": {"focal_x": 0.7033}}
+CM
+}
+"""
+        )
+        (tmp_path / "calls.log").unlink(missing_ok=True)
+        r_fast = _correr_bash(tmp_path, stub2 + "\nrun_odm dband dband_odm 4 2 --fast-orthophoto\n")
+        assert r_fast.returncode == 0, r_fast.stdout + r_fast.stderr
+        calls_fast = (tmp_path / "calls.log").read_text(encoding="utf-8").splitlines()
+        assert len(calls_fast) == 1
+        assert f"--cameras {seed2}" in calls_fast[0]
+        assert "Semilla intrínseca aplicada en OpenSfM" in r_fast.stdout
+
+        # Si el usuario pasa --cameras explícito, no se duplica ni se inyecta seed2
+        (tmp_path / "calls.log").unlink(missing_ok=True)
+        user_cam = tmp_path / "custom.json"
+        user_cam.write_text("{}", encoding="utf-8")
+        r_usr = _correr_bash(
+            tmp_path, stub2 + f"\nrun_odm dband dband_odm 4 2 --fast-orthophoto --cameras {user_cam}\n"
+        )
+        assert r_usr.returncode == 0, r_usr.stdout + r_usr.stderr
+        calls_usr = (tmp_path / "calls.log").read_text(encoding="utf-8").splitlines()
+        assert len(calls_usr) == 1
+        assert calls_usr[0].count("--cameras") == 1
+        assert str(user_cam) in calls_usr[0]
+
+        # Con RAPTOR_OPTIMIZE_DISK=0 (sin .raptor_odm_ok) un cambio de semilla igual limpia opensfm/
+        (proj2 / ".raptor_odm_ok").unlink(missing_ok=True)
+        seed2.write_text(
+            '{"dji m3m 5280 3956 brown 0.6666": {"projection_type": "brown", "width": 5280, "height": 3956, "focal_x": 0.7055, "focal_y": 0.7055, "c_x": 0.0, "c_y": 0.0, "k1": -0.11, "k2": 0.01, "p1": 0.0, "p2": 0.0, "k3": -0.02}}\n',
+            encoding="utf-8",
+        )
+        (proj2 / "opensfm" / "image_list.txt").write_text("old_unopt\n", encoding="utf-8")
+        r_noopt = _correr_bash(
+            tmp_path,
+            stub2
+            + r"""
+_orig_noopt="$(declare -f _odm_invocar)"
+eval "${_orig_noopt/_odm_invocar/_odm_base_noopt}"
+_odm_invocar() {
+  local p="processing/$1"
+  if [[ "$5" == "" ]]; then
+    [[ ! -e "$p/opensfm/image_list.txt" ]] || return 96
+  fi
+  _odm_base_noopt "$@"
+}
+run_odm dband dband_odm 4 2 --fast-orthophoto
+""",
+            env_extra={"RAPTOR_OPTIMIZE_DISK": "0"},
+        )
+        assert r_noopt.returncode == 0, r_noopt.stdout + r_noopt.stderr

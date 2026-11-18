@@ -401,6 +401,7 @@ cmd_run() {
   [[ -n "$concurrency" ]] && args+=(-e "MAX_CONCURRENCY=$concurrency")
   [[ -n "${RAPTOR_OPTIMIZE_DISK:-}" ]] && args+=(-e "RAPTOR_OPTIMIZE_DISK=${RAPTOR_OPTIMIZE_DISK}")
   [[ -n "${RAPTOR_FORCE_ODM:-}" ]] && args+=(-e "RAPTOR_FORCE_ODM=${RAPTOR_FORCE_ODM}")
+  [[ -n "${RAPTOR_CAMERA_SEED:-}" ]] && args+=(-e "RAPTOR_CAMERA_SEED=${RAPTOR_CAMERA_SEED}")
 
   if [[ -n "$input" ]]; then
     input="$(abs "$input")"
@@ -513,6 +514,7 @@ EOF
   local args=(-p "${port}:${port}" -v "$runs:$C_RUNS" -e "PORT=$port")
   [[ -n "${RAPTOR_OPTIMIZE_DISK:-}" ]] && args+=(-e "RAPTOR_OPTIMIZE_DISK=${RAPTOR_OPTIMIZE_DISK}")
   [[ -n "${RAPTOR_FORCE_ODM:-}" ]] && args+=(-e "RAPTOR_FORCE_ODM=${RAPTOR_FORCE_ODM}")
+  [[ -n "${RAPTOR_CAMERA_SEED:-}" ]] && args+=(-e "RAPTOR_CAMERA_SEED=${RAPTOR_CAMERA_SEED}")
   if [[ -n "$export_dir" ]]; then
     export_dir="$(abs "$export_dir")"
     mkdir -p "$export_dir" 2>/dev/null || morir "no se pudo crear la carpeta de entrega: $export_dir"

@@ -33,7 +33,12 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hardware import safe_concurrency  # noqa: E402
-from odm_staging import copiar_y_limpiar_exif, escribir_geo_txt, recolectar_exif  # noqa: E402
+from odm_staging import (  # noqa: E402
+    copiar_y_limpiar_exif,
+    escribir_camera_seed,
+    escribir_geo_txt,
+    recolectar_exif,
+)
 
 _override = os.environ.get("MAX_CONCURRENCY")
 NPROCS = safe_concurrency(2, override=int(_override) if _override else None)
@@ -46,20 +51,31 @@ LOTE = 100
 
 
 def _gestionar_geo_txt(images_dir, nombres):
-    """Decide si escribir o limpiar `geo.txt` junto a `images_dir`."""
-    geo_txt = os.path.join(os.path.dirname(os.path.abspath(images_dir)), "geo.txt")
+    """Decide si escribir o limpiar `geo.txt` junto a `images_dir` y siembra cámara."""
+    proj_dir = os.path.dirname(os.path.abspath(images_dir))
+    geo_txt = os.path.join(proj_dir, "geo.txt")
+    seed_path = os.path.join(proj_dir, ".raptor_camera_seed.json")
     modo = os.environ.get("RAPTOR_RGB_GEO_TXT", "auto").strip().lower() or "auto"
+    seed_off = os.environ.get("RAPTOR_CAMERA_SEED", "1").strip().lower() in ("0", "false", "no", "off")
+    rutas = [os.path.join(images_dir, f) for f in nombres]
     if modo == "0":
         if os.path.isfile(geo_txt):
             os.remove(geo_txt)
+        if seed_off:
+            if os.path.isfile(seed_path):
+                os.unlink(seed_path)
+        else:
+            registros, _ = recolectar_exif(rutas, geo_txt, NPROCS, etiqueta="imágenes RGB", mrk_dir=MRK_DIR)
+            escribir_camera_seed(registros, seed_path, etiqueta="imágenes RGB")
         return
-    rutas = [os.path.join(images_dir, f) for f in nombres]
     if modo == "1":
         escribir_geo_txt(rutas, geo_txt, NPROCS, etiqueta="imágenes RGB", mrk_dir=MRK_DIR)
+        registros, _ = recolectar_exif(rutas, geo_txt, NPROCS, etiqueta="imágenes RGB", mrk_dir=MRK_DIR)
+        escribir_camera_seed(registros, seed_path, etiqueta="imágenes RGB")
         return
     # Modo `auto`: solo escribe geo.txt si corrige vía MRK (Q=50) o en bloques
     # mixtos / RTK FLOAT (un vuelo uniforme sin RTK o 100 % FIX sigue sin geo.txt).
-    _, stats = recolectar_exif(rutas, geo_txt, NPROCS, etiqueta="imágenes RGB", mrk_dir=MRK_DIR)
+    registros, stats = recolectar_exif(rutas, geo_txt, NPROCS, etiqueta="imágenes RGB", mrk_dir=MRK_DIR)
     if stats["mrk_ppk"] or stats["mixto"] or stats["float"]:
         print(
             "🛰️  Generando geo.txt RGB por "
@@ -69,6 +85,7 @@ def _gestionar_geo_txt(images_dir, nombres):
         escribir_geo_txt(rutas, geo_txt, NPROCS, etiqueta="imágenes RGB", mrk_dir=MRK_DIR)
     elif os.path.isfile(geo_txt):
         os.remove(geo_txt)
+    escribir_camera_seed(registros, seed_path, etiqueta="imágenes RGB")
 
 
 def main():

@@ -20,7 +20,12 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hardware import safe_concurrency  # noqa: E402
-from odm_staging import copiar_y_limpiar_exif, escribir_geo_txt  # noqa: E402
+from odm_staging import (  # noqa: E402
+    copiar_y_limpiar_exif,
+    escribir_camera_seed,
+    escribir_geo_txt,
+    recolectar_exif,
+)
 
 # Mismo criterio memory-aware que prepare_multispectral_odm.py (ver el
 # comentario largo ahí sobre por qué no es cpu_count() a secas) — mismo
@@ -62,6 +67,8 @@ def main():
 
     rutas = [os.path.join(IMAGES_DIR, f) for f in nombres]
     con_gps, _ = escribir_geo_txt(rutas, GEO_TXT, NPROCS, etiqueta="imágenes", mrk_dir=MRK_DIR)
+    registros, _ = recolectar_exif(rutas, GEO_TXT, NPROCS, etiqueta="imágenes", mrk_dir=MRK_DIR)
+    escribir_camera_seed(registros, os.path.join(OUTPUT_DIR, ".raptor_camera_seed.json"), etiqueta="imágenes banda D")
 
     print(f"\n✅ {con_gps}/{len(nombres)} imágenes con GPS")
     print(f"   Directorio ODM: {OUTPUT_DIR}/")

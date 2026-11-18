@@ -17,7 +17,7 @@ import subprocess
 
 import pytest
 
-from odm_staging import enlazar_o_copiar, escribir_geo_txt, poblar_images
+from odm_staging import EXIF_CACHE_SCHEMA, enlazar_o_copiar, escribir_geo_txt, poblar_images
 
 
 def _tocar(p, contenido=b"x"):
@@ -288,7 +288,7 @@ class TestRtkFlagYMrk:
         monkeypatch.setattr(subprocess, "run", _exiftool_f1)
         escribir_geo_txt([str(f1)], str(geo), 1)
         data = json.loads(cache_path.read_text(encoding="utf-8"))
-        assert data["schema"] == 2
+        assert data["schema"] == EXIF_CACHE_SCHEMA
         assert f1.name in data["entries"]
 
     def test_mrk_ppk_actualiza_solo_primaria_con_secuencia_unica(self, tmp_path, exiftool_falso):
@@ -492,8 +492,15 @@ class TestRtkFlagYMrk:
                 shutil.copy2(cmd[-2], cmd[-1])
                 return subprocess.CompletedProcess(cmd, 0, "", "")
             if cmd[0] == "exiftool":
-                intentos["exiftool"] += 1
                 lote = kw["input"].strip().splitlines()
+                if "-j" in cmd:
+                    return subprocess.CompletedProcess(
+                        cmd,
+                        0,
+                        json.dumps([{"SourceFile": p} for p in lote]),
+                        "",
+                    )
+                intentos["exiftool"] += 1
                 if intentos["exiftool"] == 1:
                     return subprocess.CompletedProcess(cmd, 1, "", "simulated exiftool error")
                 intentos["limpiados"].extend(os.path.basename(p) for p in lote)
@@ -563,3 +570,246 @@ class TestRtkFlagYMrk:
         os.utime(img1, (st.st_atime + 3600, st.st_mtime + 3600))
         copiar_y_limpiar_exif(str(src_dir), str(images_dir), nombres, nprocs=1, lote=1)
         assert batch_calls["n"] == calls_before + 1
+
+
+class TestCameraSeed:
+    def test_semilla_m3t_wide_y_ignora_zoom_y_borra_residual(self, tmp_path, monkeypatch):
+        from odm_staging import escribir_camera_seed
+
+        monkeypatch.delenv("RAPTOR_CAMERA_SEED", raising=False)
+        seed_path = tmp_path / "rgb_odm" / ".raptor_camera_seed.json"
+        m3t_wide = {
+            "Make": "DJI",
+            "Model": "M3T",
+            "ImageWidth": 4000,
+            "ImageHeight": 3000,
+            "FocalLength": 4.4,
+            "FocalLengthIn35mmFormat": 24,
+        }
+        salida = escribir_camera_seed([("DJI_0001_V.JPG", m3t_wide)], str(seed_path), etiqueta="imágenes RGB")
+        assert list(salida.keys()) == ["dji m3t 4000 3000 brown 0.6666"]
+        cam = salida["dji m3t 4000 3000 brown 0.6666"]
+        assert cam["focal_x"] == pytest.approx(0.7225)
+        assert cam["k2"] == pytest.approx(-0.42744389)
+        assert seed_path.is_file()
+
+        # Lente zoom del mismo M3T NO debe matchear la tabla Wide y limpia residual si no queda nada
+        m3t_zoom = {
+            "Make": "DJI",
+            "Model": "M3T",
+            "ImageWidth": 4000,
+            "ImageHeight": 3000,
+            "FocalLength": 29.9,
+            "FocalLengthIn35mmFormat": 162,
+        }
+        assert escribir_camera_seed([("zoom.JPG", m3t_zoom)], str(seed_path)) == {}
+        assert not seed_path.exists()
+
+        # RAPTOR_CAMERA_SEED=0 desactiva y borra semilla residual incluso en M3T Wide
+        escribir_camera_seed([("DJI_0001_V.JPG", m3t_wide)], str(seed_path))
+        assert seed_path.is_file()
+        monkeypatch.setenv("RAPTOR_CAMERA_SEED", "0")
+        assert escribir_camera_seed([("DJI_0001_V.JPG", m3t_wide)], str(seed_path)) == {}
+        assert not seed_path.exists()
+
+    def test_semilla_dewarp_data_y_limites(self, tmp_path, monkeypatch):
+        from odm_staging import escribir_camera_seed
+
+        monkeypatch.delenv("RAPTOR_CAMERA_SEED", raising=False)
+        seed_path = tmp_path / "dband_odm" / ".raptor_camera_seed.json"
+        base_m3m = {
+            "Make": "DJI",
+            "Model": "M3M",
+            "ImageWidth": 5280,
+            "ImageHeight": 3956,
+            "FocalLength": 12.29,
+            "FocalLengthIn35mmFormat": 24,
+            "DewarpFlag": 0,
+            "DewarpData": "2022-06-08;3713.29,3713.29,7.02,-8.72,-0.11257524,0.01487443,-0.00008572,0.00000010,-0.02706411",
+        }
+        salida = escribir_camera_seed([("DJI_0001_D.JPG", base_m3m)], str(seed_path), etiqueta="banda D")
+        assert list(salida.keys()) == ["dji m3m 5280 3956 brown 0.6666"]
+        cam = salida["dji m3m 5280 3956 brown 0.6666"]
+        assert cam["focal_x"] == pytest.approx(3713.29 / 5280.0)
+        assert cam["c_x"] == pytest.approx(7.02 / 5280.0)
+        assert cam["k3"] == pytest.approx(-0.02706411)
+
+        # DewarpFlag=1 (incluso en M3T Wide en tabla de fábrica), formatos inválidos, fuera de rango o sin FocalLengthIn35mmFormat se rechazan
+        m3t_dewarped = {
+            "Make": "DJI",
+            "Model": "M3T",
+            "ImageWidth": 4000,
+            "ImageHeight": 3000,
+            "FocalLength": 4.4,
+            "FocalLengthIn35mmFormat": 24,
+            "DewarpFlag": 1,
+        }
+        dewarped = dict(base_m3m, DewarpFlag=1)
+        malformed = dict(base_m3m, DewarpData="2022-06-08;1,2,3")
+        bad_cx = dict(base_m3m, DewarpData="2022-06-08;3713.29,3713.29,900.0,0.0,0,0,0,0,0")
+        no_f35 = {k: v for k, v in base_m3m.items() if k != "FocalLengthIn35mmFormat"}
+        assert (
+            escribir_camera_seed(
+                [
+                    ("a.JPG", dewarped),
+                    ("b.JPG", malformed),
+                    ("c.JPG", bad_cx),
+                    ("d.JPG", no_f35),
+                    ("m3t_dewarp.JPG", m3t_dewarped),
+                ],
+                str(seed_path),
+            )
+            == {}
+        )
+        assert not seed_path.exists()
+
+    def test_omite_semilla_si_dispersion_focal_supera_uno_punto_cinco_pct(self, tmp_path, monkeypatch, capsys):
+        from odm_staging import escribir_camera_seed
+
+        monkeypatch.delenv("RAPTOR_CAMERA_SEED", raising=False)
+        seed_path = tmp_path / "rgb_odm" / ".raptor_camera_seed.json"
+        base = {
+            "Make": "DJI",
+            "Model": "M3M",
+            "ImageWidth": 5280,
+            "ImageHeight": 3956,
+            "FocalLength": 12.29,
+            "FocalLengthIn35mmFormat": 24,
+            "DewarpFlag": 0,
+        }
+        u1 = dict(base, DewarpData="2022-06-08;3700.0,3700.0,0,0,-0.11,0.01,0,0,-0.02")
+        u2 = dict(base, DewarpData="2022-06-08;3860.0,3860.0,0,0,-0.11,0.01,0,0,-0.02")
+        assert escribir_camera_seed([("u1.JPG", u1), ("u2.JPG", u2)], str(seed_path)) == {}
+        assert not seed_path.exists()
+        assert "dispersión > 1.5 %" in capsys.readouterr().out
+
+    def test_no_mezcla_dewarp_data_con_tabla_fabrica_en_mismo_grupo(self, tmp_path, monkeypatch, capsys):
+        from odm_staging import escribir_camera_seed
+
+        monkeypatch.delenv("RAPTOR_CAMERA_SEED", raising=False)
+        seed_path = tmp_path / "rgb_odm" / ".raptor_camera_seed.json"
+        sin_dewarp = {
+            "Make": "DJI",
+            "Model": "M3T",
+            "ImageWidth": 4000,
+            "ImageHeight": 3000,
+            "FocalLength": 4.4,
+            "FocalLengthIn35mmFormat": 24,
+        }
+        con_dewarp = dict(
+            sin_dewarp,
+            DewarpFlag=0,
+            DewarpData="2026-01-01;2880.0,2880.0,0.0,0.0,0.17,-0.42,0.0,0.0,0.21",
+        )
+        salida = escribir_camera_seed(
+            [("a.JPG", sin_dewarp), ("b.JPG", sin_dewarp), ("c.JPG", con_dewarp)],
+            str(seed_path),
+        )
+        cam = salida["dji m3t 4000 3000 brown 0.6666"]
+        assert cam["focal_x"] == pytest.approx(2880.0 / 4000.0)
+        assert "XMP DewarpData" in capsys.readouterr().out
+
+    def test_prepare_rgb_odm_escribe_semilla_en_geo_cero_y_respeta_desactivacion(
+        self, tmp_path, monkeypatch, exiftool_falso
+    ):
+        import prepare_rgb_odm
+
+        proj = tmp_path / "rgb_odm"
+        images_dir = proj / "images"
+        images_dir.mkdir(parents=True)
+        mrk_dir = tmp_path / "mrk_rgb"
+        mrk_dir.mkdir()
+        monkeypatch.setattr(prepare_rgb_odm, "MRK_DIR", str(mrk_dir))
+
+        img = images_dir / "DJI_20260803135508_0001_V.JPG"
+        img.write_bytes(b"jpg")
+        exiftool_falso[img.name] = {
+            "GPSLatitude": 6.44,
+            "GPSLongitude": -75.31,
+            "AbsoluteAltitude": 1856.7,
+            "RtkFlag": 50,
+            "RtkStdLon": 0.011,
+            "RtkStdLat": 0.011,
+            "RtkStdHgt": 0.032,
+            "Make": "DJI",
+            "Model": "M3T",
+            "ImageWidth": 4000,
+            "ImageHeight": 3000,
+            "FocalLength": 4.4,
+            "FocalLengthIn35mmFormat": 24,
+        }
+
+        # RAPTOR_RGB_GEO_TXT=0 con RAPTOR_CAMERA_SEED sin definir también genera semilla
+        monkeypatch.setenv("RAPTOR_RGB_GEO_TXT", "0")
+        monkeypatch.delenv("RAPTOR_CAMERA_SEED", raising=False)
+        prepare_rgb_odm._gestionar_geo_txt(str(images_dir), [img.name])
+        seed = json.loads((proj / ".raptor_camera_seed.json").read_text(encoding="utf-8"))
+        assert "dji m3t 4000 3000 brown 0.6666" in seed
+        assert not (proj / "geo.txt").exists()
+
+        # RAPTOR_CAMERA_SEED=0 limpia residual en modo=0
+        monkeypatch.setenv("RAPTOR_CAMERA_SEED", "0")
+        prepare_rgb_odm._gestionar_geo_txt(str(images_dir), [img.name])
+        assert not (proj / ".raptor_camera_seed.json").exists()
+
+    def test_prepare_dband_odm_main_escribe_semilla_dewarp(self, tmp_path, monkeypatch):
+        import shutil
+        import prepare_dband_odm
+
+        data_d = tmp_path / "data" / "dband_mosaico"
+        out_dir = tmp_path / "processing" / "dband_odm"
+        images_dir = out_dir / "images"
+        mrk_dir = tmp_path / "mrk"
+        data_d.mkdir(parents=True)
+        mrk_dir.mkdir()
+        (data_d / "DJI_20260803144845_0001_D.JPG").write_bytes(b"dband")
+
+        monkeypatch.setattr(prepare_dband_odm, "D_JPG_DIR", str(data_d))
+        monkeypatch.setattr(prepare_dband_odm, "MRK_DIR", str(mrk_dir))
+        monkeypatch.setattr(prepare_dband_odm, "OUTPUT_DIR", str(out_dir))
+        monkeypatch.setattr(prepare_dband_odm, "IMAGES_DIR", str(images_dir))
+        monkeypatch.setattr(prepare_dband_odm, "GEO_TXT", str(out_dir / "geo.txt"))
+        monkeypatch.setattr(prepare_dband_odm, "NPROCS", 1)
+        monkeypatch.delenv("RAPTOR_CAMERA_SEED", raising=False)
+
+        payload = [
+            {
+                "SourceFile": str(images_dir / "DJI_20260803144845_0001_D.JPG"),
+                "GPSLatitude": 6.44,
+                "GPSLongitude": -75.31,
+                "AbsoluteAltitude": 1856.7,
+                "RtkFlag": 50,
+                "RtkStdLon": 0.011,
+                "RtkStdLat": 0.011,
+                "RtkStdHgt": 0.032,
+                "Make": "DJI",
+                "Model": "M3M",
+                "ImageWidth": 5280,
+                "ImageHeight": 3956,
+                "FocalLength": 12.29,
+                "FocalLengthIn35mmFormat": 24,
+                "DewarpFlag": 0,
+                "DewarpData": "2022-06-08;3713.29,3713.29,7.02,-8.72,-0.11257524,0.01487443,-0.00008572,0.00000010,-0.02706411",
+            }
+        ]
+
+        def _fake_run(cmd, **kw):
+            if cmd[0] == "cp":
+                shutil.copy2(cmd[-2], cmd[-1])
+                return subprocess.CompletedProcess(cmd, 0, "", "")
+            if cmd[0] == "exiftool":
+                if "-j" in cmd:
+                    return subprocess.CompletedProcess(cmd, 0, json.dumps(payload), "")
+                return subprocess.CompletedProcess(cmd, 0, "", "")
+            raise AssertionError(f"comando inesperado: {cmd}")
+
+        monkeypatch.setattr(subprocess, "run", _fake_run)
+        prepare_dband_odm.main()
+        seed = json.loads((out_dir / ".raptor_camera_seed.json").read_text(encoding="utf-8"))
+        assert "dji m3m 5280 3956 brown 0.6666" in seed
+        assert seed["dji m3m 5280 3956 brown 0.6666"]["focal_x"] == pytest.approx(3713.29 / 5280.0)
+
+        # Con RAPTOR_CAMERA_SEED=0, una segunda corrida borra la semilla previa en dband_odm
+        monkeypatch.setenv("RAPTOR_CAMERA_SEED", "0")
+        prepare_dband_odm.main()
+        assert not (out_dir / ".raptor_camera_seed.json").exists()

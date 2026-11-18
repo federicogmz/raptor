@@ -555,6 +555,7 @@ Useful environment variables (`-e VAR=value`):
 | `EXPORT_VERTICAL_DATUM` | `ellipsoidal` | `ellipsoidal` \| `egm96` (EGM96 shifts Z/DSM to orthometric when geo-referenced) |
 | `RAPTOR_OPTIMIZE_DISK` | `1` | `1` = pass `--optimize-disk-space` (Phase 2 / `--fast-orthophoto`) + purge intermediates after export (`prepare_dband_odm.py` stages MakerNote-stripped copies via `cp --reflink=auto`, zero-cost CoW on btrfs/XFS or full copy on ext4); `0` = keep all ODM intermediates (rebuilds cleanly if prior run was purged) |
 | `RAPTOR_FORCE_ODM` | `0` | `1` = ignore `.raptor_odm_ok` reuse signature and force ODM rebuild |
+| `RAPTOR_CAMERA_SEED` | `1` | `1` = seed OpenSfM Brown-Conrady intrinsics via `--cameras` from DJI M3T factory parameters (from Terra AT calibration across two M3T units) or XMP `DewarpData` (`DewarpFlag=0`), preventing nadir focal-depth drift under OpenSfM's default focal prior while keeping fine auto-calibration enabled (existing `.raptor_odm_ok` caches without `camseed` rebuild once when enabled); `0` = disable |
 
 ### Delivering the products
 

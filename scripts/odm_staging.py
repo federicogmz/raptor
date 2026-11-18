@@ -30,6 +30,7 @@ import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from statistics import median
 
 # Precisión asumida cuando una captura puntual no trae fix RTK. Conservador a
 # propósito: es peor decirle a ODM que confíe en un GPS que no lo merece que
@@ -45,11 +46,33 @@ V_ACC_MIXTO_SIN_RTK = 20.0
 H_ACC_RTK_FLOAT = 0.30
 V_ACC_RTK_FLOAT = 0.60
 
-EXIF_CACHE_SCHEMA = 2
+EXIF_CACHE_SCHEMA = 3
 EXIF_CLEAN_SCHEMA = 1
 _GPS_EPOCH_TS = 315964800.0  # 1980-01-06T00:00:00Z
 _GPS_UTC_LEAP_S = 18.0
 _DJI_RE = re.compile(r"DJI_(\d{14})_(\d{4})", re.IGNORECASE)
+
+# Semilla intrínseca verificada por reportes AT de DJI Terra (2 unidades M3T
+# distintas en los logs de benchmark: SN ...D2VP3 y SN ...D20C1). Solo se aplica
+# a lente Wide (4.4 mm / 24 mm eq. en 4000x3000) cuando el EXIF no trae DewarpData.
+_TABLA_CAMARAS_FABRICA = {
+    ("dji", "m3t", 4000, 3000): {
+        "fuente": "fábrica DJI M3T",
+        "focal_mm_rango": (3.5, 5.5),
+        "focal_35_rango": (22.0, 26.0),
+        "params": {
+            "focal_x": 0.7225,
+            "focal_y": 0.7225,
+            "c_x": 0.0,
+            "c_y": 0.0,
+            "k1": 0.17285197,
+            "k2": -0.42744389,
+            "p1": -0.00014433,
+            "p2": -0.00014340,
+            "k3": 0.21868222,
+        },
+    },
+}
 
 
 def enlazar_o_copiar(src, dst):
@@ -252,6 +275,16 @@ def _leer_gps_lote(rutas):
             "-RtkStdLat",
             "-RtkStdHgt",
             "-DateTimeOriginal",
+            "-Make",
+            "-Model",
+            "-ImageWidth",
+            "-ImageHeight",
+            "-ExifImageWidth",
+            "-ExifImageHeight",
+            "-FocalLength",
+            "-FocalLengthIn35mmFormat",
+            "-DewarpData",
+            "-DewarpFlag",
             "-@",
             "-",
         ],
@@ -673,3 +706,149 @@ def escribir_geo_txt(rutas, geo_txt, nprocs, etiqueta="archivos", mrk_dir=None):
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
     return con_gps, sin_gps
+
+
+def _odm_camera_id_y_dims(exif):
+    """Replica `opendm/photo.py` (`camera_id`) sin prefijo `v2` para clave de `--cameras`."""
+    make = str(exif.get("Make") or "").strip()
+    model = str(exif.get("Model") or "").strip()
+    w = _to_int(exif.get("ImageWidth")) or _to_int(exif.get("ExifImageWidth"))
+    h = _to_int(exif.get("ImageHeight")) or _to_int(exif.get("ExifImageHeight"))
+    focal_35 = _to_float(exif.get("FocalLengthIn35mmFormat"))
+    if not make or not model or not w or not h or w <= 0 or h <= 0 or focal_35 is None or focal_35 <= 0:
+        return None
+    focal_ratio = focal_35 / 36.0
+    cam_id = f"{make} {model} {int(w)} {int(h)} brown {str(float(focal_ratio))[:6]}".lower()
+    return cam_id, make.lower(), model.lower(), int(w), int(h), focal_ratio
+
+
+def _parse_dewarp_data(exif, w, h, focal_ratio):
+    """Extrae `[fx, fy, cx, cy, k1, k2, p1, p2, k3]` normalizados de `@drone-dji:DewarpData`."""
+    flag = exif.get("DewarpFlag")
+    if flag is not None and str(flag).strip().lower() not in ("", "0", "false"):
+        return None
+    raw = str(exif.get("DewarpData") or "").strip()
+    if not raw:
+        return None
+    body = raw.split(";", 1)[-1]
+    parts = [p.strip() for p in body.split(",")]
+    if len(parts) != 9:
+        return None
+    vals = [_to_float(p) for p in parts]
+    if any(v is None for v in vals):
+        return None
+    fx_px, fy_px, cx_off, cy_off, k1, k2, p1, p2, k3 = vals
+    max_dim = float(max(w, h))
+    focal_x = fx_px / max_dim
+    focal_y = fy_px / max_dim
+    c_x = cx_off / max_dim
+    c_y = cy_off / max_dim
+    if not (0.45 <= focal_x <= 1.25 and 0.45 <= focal_y <= 1.25):
+        return None
+    if abs(focal_x - focal_y) > 0.02:
+        return None
+    if focal_ratio > 0 and abs(focal_x - focal_ratio) / focal_ratio > 0.20:
+        return None
+    if abs(c_x) > 0.05 or abs(c_y) > 0.05:
+        return None
+    if abs(k1) > 1.0 or abs(k2) > 2.0 or abs(k3) > 2.0 or abs(p1) > 0.05 or abs(p2) > 0.05:
+        return None
+    return {
+        "focal_x": focal_x,
+        "focal_y": focal_y,
+        "c_x": c_x,
+        "c_y": c_y,
+        "k1": k1,
+        "k2": k2,
+        "p1": p1,
+        "p2": p2,
+        "k3": k3,
+    }
+
+
+def _resolver_calibracion_foto(exif):
+    ident = _odm_camera_id_y_dims(exif)
+    if ident is None:
+        return None
+    flag = exif.get("DewarpFlag")
+    if flag is not None and str(flag).strip().lower() not in ("", "0", "false"):
+        return None
+    cam_id, make_l, model_l, w, h, focal_ratio = ident
+    dewarp = _parse_dewarp_data(exif, w, h, focal_ratio)
+    if dewarp is not None:
+        return cam_id, w, h, "XMP DewarpData", dewarp
+    spec = _TABLA_CAMARAS_FABRICA.get((make_l, model_l, w, h))
+    if spec is None:
+        return None
+    focal_mm = _to_float(exif.get("FocalLength"))
+    focal_35 = _to_float(exif.get("FocalLengthIn35mmFormat"))
+    if focal_mm is None or focal_35 is None:
+        return None
+    mm_min, mm_max = spec["focal_mm_rango"]
+    f35_min, f35_max = spec["focal_35_rango"]
+    if not (mm_min <= focal_mm <= mm_max and f35_min <= focal_35 <= f35_max):
+        return None
+    return cam_id, w, h, spec["fuente"], dict(spec["params"])
+
+
+def escribir_camera_seed(registros, seed_path, etiqueta="imágenes"):
+    """Escribe `<proj_dir>/.raptor_camera_seed.json` para `--cameras` de ODM si hay semilla."""
+    if os.environ.get("RAPTOR_CAMERA_SEED", "1").strip().lower() in ("0", "false", "no", "off"):
+        if os.path.isfile(seed_path):
+            os.unlink(seed_path)
+        return {}
+
+    grupos = {}
+    for _nombre, exif in registros:
+        res = _resolver_calibracion_foto(exif)
+        if res is None:
+            continue
+        cam_id, w, h, fuente, params = res
+        entry = grupos.setdefault(cam_id, {"w": w, "h": h, "por_fuente": {}})
+        entry["por_fuente"].setdefault(fuente, []).append(params)
+
+    param_keys = ("focal_x", "focal_y", "c_x", "c_y", "k1", "k2", "p1", "p2", "k3")
+    salida = {}
+    for cam_id, info in sorted(grupos.items()):
+        por_fuente = info["por_fuente"]
+        fuente = (
+            "XMP DewarpData" if "XMP DewarpData" in por_fuente else max(por_fuente, key=lambda k: len(por_fuente[k]))
+        )
+        items = por_fuente[fuente]
+        fxs = [p["focal_x"] for p in items]
+        fx_med = float(median(fxs))
+        if fx_med > 0 and max(abs(x - fx_med) for x in fxs) > 0.015 * fx_med:
+            print(
+                f"⚠  {cam_id}: dispersión > 1.5 % en focal_x entre tomas ({min(fxs):.4f}..{max(fxs):.4f}); "
+                "omitiendo semilla para no mezclar calibraciones."
+            )
+            continue
+        med = {k: float(median([p[k] for p in items])) for k in param_keys}
+        salida[cam_id] = {
+            "projection_type": "brown",
+            "width": info["w"],
+            "height": info["h"],
+            **med,
+        }
+        print(
+            f"📷 Semilla intrínseca ({fuente}, {len(items)} {etiqueta}) para {cam_id}: "
+            f"focal_x={med['focal_x']:.4f}, k1={med['k1']:+.4f}, k2={med['k2']:+.4f}, k3={med['k3']:+.4f}"
+        )
+
+    if not salida:
+        if os.path.isfile(seed_path):
+            os.unlink(seed_path)
+        return {}
+
+    parent = os.path.dirname(seed_path) or "."
+    os.makedirs(parent, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=".camseed_", suffix=".tmp", dir=parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(salida, fh, sort_keys=True, indent=2)
+            fh.write("\n")
+        os.replace(tmp_path, seed_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+    return salida

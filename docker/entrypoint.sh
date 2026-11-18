@@ -70,6 +70,8 @@ SUB_SAMPLE="${SUB_SAMPLE:-0}"
 SKIP_ODM="${SKIP_ODM:-0}"
 RAPTOR_OPTIMIZE_DISK="${RAPTOR_OPTIMIZE_DISK:-1}"
 RAPTOR_FORCE_ODM="${RAPTOR_FORCE_ODM:-0}"
+RAPTOR_CAMERA_SEED="${RAPTOR_CAMERA_SEED:-1}"
+RAPTOR_CAMERA_SEED="${RAPTOR_CAMERA_SEED//[[:space:]]/}"
 PORT="${PORT:-8080}"
 SERVE="${SERVE:-1}"
 VERBOSE="${VERBOSE:-0}"
@@ -87,7 +89,7 @@ PRESET="${PRESET:-${QUALITY:-estandar}}"
 # en silencio — confirmado en vivo, ver el comentario de TERRENOS.
 TERRENO="${TERRENO:-plano}"
 EXTERNAL_DEM="${EXTERNAL_DEM:-}"
-export MODE VERBOSE EXTERNAL_DEM
+export MODE VERBOSE EXTERNAL_DEM RAPTOR_CAMERA_SEED
 
 # ── Perfil de calidad ───────────────────────────────────────────────
 # La tabla completa (qué significa cada campo y por qué su valor) vive en
@@ -674,7 +676,61 @@ _firma_proyecto_odm() {
     if [[ -f "$proj_dir/.exif_limpio_v1.json" ]]; then
       sha1sum "$proj_dir/.exif_limpio_v1.json" 2>/dev/null | awk '{print "clean=" $1}'
     fi
+    local _seed_env="${RAPTOR_CAMERA_SEED:-1}"
+    _seed_env="${_seed_env//[[:space:]]/}"
+    _seed_env="${_seed_env,,}"
+    local _has_cam=0 _arg
+    for _arg in "$@"; do
+      [[ "$_arg" == "--cameras" || "$_arg" == --cameras=* ]] && _has_cam=1
+    done
+    if [[ "$_seed_env" != "0" && "$_seed_env" != "false" && "$_seed_env" != "no" && "$_seed_env" != "off" \
+       && "$_has_cam" -eq 0 && -s "$proj_dir/.raptor_camera_seed.json" ]]; then
+      sha1sum "$proj_dir/.raptor_camera_seed.json" 2>/dev/null | awk '{print "camseed=" $1}'
+    fi
   } | sha1sum | awk '{print $1}'
+}
+
+_verificar_semilla_camara() {
+  local proj_dir="$1" seed_file="$2" logfile="$3"
+  local models_file="${proj_dir}/opensfm/camera_models.json"
+  local recon_file="${proj_dir}/opensfm/reconstruction.json"
+  [[ -s "$seed_file" ]] || return 0
+  if [[ ! -s "$models_file" ]]; then
+    echo "⚠  ADVERTENCIA: no existe ${models_file} tras Fase 1; no se pudo verificar la semilla intrínseca." | tee -a "$logfile"
+    return 0
+  fi
+  python3 - "$seed_file" "$models_file" "$recon_file" <<'PY' | tee -a "$logfile" || true
+import json, os, sys
+
+seed = json.load(open(sys.argv[1], encoding="utf-8"))
+models = json.load(open(sys.argv[2], encoding="utf-8"))
+recon_cams = {}
+if len(sys.argv) > 3 and os.path.isfile(sys.argv[3]):
+    try:
+        recons = json.load(open(sys.argv[3], encoding="utf-8"))
+        if isinstance(recons, list) and recons and isinstance(recons[0], dict):
+            recon_cams = recons[0].get("cameras") or {}
+    except Exception:
+        recon_cams = {}
+for k, cfg in seed.items():
+    osfm_key = k if k.startswith("v2 ") else f"v2 {k}"
+    m = models.get(osfm_key)
+    if not isinstance(m, dict):
+        print(f"⚠  ADVERTENCIA: OpenSfM no aplicó la semilla para {osfm_key} (claves: {list(models.keys())})")
+        continue
+    fx_seed = float(cfg.get("focal_x", 0.0))
+    fx_osfm = float(m.get("focal_x", m.get("focal", 0.0)))
+    suf = ""
+    rc = recon_cams.get(osfm_key)
+    if isinstance(rc, dict) and ("focal_x" in rc or "focal" in rc):
+        fx_rec = float(rc.get("focal_x", rc.get("focal", 0.0)))
+        delta_pct = ((fx_rec - fx_seed) / fx_seed * 100.0) if fx_seed else 0.0
+        suf = f" · focal_x final SfM={fx_rec:.4f} (Δ={delta_pct:+.2f}%)"
+    if abs(fx_osfm - fx_seed) <= 1e-4:
+        print(f"✅ Semilla intrínseca aplicada en OpenSfM: {osfm_key} (focal_x={fx_osfm:.4f}){suf}")
+    else:
+        print(f"⚠  ADVERTENCIA: OpenSfM divergió de semilla en {osfm_key} (focal_x={fx_osfm:.4f} vs {fx_seed:.4f}){suf}")
+PY
 }
 
 run_odm() {
@@ -716,11 +772,24 @@ run_odm() {
   # que no hay ninguna etapa pesada que proteger con una concurrencia más
   # baja — partir la corrida ahí sería puro costo de arranque. Una sola
   # invocación, toda con la concurrencia liviana.
-  local fast_ortho=0 needs_dsm=0 a
+  local fast_ortho=0 needs_dsm=0 has_user_cameras=0 a
   for a in "$@"; do
     [[ "$a" == "--fast-orthophoto" ]] && fast_ortho=1
     [[ "$a" == "--dsm" ]] && needs_dsm=1
+    [[ "$a" == "--cameras" || "$a" == --cameras=* ]] && has_user_cameras=1
   done
+
+  local seed_file="${proj_dir}/.raptor_camera_seed.json"
+  local seed_used_marker="${proj_dir}/.raptor_camseed_used"
+  local seed_cfg="${RAPTOR_CAMERA_SEED:-1}"
+  seed_cfg="${seed_cfg//[[:space:]]/}"
+  seed_cfg="${seed_cfg,,}"
+  local current_camseed="none"
+  if [[ "$seed_cfg" != "0" && "$seed_cfg" != "false" && "$seed_cfg" != "no" && "$seed_cfg" != "off" \
+     && "$has_user_cameras" -eq 0 && -s "$seed_file" ]]; then
+    current_camseed="$(sha1sum "$seed_file" 2>/dev/null | awk '{print $1}')"
+    [[ -n "$current_camseed" ]] || current_camseed="none"
+  fi
 
   if [[ "$opt_disk" -eq 1 && "$force_odm" -eq 0 && -f "$ok_marker" ]]; then
     local firma firma_ok
@@ -742,8 +811,18 @@ run_odm() {
     fi
   fi
 
-  if [[ -f "$ok_marker" || -f "$purgado_marker" ]]; then
-    rm -rf "$ok_marker" "$purgado_marker" \
+  local prev_camseed="none"
+  if [[ -f "$seed_used_marker" ]]; then
+    prev_camseed="$(cat "$seed_used_marker" 2>/dev/null || echo none)"
+  elif [[ -d "${proj_dir}/opensfm" && "$current_camseed" != "none" ]]; then
+    prev_camseed="legacy_unseeded"
+  fi
+
+  if [[ -f "$ok_marker" || -f "$purgado_marker" || "$current_camseed" != "$prev_camseed" ]]; then
+    if [[ "$current_camseed" != "$prev_camseed" && -d "${proj_dir}/opensfm" ]]; then
+      echo "📷 Semilla intrínseca cambió (${prev_camseed:0:8} → ${current_camseed:0:8}) — limpiando proyecto previo en ${proj_dir}" | tee -a "$logfile"
+    fi
+    rm -rf "$ok_marker" "$purgado_marker" "$seed_used_marker" \
            "${proj_dir}/.raptor_images.json.bak" \
            "${proj_dir}/images.json" "${proj_dir}/img_list.txt" "${proj_dir}/cameras.json" \
            "${proj_dir}/opensfm" "${proj_dir}/openmvs" \
@@ -753,6 +832,8 @@ run_odm() {
            "${proj_dir}/odm_dem" "${proj_dir}/odm_report" \
            "${proj_dir}/entwine_pointcloud"
   fi
+  mkdir -p "$proj_dir"
+  printf '%s\n' "$current_camseed" > "$seed_used_marker"
 
   local tracks="${proj_dir}/opensfm/tracks.csv"
   local tracks_bak="${proj_dir}/opensfm/.tracks.csv.bak"
@@ -785,28 +866,35 @@ run_odm() {
     fi
   fi
 
-  local opt_flag=()
+  local opt_flag=() cam_flag=()
   [[ "$opt_disk" -eq 1 ]] && opt_flag=(--optimize-disk-space)
+  [[ "$current_camseed" != "none" ]] && cam_flag=(--cameras "$(pwd)/${seed_file}")
 
   set +e
   local status
   if [[ "$fast_ortho" -eq 1 ]]; then
-    _odm_invocar "$name" "$light_conc" "$logfile" "$label" "" "$@" ${opt_flag[@]+"${opt_flag[@]}"}
+    _odm_invocar "$name" "$light_conc" "$logfile" "$label" "" "$@" ${cam_flag[@]+"${cam_flag[@]}"} ${opt_flag[@]+"${opt_flag[@]}"}
     status=$?
+    if [[ $status -eq 0 && "$current_camseed" != "none" ]]; then
+      _verificar_semilla_camara "$proj_dir" "$seed_file" "$logfile"
+    fi
   else
     # Fase 1 (--end-with opensfm) SIN --optimize-disk-space: ODM 3.6.2
     # (run_opensfm.py:44-52,251-265; opendm/osfm.py:483) conservaría o borraría
     # features/, matches/, tracks.csv y undistorted/ necesarias para openmvs.
-    _odm_invocar "$name" "$light_conc" "$logfile" "$label" "" "$@" --end-with opensfm
+    _odm_invocar "$name" "$light_conc" "$logfile" "$label" "" "$@" ${cam_flag[@]+"${cam_flag[@]}"} --end-with opensfm
     status=$?
     if [[ $status -eq 0 ]]; then
+      if [[ "$current_camseed" != "none" ]]; then
+        _verificar_semilla_camara "$proj_dir" "$seed_file" "$logfile"
+      fi
       if [[ "$opt_disk" -eq 1 && -s "$tracks" ]]; then
         cp -f "$tracks" "$tracks_bak"
       fi
       # Fase 2 CON --optimize-disk-space: ODM 3.6.2 purga depthmaps/scene_dense
       # (openmvs.py:240-251), undistorted/images (mvstex.py:178-186) y
       # filtered_point_cloud tras odm_georeferenced_model.laz (odm_georeferencing.py:279).
-      _odm_invocar "$name" "$heavy_conc" "$logfile" "$label" openmvs "$@" --rerun-from openmvs ${opt_flag[@]+"${opt_flag[@]}"}
+      _odm_invocar "$name" "$heavy_conc" "$logfile" "$label" openmvs "$@" ${cam_flag[@]+"${cam_flag[@]}"} --rerun-from openmvs ${opt_flag[@]+"${opt_flag[@]}"}
       status=$?
     fi
   fi
