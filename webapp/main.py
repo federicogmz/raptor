@@ -61,6 +61,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 from hardware import estimate_message  # noqa: E402 — mensaje de calidad del formulario
 from hardware import preset as hw_preset  # noqa: E402 — valida el nombre del preset
 from export_products import CATALOG as EXPORT_CATALOG  # noqa: E402 — misma fuente que export_products.py
+from export_products import parse_vertical_datum  # noqa: E402
+from source_filter import iter_source_files  # noqa: E402 — misma poda que setup-data*.sh
 
 _DEFAULT_APP_DIR = "/app" if Path("/app/geovisor").is_dir() else str(Path(__file__).resolve().parent.parent)
 APP_DIR = Path(os.environ.get("RAPTOR_APP_DIR", _DEFAULT_APP_DIR))
@@ -290,32 +292,14 @@ def _incomplete_captures(names):
 
 
 def _listdir_names(d: Path):
-    """Nombres de archivo (sin ruta) bajo `d`, RECURSIVO — classify_files()
-    solo mira sufijos/nombres, nunca la ruta completa, así que aplanar acá
-    es seguro. Antes era solo el nivel superior: alcanzaba para raw/<kind>/
-    (la subida por navegador ya llega aplanada ahí, ver /api/upload), pero
-    import-local() (ver ese endpoint) puede dejar raw/<kind> como un
-    SYMLINK directo a una carpeta del usuario con la estructura original
-    del dron (p.ej. 100MEDIA/) — sin recursividad, esas fotos quedaban
-    invisibles para el conteo de "qué hay subido" (calidad, validación,
-    lista de misiones), aunque el pipeline (docker/setup-data.sh, que sí
-    busca recursivo) las procesara igual.
-
-    os.walk(followlinks=True), NO Path.rglob(): confirmado en vivo (Python
-    3.12.3, el mismo de esta imagen) que rglob('*') NO desciende adentro de
-    un symlink que encuentra A MITAD de la recorrida — solo lo lista como
-    una entrada más, sin entrar. Eso pasaba desapercibido mientras raw/<kind>
-    era EL symlink de partida (ahí sí lo sigue, mismo motivo que find sin -L
-    vs find -L), pero deja de alcanzar apenas raw/<kind> es un directorio
-    real que contiene VARIOS symlinks adentro (una carpeta por fuente
-    elegida, ver import-local()) — exactamente el mismo bug de fondo que el
-    de `find` en docker/setup-data.sh, esta vez del lado de pathlib."""
-    if not d.is_dir():
-        return []
-    names = []
-    for _root, _dirs, files in os.walk(d, followlinks=True):
-        names.extend(files)
-    return names
+    """Nombres de archivo (sin ruta) bajo `d`, usando `iter_source_files` para
+    aplicar exactamente la misma poda de subcarpetas auxiliares
+    (`audiovisual`, `panoramicas`, `videos`, `calib`) que `setup-data*.sh`.
+    Preserva symlinks de nivel 1 creados por `import_local()`.
+    Nota: las subidas directas vía `/api/upload` llegan aplanadas por
+    `basename` en `raw/<kind>/`, por lo que esa vía no conserva subcarpetas.
+    """
+    return [os.path.basename(p) for p in iter_source_files(d)]
 
 
 def _link_one_folder(dest_dir: Path, src_root: str) -> str:
@@ -1010,7 +994,9 @@ def _validate(mode, has_ms, uploads):
     return errors
 
 
-def _validate_export(mission_dir, export_dir, products, raster_fmt, vector_fmt, epsg, crear=True):
+def _validate_export(
+    mission_dir, export_dir, products, raster_fmt, vector_fmt, epsg, crear=True, vertical_datum="ellipsoidal"
+):
     """Valida la configuración de entrega y devuelve (errores, dict EXPORT_*).
 
     `export_dir` es una ruta del HOST. Se traduce a la ruta equivalente dentro
@@ -1076,6 +1062,29 @@ def _validate_export(mission_dir, export_dir, products, raster_fmt, vector_fmt, 
         except (ValueError, TypeError, RuntimeError):
             errors.append(f"EPSG «{epsg}» no existe o no lo reconoce PROJ. Usa un código numérico válido, p. ej. 9377.")
 
+    vdatum = (vertical_datum or "ellipsoidal").strip() or "ellipsoidal"
+    if vdatum.lower().startswith("geoid:"):
+        raw_grid = vdatum[6:].strip()
+        if raw_grid and not os.path.isfile(raw_grid):
+            mapped = host_a_contenedor(raw_grid) or import_host_a_contenedor(raw_grid)
+            if mapped:
+                raw_grid = mapped
+        if raw_grid and os.path.isfile(raw_grid):
+            vdatum = f"geoid:{os.path.abspath(raw_grid)}"
+        else:
+            vdatum = f"geoid:{raw_grid}"
+    vdatum_env = vdatum
+    try:
+        parsed_vdatum = parse_vertical_datum(vdatum)
+        if parsed_vdatum["kind"] == "geoid":
+            vdatum_env = f"geoid:{os.path.abspath(parsed_vdatum['grid'])}"
+        elif parsed_vdatum["kind"] == "offset":
+            vdatum_env = f"offset:{parsed_vdatum['offset']}"
+        else:
+            vdatum_env = parsed_vdatum["label"]
+    except ValueError as exc:
+        errors.append(str(exc))
+
     # Se prueba a escribir sobre el ancestro existente más cercano: con
     # crear=True es la carpeta destino misma (se crea acá); con crear=False es
     # el directorio padre que YA existe, sin crear nada. En los dos casos el
@@ -1106,6 +1115,7 @@ def _validate_export(mission_dir, export_dir, products, raster_fmt, vector_fmt, 
         "EXPORT_RASTER_FORMAT": raster_fmt,
         "EXPORT_VECTOR_FORMAT": vector_fmt,
         "EXPORT_EPSG": epsg or "source",
+        "EXPORT_VERTICAL_DATUM": vdatum_env,
     }
 
 
@@ -1181,6 +1191,7 @@ async def export_mission(
     export_raster_format: str = Form("cog"),
     export_vector_format: str = Form("geojson"),
     export_epsg: str = Form("9377"),
+    export_vertical_datum: str = Form("ellipsoidal"),
 ):
     """Exporta los productos de una misión YA TERMINADA a demanda — no
     depende de haberlo pedido antes de arrancar la corrida (ver
@@ -1209,11 +1220,21 @@ async def export_mission(
         export_vector_format.strip().lower(),
         export_epsg,
         crear=True,
+        vertical_datum=export_vertical_datum,
     )
     if errors:
         raise HTTPException(400, " ".join(errors))
 
     run_env = os.environ.copy()
+    for k in (
+        "EXPORT_DIR",
+        "EXPORT_PRODUCTS",
+        "EXPORT_RASTER_FORMAT",
+        "EXPORT_VECTOR_FORMAT",
+        "EXPORT_EPSG",
+        "EXPORT_VERTICAL_DATUM",
+    ):
+        run_env.pop(k, None)
     run_env.update(env)
     run_env["RAPTOR_EXPORT_SOURCE_DIR"] = str(mission_dir / "outputs")
     proc = await asyncio.create_subprocess_exec(

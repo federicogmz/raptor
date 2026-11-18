@@ -1,43 +1,78 @@
 #!/usr/bin/env python3
 """Poblar el directorio images/ de un proyecto ODM y armar su geo.txt.
 
-Lo comparten prepare_multispectral_odm.py y prepare_dband_odm.py: los dos leen
-del mismo sensor (M3M), con el mismo GPS EXIF nativo (RTK), y hacían
-exactamente lo mismo en ~100 líneas duplicadas que ya se habían empezado a
-desincronizar (un mensaje decía "bandas", el otro "imágenes", y los
-comentarios de uno remitían al otro).
+Lo comparten prepare_multispectral_odm.py (``poblar_images`` por hardlink) y
+prepare_rgb_odm.py / prepare_dband_odm.py (``copiar_y_limpiar_exif`` por copia
+reflink + limpieza de MakerNotes con ``exiftool``).
 
-POR QUÉ ENLAZA EN VEZ DE COPIAR. Hasta acá cada foto se copiaba DOS veces:
-de la fuente a data/<sensor>_mosaico/ (docker/setup-data*.sh) y de ahí a
-processing/<proyecto>/images/. En la misión barbosa-picodegallo son 2340
-bandas multiespectrales más 585 imágenes de banda D: del orden de 23 GB
-escritos dos veces, y la etapa de preparación entera tardó 20 min. ODM solo
-LEE processing/<proyecto>/images/, así que un hardlink alcanza y cuesta
-prácticamente cero.
+POR QUÉ ``poblar_images`` ENLAZA EN VEZ DE COPIAR. Para las 4 bandas
+multiespectrales `.TIF` (2340 archivos en barbosa-picodegallo, sin MakerNotes
+propietarios de DJI), ODM solo LEE `processing/<proyecto>/images/`, así que un
+hardlink cuesta prácticamente cero.
 
-Ojo con generalizarlo: `Makefile::prepare-rgb` NO puede usar hardlink porque
-corre `exiftool -overwrite_original` sobre las copias, y con un hardlink eso
-modificaría también el archivo de data/. Los dos scripts que usan este módulo
-solo leen metadata (exiftool sin -overwrite_original), por eso acá sí es
-seguro.
-
-Si el hardlink no se puede hacer (fuente y destino en filesystems distintos,
-que es lo normal cuando data/ y processing/ son volúmenes separados) se cae a
-copy2 sin decir nada: el resultado es el mismo, solo más lento.
+POR QUÉ RGB Y BANDA D USAN ``copiar_y_limpiar_exif``. Los `.JPG` de cámara
+visible DJI (``_V``, ``_W`` y banda ``_D`` del M3M) traen `MakerNote` binario
+que en tomas reales dispara `IndexError` dentro de `exifread.decode_maker_note`
+(etapa `dataset` de ODM 3.6.2). Por eso se copian a `.tmp_<archivo>` y se limpian
+con `exiftool -overwrite_original` sin tocar los originales de `data/`. Al
+reemplazar imágenes limpias se invalida `images.json` (si existe) para que ODM
+relea la metadata; un `opensfm/exif/` ya generado se mantiene compatible porque
+`Make`, `Model`, focal y GPS quedan intactos.
 """
 
 import json
+import math
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from statistics import median
 
 # Precisión asumida cuando una captura puntual no trae fix RTK. Conservador a
 # propósito: es peor decirle a ODM que confíe en un GPS que no lo merece que
 # quedarse corto.
 H_ACC_SIN_RTK = 3.0
 V_ACC_SIN_RTK = 5.0
+# En bloques mixtos (donde otras capturas SÍ tienen RTK FIX=50), las tomas sin
+# FIX se downweightean aún más para que su deriva barométrica/autónoma no
+# arrastre el datum vertical del bloque RTK.
+H_ACC_MIXTO_SIN_RTK = 10.0
+V_ACC_MIXTO_SIN_RTK = 20.0
+# Piso mínimo cuando la solución es RTK FLOAT (RtkFlag=32/34).
+H_ACC_RTK_FLOAT = 0.30
+V_ACC_RTK_FLOAT = 0.60
+
+EXIF_CACHE_SCHEMA = 3
+EXIF_CLEAN_SCHEMA = 1
+_GPS_EPOCH_TS = 315964800.0  # 1980-01-06T00:00:00Z
+_GPS_UTC_LEAP_S = 18.0
+_DJI_RE = re.compile(r"DJI_(\d{14})_(\d{4})", re.IGNORECASE)
+
+# Semilla intrínseca verificada por reportes AT de DJI Terra (2 unidades M3T
+# distintas en los logs de benchmark: SN ...D2VP3 y SN ...D20C1). Solo se aplica
+# a lente Wide (4.4 mm / 24 mm eq. en 4000x3000) cuando el EXIF no trae DewarpData.
+_TABLA_CAMARAS_FABRICA = {
+    ("dji", "m3t", 4000, 3000): {
+        "fuente": "fábrica DJI M3T",
+        "focal_mm_rango": (3.5, 5.5),
+        "focal_35_rango": (22.0, 26.0),
+        "params": {
+            "focal_x": 0.7225,
+            "focal_y": 0.7225,
+            "c_x": 0.0,
+            "c_y": 0.0,
+            "k1": 0.17285197,
+            "k2": -0.42744389,
+            "p1": -0.00014433,
+            "p2": -0.00014340,
+            "k3": 0.21868222,
+        },
+    },
+}
 
 
 def enlazar_o_copiar(src, dst):
@@ -52,13 +87,6 @@ def poblar_images(src_dir, images_dir, sufijos, nprocs, etiqueta="archivos"):
     """Deja en images_dir exactamente los archivos de src_dir que terminan en
     `sufijos` (comparación sin distinguir mayúsculas). Devuelve la lista de
     nombres.
-
-    Limpia solo lo que quedó de OTRA corrida (un nombre que ya no está en
-    src_dir — misión nueva sobre el mismo contenedor, sin eso mezclaría dos
-    vuelos), pero NO reenlaza lo que ya está: src_dir son fotos ya capturadas
-    (inmutables), así que si el destino ya existe es porque una corrida
-    anterior de ESTA misma misión ya lo dejó ahí — un retry no debería volver
-    a enlazar/copiar miles de archivos que no cambiaron.
     """
     os.makedirs(images_dir, exist_ok=True)
     sufijos = tuple(s.upper() for s in sufijos)
@@ -85,10 +113,140 @@ def poblar_images(src_dir, images_dir, sufijos, nprocs, etiqueta="archivos"):
         + (f" ({ya} ya existentes, reutilizados) …" if ya else " …")
     )
     with ThreadPoolExecutor(max_workers=nprocs) as pool:
-        # list() para que una excepción de cualquier enlace salga acá con su
-        # traceback real, en vez de perderse en un futuro sin cosechar.
         list(pool.map(lambda f: enlazar_o_copiar(os.path.join(src_dir, f), os.path.join(images_dir, f)), pendientes))
     return nombres
+
+
+def copiar_y_limpiar_exif(
+    src_dir,
+    images_dir,
+    nombres,
+    nprocs,
+    lote=100,
+    etiqueta="imágenes RGB",
+    sufijos_limpieza=(".JPG", ".JPEG", ".PNG", ".TIF", ".TIFF"),
+):
+    """Copia `nombres` con ``cp --reflink=auto`` y limpia ``MakerNotes`` vía ``exiftool``.
+
+    Detecta imágenes sin copiar, hardlinks previos (``os.path.samefile``) o
+    archivos cuya firma ``(size, mtime_ns)`` en ``src_dir`` difiera de la
+    guardada en ``<proj_dir>/.exif_limpio_v1.json``. El manifiesto solo se
+    escribe si todos los lotes de ``exiftool`` y reemplazos atómicos terminan
+    sin excepción.
+    """
+    os.makedirs(images_dir, exist_ok=True)
+    if not nombres:
+        return []
+
+    sufijos = tuple(s.upper() for s in sufijos_limpieza)
+    nombres_set = set(nombres)
+    existentes = os.listdir(images_dir)
+    for f in existentes:
+        if f.startswith(".tmp_"):
+            p_tmp = os.path.join(images_dir, f)
+            if os.path.isfile(p_tmp):
+                os.remove(p_tmp)
+
+    viejos = [
+        f for f in existentes if not f.startswith(".tmp_") and f.upper().endswith(sufijos) and f not in nombres_set
+    ]
+    if viejos:
+        print(f"🧹 Limpiando {len(viejos)} de otra misión/corrida …")
+        for f in viejos:
+            os.remove(os.path.join(images_dir, f))
+
+    proj_dir = os.path.dirname(os.path.abspath(images_dir))
+    manifest_path = os.path.join(proj_dir, ".exif_limpio_v1.json")
+    manifest_entries = _leer_cache_json(manifest_path, EXIF_CLEAN_SCHEMA)
+
+    src_sigs = {}
+    pendientes = []
+    for f in nombres:
+        src = os.path.join(src_dir, f)
+        dst = os.path.join(images_dir, f)
+        sig = _file_sig(src)
+        src_sigs[f] = sig
+        if not os.path.exists(dst):
+            pendientes.append(f)
+            continue
+        try:
+            mismo_inodo = os.path.samefile(src, dst)
+        except OSError:
+            mismo_inodo = False
+        if mismo_inodo or manifest_entries.get(f) != sig:
+            pendientes.append(f)
+
+    ya = len(nombres) - len(pendientes)
+    if not pendientes:
+        print(f"✅ {ya} {etiqueta} ya estaban preparadas, nada que copiar")
+        return list(nombres)
+
+    print(
+        f"📋 Copiando {len(pendientes)} {etiqueta} nuevas con {nprocs} en paralelo"
+        + (f" ({ya} ya existentes, reutilizadas) …" if ya else " …")
+    )
+
+    def _tmp_path(f):
+        return os.path.join(images_dir, f".tmp_{f}")
+
+    def _copiar(f):
+        subprocess.run(
+            ["cp", "--reflink=auto", os.path.join(src_dir, f), _tmp_path(f)],
+            check=True,
+        )
+
+    def _limpiar_lote(lote_nombres):
+        lote_tmp = [_tmp_path(f) for f in lote_nombres]
+        r = subprocess.run(
+            [
+                "exiftool",
+                "-api",
+                "Compact=Shorthand",
+                "-all=",
+                "-tagsfromfile",
+                "@",
+                "-exif:all",
+                "-xmp-drone-dji:all",
+                "-overwrite_original",
+                "-q",
+                "-@",
+                "-",
+            ],
+            input="\n".join(lote_tmp),
+            capture_output=True,
+            text=True,
+            timeout=max(600, len(lote_nombres) * 6),
+        )
+        if r.returncode != 0:
+            for p in lote_tmp:
+                if os.path.exists(p):
+                    os.remove(p)
+            raise RuntimeError(f"exiftool falló limpiando lote {etiqueta}: {r.stderr[:300]}")
+
+    try:
+        with ThreadPoolExecutor(max_workers=nprocs) as pool:
+            list(pool.map(_copiar, pendientes))
+
+        print(f"🏷️  Limpiando EXIF/XMP del dron en {len(pendientes)} imágenes nuevas …")
+        lotes = [pendientes[i : i + lote] for i in range(0, len(pendientes), lote)]
+        with ThreadPoolExecutor(max_workers=nprocs) as pool:
+            list(pool.map(_limpiar_lote, lotes))
+
+        for f in pendientes:
+            os.replace(_tmp_path(f), os.path.join(images_dir, f))
+    finally:
+        for f in pendientes:
+            tmp_p = _tmp_path(f)
+            if os.path.exists(tmp_p):
+                os.remove(tmp_p)
+
+    _guardar_cache_json(manifest_path, EXIF_CLEAN_SCHEMA, src_sigs, tmp_prefix=".exif_limpio_")
+    images_json = os.path.join(proj_dir, "images.json")
+    if os.path.isfile(images_json):
+        os.remove(images_json)
+
+    print(f"✅ {len(pendientes)} {etiqueta} preparadas" + (f", {ya} reutilizadas" if ya else ""))
+    return list(nombres)
 
 
 def _lotes(lista, n):
@@ -108,12 +266,25 @@ def _leer_gps_lote(rutas):
             "-GPSLatitude",
             "-GPSLongitude",
             "-GPSAltitude",
+            "-AbsoluteAltitude",
+            "-RtkFlag",
             "-GimbalYawDegree",
             "-GimbalPitchDegree",
             "-GimbalRollDegree",
             "-RtkStdLon",
             "-RtkStdLat",
             "-RtkStdHgt",
+            "-DateTimeOriginal",
+            "-Make",
+            "-Model",
+            "-ImageWidth",
+            "-ImageHeight",
+            "-ExifImageWidth",
+            "-ExifImageHeight",
+            "-FocalLength",
+            "-FocalLengthIn35mmFormat",
+            "-DewarpData",
+            "-DewarpFlag",
             "-@",
             "-",
         ],
@@ -127,123 +298,557 @@ def _leer_gps_lote(rutas):
     return json.loads(r.stdout)
 
 
-def _leer_geo_txt_previo(geo_txt, nombres_actuales):
-    """Líneas ya armadas en una corrida anterior, indexadas por nombre de
-    archivo. Solo se reusan las que siguen correspondiendo a `rutas` actual
-    (nombres_actuales) — una foto no cambia de GPS entre corridas, así que
-    releer su EXIF de nuevo es puro costo sin beneficio.
-    """
-    if not os.path.exists(geo_txt):
+def _file_sig(ruta):
+    """Firma (size, mtime_ns) para invalidar caché EXIF si la foto cambió."""
+    try:
+        st = os.stat(ruta)
+        return [st.st_size, st.st_mtime_ns]
+    except OSError:
+        return None
+
+
+def _exif_cache_path(geo_txt):
+    return f"{geo_txt}.exif_cache.json"
+
+
+def _leer_cache_json(path, schema):
+    """Lee un caché JSON versionado `{schema, entries}`; devuelve `{}` si no coincide."""
+    if not os.path.isfile(path):
         return {}
     try:
-        with open(geo_txt) as f:
-            lineas = f.read().splitlines()
-    except OSError:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
         return {}
-    if not lineas or lineas[0].strip() != "EPSG:4326":
+    if not isinstance(data, dict) or data.get("schema") != schema:
         return {}
-    previas = {}
-    for linea in lineas[1:]:
-        nombre = linea.split("\t", 1)[0]
-        if nombre in nombres_actuales:
-            previas[nombre] = linea
-    return previas
+    entries = data.get("entries")
+    return entries if isinstance(entries, dict) else {}
 
 
-def escribir_geo_txt(rutas, geo_txt, nprocs, etiqueta="archivos"):
-    """Arma geo.txt leyendo el EXIF de `rutas`. Devuelve (con_gps, sin_gps).
+def _guardar_cache_json(path, schema, entries, tmp_prefix=".cache_"):
+    """Persiste un caché JSON `{schema, entries}` de forma atómica (tmp + os.replace)."""
+    parent = os.path.dirname(path) or "."
+    os.makedirs(parent, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=tmp_prefix, suffix=".tmp", dir=parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"schema": schema, "entries": entries}, fh, sort_keys=True)
+        os.replace(tmp_path, path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
-    Se agregan las columnas opcionales 8-9 de ODM (horizontal_accuracy,
-    vertical_accuracy, ver opendm/geo.py) desde los tags RtkStdLon/Lat/Hgt del
-    propio EXIF. Sin eso, ODM (opendm/photo.py update_with_geo_entry) pisa con
-    None la precisión RTK que él mismo sabe auto-detectar del EXIF cuando NO
-    hay geo.txt, y fuerza un DOP genérico (~metros) en el bundle adjustment en
-    vez de confiar en la precisión RTK real (~1-3 cm).
 
-    Reusa las filas de un geo.txt previo para los archivos que ya estaban ahí
-    (ver _leer_geo_txt_previo): confirmado en vivo como el cuello de botella
-    real de esta etapa — un vuelo M3M mediano son miles de TIFF, y releer el
-    EXIF de todos en cada retry cuesta lo mismo que la primera vez aunque casi
-    ninguno haya cambiado.
+def _leer_exif_cache(geo_txt):
+    """Lee `<geo_txt>.exif_cache.json` versionado; devuelve `{nombre: entry}`."""
+    return _leer_cache_json(_exif_cache_path(geo_txt), EXIF_CACHE_SCHEMA)
 
-    Lo pendiente se parte en `nprocs` lotes en paralelo: cada exiftool lee
-    metadata (no los píxeles), así que el techo real es E/S por archivo, no
-    CPU. Una sola llamada con las 2340 bandas de una corrida real superó el
-    timeout de 180 s que había antes.
+
+def _guardar_exif_cache(geo_txt, entries):
+    """Persiste el caché EXIF crudo de forma atómica (tmp + os.replace)."""
+    _guardar_cache_json(_exif_cache_path(geo_txt), EXIF_CACHE_SCHEMA, entries, tmp_prefix=".exif_cache_")
+
+
+def _to_float(val):
+    if val is None or isinstance(val, bool):
+        return None
+    try:
+        num = float(str(val).strip())
+    except (TypeError, ValueError):
+        return None
+    return num if math.isfinite(num) else None
+
+
+def _to_int(val):
+    num = _to_float(val)
+    return int(round(num)) if num is not None else None
+
+
+def _es_rtk_fix(exif):
+    """True si la foto trae solución RTK FIX (`RtkFlag == 50`, o legado sin
+    `RtkFlag` cuando `RtkStdLon`/`RtkStdLat` están presentes).
     """
-    nombres_actuales = {os.path.basename(r) for r in rutas}
-    previas = _leer_geo_txt_previo(geo_txt, nombres_actuales)
-    pendientes = [r for r in rutas if os.path.basename(r) not in previas]
+    std_lon = _to_float(exif.get("RtkStdLon"))
+    std_lat = _to_float(exif.get("RtkStdLat"))
+    if std_lon is None or std_lat is None:
+        return False
+    flag = _to_int(exif.get("RtkFlag"))
+    return flag == 50 or flag is None
 
-    exif_todos = []
+
+def _calcular_precision(exif, bloque_tiene_rtk_fix):
+    """Calcula `(h_acc, v_acc, estado)` validando `RtkFlag`."""
+    flag = _to_int(exif.get("RtkFlag"))
+    std_lon = _to_float(exif.get("RtkStdLon"))
+    std_lat = _to_float(exif.get("RtkStdLat"))
+    std_hgt = _to_float(exif.get("RtkStdHgt"))
+
+    if _es_rtk_fix(exif):
+        s_xy = max(std_lon, std_lat)
+        s_z = std_hgt if std_hgt is not None else std_lon
+        return max(0.01, s_xy * 2.0), max(0.02, s_z * 2.0), "fix"
+
+    if flag in (32, 34):
+        s_xy = max(v for v in (std_lon, std_lat, 0.0) if v is not None)
+        s_z = std_hgt if std_hgt is not None else s_xy
+        return max(H_ACC_RTK_FLOAT, s_xy * 2.0), max(V_ACC_RTK_FLOAT, s_z * 2.0), "float"
+
+    if bloque_tiene_rtk_fix:
+        return H_ACC_MIXTO_SIN_RTK, V_ACC_MIXTO_SIN_RTK, "sin_rtk"
+    return H_ACC_SIN_RTK, V_ACC_SIN_RTK, "sin_rtk"
+
+
+def _parse_capture_seq(nombre):
+    m = _DJI_RE.search(os.path.basename(nombre))
+    return int(m.group(2)) if m else None
+
+
+def _parse_capture_ts(exif, nombre):
+    """Devuelve epoch naive (hora local cámara o UTC) de la foto, si existe."""
+    dto = exif.get("DateTimeOriginal")
+    if isinstance(dto, str) and len(dto) >= 19:
+        try:
+            dt = datetime.strptime(dto[:19], "%Y:%m:%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            return dt.timestamp(), True
+        except ValueError:
+            pass
+    m = _DJI_RE.search(os.path.basename(nombre))
+    if m:
+        try:
+            dt = datetime.strptime(m.group(1), "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+            return dt.timestamp(), False
+        except ValueError:
+            pass
+    return None, False
+
+
+def _es_lente_secundaria(nombre):
+    u = os.path.basename(nombre).upper()
+    return "_MS_" in u or u.endswith(("_T.JPG", "_T.JPEG", "_T.TIF", "_T.TIFF"))
+
+
+def _primera_float(campo):
+    return _to_float(campo.split(",", 1)[0])
+
+
+def cargar_mrk_dir(mrk_dir):
+    """Carga entradas `Q == 50` de todos los `*Timestamp.MRK` en `mrk_dir`.
+
+    Nota DJI: las columnas 6–8 (`Lat, Lon, Ellh`) ya incorporan el vector
+    antena→cámara (`cols[3..5]` N/E/V; verificado empíricamente contra el
+    XMP de la lente primaria `_D.JPG` a 0.0 mm), por lo que no se vuelve a
+    sumar el lever-arm.
+    """
+    if not mrk_dir or not os.path.isdir(mrk_dir):
+        return {}
+    por_seq = {}
+    for fname in sorted(os.listdir(mrk_dir)):
+        if not fname.upper().endswith(".MRK"):
+            continue
+        fpath = os.path.join(mrk_dir, fname)
+        if not os.path.isfile(fpath):
+            continue
+        try:
+            with open(fpath, encoding="utf-8", errors="replace") as fh:
+                for line in fh:
+                    cols = line.strip().split("\t")
+                    if len(cols) < 11:
+                        continue
+                    seq = _to_int(cols[0])
+                    tow = _to_float(cols[1])
+                    week = _to_int(cols[2].strip("[] "))
+                    lat = _primera_float(cols[6])
+                    lon = _primera_float(cols[7])
+                    ellh = _primera_float(cols[8])
+                    std_parts = [_to_float(p) for p in cols[9].split(",")]
+                    q = _to_int(cols[10].split(",", 1)[0])
+                    if (
+                        q != 50
+                        or None in (seq, tow, week, lat, lon, ellh)
+                        or len(std_parts) < 3
+                        or any(v is None for v in std_parts[:3])
+                    ):
+                        continue
+                    gps_utc = _GPS_EPOCH_TS + week * 604800.0 + tow - _GPS_UTC_LEAP_S
+                    por_seq.setdefault(seq, []).append(
+                        {
+                            "lat": lat,
+                            "lon": lon,
+                            "ellh": ellh,
+                            "std_lat": std_parts[0],
+                            "std_lon": std_parts[1],
+                            "std_hgt": std_parts[2],
+                            "gps_utc": gps_utc,
+                        }
+                    )
+        except OSError:
+            continue
+    return por_seq
+
+
+def _tiempo_mrk_compatible(gps_utc, cap_ts, exacto):
+    if cap_ts is None:
+        return True
+    tol = 5.0 if exacto else 30.0
+    delta = gps_utc - cap_ts
+    # Husos horarios posibles [-12h, +14h] en múltiplos de 1800 s.
+    if not (-43200.0 - tol <= delta <= 50400.0 + tol):
+        return False
+    tz_err = abs(delta - round(delta / 1800.0) * 1800.0)
+    return tz_err <= tol
+
+
+def _aplicar_mrk_si_ppk(nombre, exif, mrk_por_seq, seq_counts):
+    """Actualiza coordenadas desde `.MRK` (`Q==50`) solo si:
+    - no es lente secundaria (`_MS_` / `_T`),
+    - el EXIF aún NO trae `RtkFlag == 50`,
+    - la secuencia `_NNNN` es única en el bloque, y
+    - existe un único candidato MRK dentro de ~5.5 m (`5e-5°`) y horario compatible.
+    """
+    if _to_int(exif.get("RtkFlag")) == 50 or _es_lente_secundaria(nombre):
+        return exif, False
+    seq = _parse_capture_seq(nombre)
+    if seq is None or seq_counts.get(seq, 0) != 1:
+        return exif, False
+    lat = _to_float(exif.get("GPSLatitude"))
+    lon = _to_float(exif.get("GPSLongitude"))
+    if lat is None or lon is None:
+        return exif, False
+    cap_ts, exacto = _parse_capture_ts(exif, nombre)
+    cands = [
+        c
+        for c in mrk_por_seq.get(seq, ())
+        if abs(c["lat"] - lat) < 5e-5
+        and abs(c["lon"] - lon) < 5e-5
+        and _tiempo_mrk_compatible(c["gps_utc"], cap_ts, exacto)
+    ]
+    if len(cands) != 1:
+        return exif, False
+    c = cands[0]
+    actualizado = dict(exif)
+    actualizado["GPSLatitude"] = c["lat"]
+    actualizado["GPSLongitude"] = c["lon"]
+    actualizado["AbsoluteAltitude"] = c["ellh"]
+    actualizado["RtkFlag"] = 50
+    actualizado["RtkStdLat"] = c["std_lat"]
+    actualizado["RtkStdLon"] = c["std_lon"]
+    actualizado["RtkStdHgt"] = c["std_hgt"]
+    return actualizado, True
+
+
+def recolectar_exif(rutas, geo_txt, nprocs, etiqueta="archivos", mrk_dir=None):
+    """Lee EXIF con caché versionada, aplica PPK `.MRK` si aplica y devuelve:
+    `([(nombre, exif_efectivo), ...], stats_dict)`.
+    """
+    cache_prev = _leer_exif_cache(geo_txt)
+    cache_actual = {}
+    pendientes = []
+
+    for ruta in rutas:
+        nombre = os.path.basename(ruta)
+        sig = _file_sig(ruta)
+        cached = cache_prev.get(nombre)
+        if isinstance(cached, dict) and cached.get("sig") == sig and isinstance(cached.get("exif"), dict):
+            cache_actual[nombre] = cached
+        else:
+            pendientes.append((ruta, sig))
+
     if pendientes:
+        reutilizados = len(cache_actual)
         print(
             f"🔍 Extrayendo GPS de {len(pendientes)} {etiqueta} nuevos con exiftool "
-            f"({nprocs} en paralelo)" + (f" — {len(previas)} ya en geo.txt, reutilizados" if previas else "") + " …"
+            f"({nprocs} en paralelo)"
+            + (f" — {reutilizados} en caché EXIF, reutilizados" if reutilizados else "")
+            + " …"
         )
         try:
+            rutas_pend = [r for r, _sig in pendientes]
+            sigs_por_nombre = {os.path.basename(r): sig for r, sig in pendientes}
             with ThreadPoolExecutor(max_workers=nprocs) as pool:
-                for datos in pool.map(_leer_gps_lote, _lotes(pendientes, nprocs)):
-                    exif_todos.extend(datos)
+                for datos in pool.map(_leer_gps_lote, _lotes(rutas_pend, nprocs)):
+                    for item in datos:
+                        nombre = os.path.basename(item.get("SourceFile", ""))
+                        if nombre:
+                            cache_actual[nombre] = {"sig": sigs_por_nombre.get(nombre), "exif": item}
         except subprocess.TimeoutExpired as exc:
             print(f"❌ ERROR: exiftool no terminó a tiempo: {exc}")
             sys.exit(1)
         except (RuntimeError, json.JSONDecodeError) as exc:
             print(f"❌ ERROR: exiftool falló:\n{exc}")
             sys.exit(1)
-    elif previas:
-        print(f"✅ geo.txt ya cubre los {len(previas)} {etiqueta}, nada que extraer")
+        _guardar_exif_cache(geo_txt, cache_actual)
+    elif cache_actual:
+        print(f"✅ Caché EXIF al día para los {len(cache_actual)} {etiqueta}")
 
-    nuevas = {}
+    mrk_por_seq = {}
+    if mrk_dir and os.environ.get("RAPTOR_DISABLE_MRK") != "1":
+        mrk_por_seq = cargar_mrk_dir(mrk_dir)
+
+    seq_counts = {}
+    if mrk_por_seq:
+        for r in rutas:
+            s = _parse_capture_seq(r)
+            if s is not None:
+                seq_counts[s] = seq_counts.get(s, 0) + 1
+
+    registros = []
+    n_mrk_ppk = 0
+    for r in rutas:
+        nombre = os.path.basename(r)
+        entry = cache_actual.get(nombre)
+        exif = entry["exif"] if entry else {}
+        if mrk_por_seq:
+            exif, usado_mrk = _aplicar_mrk_si_ppk(nombre, exif, mrk_por_seq, seq_counts)
+            if usado_mrk:
+                n_mrk_ppk += 1
+        registros.append((nombre, exif))
+
+    con_gps_regs = [
+        (nombre, exif)
+        for nombre, exif in registros
+        if _to_float(exif.get("GPSLatitude")) is not None and _to_float(exif.get("GPSLongitude")) is not None
+    ]
+    bloque_tiene_rtk_fix = any(_es_rtk_fix(exif) for _, exif in con_gps_regs)
+    n_fix = sum(1 for _, exif in con_gps_regs if _es_rtk_fix(exif))
+    n_float = sum(1 for _, exif in con_gps_regs if _to_int(exif.get("RtkFlag")) in (32, 34))
+    mixto = bloque_tiene_rtk_fix and n_fix < len(con_gps_regs)
+    stats = {
+        "total": len(rutas),
+        "con_gps": len(con_gps_regs),
+        "sin_gps": len(rutas) - len(con_gps_regs),
+        "bloque_tiene_rtk_fix": bloque_tiene_rtk_fix,
+        "fix": n_fix,
+        "float": n_float,
+        "mixto": mixto,
+        "mrk_ppk": n_mrk_ppk,
+    }
+    return registros, stats
+
+
+def escribir_geo_txt(rutas, geo_txt, nprocs, etiqueta="archivos", mrk_dir=None):
+    """Arma `geo.txt` leyendo EXIF de `rutas` con caché versionada, validación
+    de `RtkFlag`, altitud elipsoidal uniforme (`AbsoluteAltitude` cuando todo
+    el bloque la trae; `GPSAltitude` uniforme en caso contrario) y soporte
+    `.MRK`. Devuelve `(con_gps, sin_gps)`.
+    """
+    registros, stats = recolectar_exif(rutas, geo_txt, nprocs, etiqueta=etiqueta, mrk_dir=mrk_dir)
+    bloque_tiene_rtk_fix = stats["bloque_tiene_rtk_fix"]
+
+    con_gps_exifs = [
+        exif
+        for _, exif in registros
+        if _to_float(exif.get("GPSLatitude")) is not None and _to_float(exif.get("GPSLongitude")) is not None
+    ]
+    abs_flags = [_to_float(e.get("AbsoluteAltitude")) is not None for e in con_gps_exifs]
+    gps_flags = [_to_float(e.get("GPSAltitude")) is not None for e in con_gps_exifs]
+    todos_con_abs = bool(con_gps_exifs) and all(abs_flags)
+    todos_con_gps_alt = bool(con_gps_exifs) and all(gps_flags)
+    if any(abs_flags) and not todos_con_abs:
+        if todos_con_gps_alt:
+            print(
+                f"  ⚠ {etiqueta}: AbsoluteAltitude parcial — usando GPSAltitude "
+                "uniformemente en todo el bloque para evitar mezclar datums."
+            )
+        else:
+            print(
+                f"  ⚠ {etiqueta}: fuente de altura heterogénea entre imágenes "
+                "(algunas sin AbsoluteAltitude y otras sin GPSAltitude)."
+            )
+
+    lineas = ["EPSG:4326"]
     sin_gps = 0
-    con_rtk_nuevas = 0
-    for exif in exif_todos:
-        # El nombre sale de SourceFile —que exiftool incluye en cada
-        # registro—, no de emparejar por posición con la lista de entrada:
-        # ligar la fila i de la salida al archivo i de la entrada da por
-        # sentado un orden y un conteo exactos, y si alguna vez no se cumplen,
-        # geo.txt queda con coordenadas asignadas al archivo equivocado. Eso
-        # no falla: produce una reconstrucción mal georreferenciada.
-        nombre = os.path.basename(exif.get("SourceFile", ""))
-        lat = exif.get("GPSLatitude")
-        lon = exif.get("GPSLongitude")
+    con_rtk_fix = 0
+    con_rtk_float = 0
+    for nombre, exif in registros:
+        lat = _to_float(exif.get("GPSLatitude"))
+        lon = _to_float(exif.get("GPSLongitude"))
         if not nombre or lat is None or lon is None:
             sin_gps += 1
             continue
-        alt = exif.get("GPSAltitude", 0)
-        yaw = exif.get("GimbalYawDegree", 0)
-        pitch = exif.get("GimbalPitchDegree", 0)
-        roll = exif.get("GimbalRollDegree", 0)
-        std_lon = exif.get("RtkStdLon")
-        std_lat = exif.get("RtkStdLat")
-        std_hgt = exif.get("RtkStdHgt")
-        if std_lon is not None and std_lat is not None:
-            # Mismo margen de seguridad ×2 que ODM aplica internamente al
-            # auto-detectar estos tags.
-            h_acc = max(std_lon, std_lat) * 2.0
-            v_acc = (std_hgt if std_hgt is not None else std_lon) * 2.0
-            con_rtk_nuevas += 1
+        if todos_con_abs:
+            alt = _to_float(exif.get("AbsoluteAltitude"))
+        elif todos_con_gps_alt:
+            alt = _to_float(exif.get("GPSAltitude"))
         else:
-            h_acc, v_acc = H_ACC_SIN_RTK, V_ACC_SIN_RTK
-        nuevas[nombre] = f"{nombre}\t{lon}\t{lat}\t{alt}\t{yaw}\t{pitch}\t{roll}\t{h_acc:.5f}\t{v_acc:.5f}"
-
-    # Orden estable según `rutas` (no según el orden de respuesta de exiftool,
-    # que llega por lote y no coincide con el de entrada).
-    lineas = ["EPSG:4326"]
-    for r in rutas:
-        nombre = os.path.basename(r)
-        if nombre in previas:
-            lineas.append(previas[nombre])
-        elif nombre in nuevas:
-            lineas.append(nuevas[nombre])
+            alt = _to_float(exif.get("AbsoluteAltitude"))
+            if alt is None:
+                alt = _to_float(exif.get("GPSAltitude")) or 0.0
+        yaw = _to_float(exif.get("GimbalYawDegree")) or 0.0
+        pitch = _to_float(exif.get("GimbalPitchDegree")) or 0.0
+        roll = _to_float(exif.get("GimbalRollDegree")) or 0.0
+        h_acc, v_acc, estado = _calcular_precision(exif, bloque_tiene_rtk_fix)
+        if estado == "fix":
+            con_rtk_fix += 1
+        elif estado == "float":
+            con_rtk_float += 1
+        lineas.append(f"{nombre}\t{lon}\t{lat}\t{alt}\t{yaw}\t{pitch}\t{roll}\t{h_acc:.5f}\t{v_acc:.5f}")
 
     if sin_gps:
         print(f"  ⚠ {sin_gps} {etiqueta} sin GPS (omitidos de geo.txt)")
     con_gps = len(lineas) - 1
-    if pendientes:
-        print(f"  precisión RTK disponible en los nuevos: {con_rtk_nuevas}/{len(nuevas)} {etiqueta}")
+    if con_gps:
+        msg = f"  precisión RTK FIX: {con_rtk_fix}/{con_gps} {etiqueta}"
+        if con_rtk_float:
+            msg += f" · FLOAT: {con_rtk_float}"
+        if stats["mrk_ppk"]:
+            msg += f" · MRK(Q=50): {stats['mrk_ppk']}"
+        print(msg)
 
-    os.makedirs(os.path.dirname(geo_txt) or ".", exist_ok=True)
-    with open(geo_txt, "w") as f:
-        f.write("\n".join(lineas) + "\n")
+    parent = os.path.dirname(geo_txt) or "."
+    os.makedirs(parent, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=".geo_", suffix=".tmp", dir=parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lineas) + "\n")
+        os.replace(tmp_path, geo_txt)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
     return con_gps, sin_gps
+
+
+def _odm_camera_id_y_dims(exif):
+    """Replica `opendm/photo.py` (`camera_id`) sin prefijo `v2` para clave de `--cameras`."""
+    make = str(exif.get("Make") or "").strip()
+    model = str(exif.get("Model") or "").strip()
+    w = _to_int(exif.get("ImageWidth")) or _to_int(exif.get("ExifImageWidth"))
+    h = _to_int(exif.get("ImageHeight")) or _to_int(exif.get("ExifImageHeight"))
+    focal_35 = _to_float(exif.get("FocalLengthIn35mmFormat"))
+    if not make or not model or not w or not h or w <= 0 or h <= 0 or focal_35 is None or focal_35 <= 0:
+        return None
+    focal_ratio = focal_35 / 36.0
+    cam_id = f"{make} {model} {int(w)} {int(h)} brown {str(float(focal_ratio))[:6]}".lower()
+    return cam_id, make.lower(), model.lower(), int(w), int(h), focal_ratio
+
+
+def _parse_dewarp_data(exif, w, h, focal_ratio):
+    """Extrae `[fx, fy, cx, cy, k1, k2, p1, p2, k3]` normalizados de `@drone-dji:DewarpData`."""
+    flag = exif.get("DewarpFlag")
+    if flag is not None and str(flag).strip().lower() not in ("", "0", "false"):
+        return None
+    raw = str(exif.get("DewarpData") or "").strip()
+    if not raw:
+        return None
+    body = raw.split(";", 1)[-1]
+    parts = [p.strip() for p in body.split(",")]
+    if len(parts) != 9:
+        return None
+    vals = [_to_float(p) for p in parts]
+    if any(v is None for v in vals):
+        return None
+    fx_px, fy_px, cx_off, cy_off, k1, k2, p1, p2, k3 = vals
+    max_dim = float(max(w, h))
+    focal_x = fx_px / max_dim
+    focal_y = fy_px / max_dim
+    c_x = cx_off / max_dim
+    c_y = cy_off / max_dim
+    if not (0.45 <= focal_x <= 1.25 and 0.45 <= focal_y <= 1.25):
+        return None
+    if abs(focal_x - focal_y) > 0.02:
+        return None
+    if focal_ratio > 0 and abs(focal_x - focal_ratio) / focal_ratio > 0.20:
+        return None
+    if abs(c_x) > 0.05 or abs(c_y) > 0.05:
+        return None
+    if abs(k1) > 1.0 or abs(k2) > 2.0 or abs(k3) > 2.0 or abs(p1) > 0.05 or abs(p2) > 0.05:
+        return None
+    return {
+        "focal_x": focal_x,
+        "focal_y": focal_y,
+        "c_x": c_x,
+        "c_y": c_y,
+        "k1": k1,
+        "k2": k2,
+        "p1": p1,
+        "p2": p2,
+        "k3": k3,
+    }
+
+
+def _resolver_calibracion_foto(exif):
+    ident = _odm_camera_id_y_dims(exif)
+    if ident is None:
+        return None
+    flag = exif.get("DewarpFlag")
+    if flag is not None and str(flag).strip().lower() not in ("", "0", "false"):
+        return None
+    cam_id, make_l, model_l, w, h, focal_ratio = ident
+    dewarp = _parse_dewarp_data(exif, w, h, focal_ratio)
+    if dewarp is not None:
+        return cam_id, w, h, "XMP DewarpData", dewarp
+    spec = _TABLA_CAMARAS_FABRICA.get((make_l, model_l, w, h))
+    if spec is None:
+        return None
+    focal_mm = _to_float(exif.get("FocalLength"))
+    focal_35 = _to_float(exif.get("FocalLengthIn35mmFormat"))
+    if focal_mm is None or focal_35 is None:
+        return None
+    mm_min, mm_max = spec["focal_mm_rango"]
+    f35_min, f35_max = spec["focal_35_rango"]
+    if not (mm_min <= focal_mm <= mm_max and f35_min <= focal_35 <= f35_max):
+        return None
+    return cam_id, w, h, spec["fuente"], dict(spec["params"])
+
+
+def escribir_camera_seed(registros, seed_path, etiqueta="imágenes"):
+    """Escribe `<proj_dir>/.raptor_camera_seed.json` para `--cameras` de ODM si hay semilla."""
+    if os.environ.get("RAPTOR_CAMERA_SEED", "1").strip().lower() in ("0", "false", "no", "off"):
+        if os.path.isfile(seed_path):
+            os.unlink(seed_path)
+        return {}
+
+    grupos = {}
+    for _nombre, exif in registros:
+        res = _resolver_calibracion_foto(exif)
+        if res is None:
+            continue
+        cam_id, w, h, fuente, params = res
+        entry = grupos.setdefault(cam_id, {"w": w, "h": h, "por_fuente": {}})
+        entry["por_fuente"].setdefault(fuente, []).append(params)
+
+    param_keys = ("focal_x", "focal_y", "c_x", "c_y", "k1", "k2", "p1", "p2", "k3")
+    salida = {}
+    for cam_id, info in sorted(grupos.items()):
+        por_fuente = info["por_fuente"]
+        fuente = (
+            "XMP DewarpData" if "XMP DewarpData" in por_fuente else max(por_fuente, key=lambda k: len(por_fuente[k]))
+        )
+        items = por_fuente[fuente]
+        fxs = [p["focal_x"] for p in items]
+        fx_med = float(median(fxs))
+        if fx_med > 0 and max(abs(x - fx_med) for x in fxs) > 0.015 * fx_med:
+            print(
+                f"⚠  {cam_id}: dispersión > 1.5 % en focal_x entre tomas ({min(fxs):.4f}..{max(fxs):.4f}); "
+                "omitiendo semilla para no mezclar calibraciones."
+            )
+            continue
+        med = {k: float(median([p[k] for p in items])) for k in param_keys}
+        salida[cam_id] = {
+            "projection_type": "brown",
+            "width": info["w"],
+            "height": info["h"],
+            **med,
+        }
+        print(
+            f"📷 Semilla intrínseca ({fuente}, {len(items)} {etiqueta}) para {cam_id}: "
+            f"focal_x={med['focal_x']:.4f}, k1={med['k1']:+.4f}, k2={med['k2']:+.4f}, k3={med['k3']:+.4f}"
+        )
+
+    if not salida:
+        if os.path.isfile(seed_path):
+            os.unlink(seed_path)
+        return {}
+
+    parent = os.path.dirname(seed_path) or "."
+    os.makedirs(parent, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(prefix=".camseed_", suffix=".tmp", dir=parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(salida, fh, sort_keys=True, indent=2)
+            fh.write("\n")
+        os.replace(tmp_path, seed_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+    return salida

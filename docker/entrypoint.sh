@@ -30,6 +30,8 @@
 #   TERRENO         plano | escarpado — escarpado fuerza SfM incremental
 #   MAX_CONCURRENCY fuerza los hilos de ODM (default: según RAM disponible)
 #   RAPTOR_ODM_PARALELO  cuántas reconstrucciones a la vez (default: auto)
+#   RAPTOR_OPTIMIZE_DISK 1 (default) = --optimize-disk-space + purga tras exportar; 0 = conservar todo
+#   RAPTOR_FORCE_ODM     1 = ignorar .raptor_odm_ok y reconstruir aunque la firma coincida
 #   PORT / SERVE / VERBOSE
 #
 # Entrega opcional (sin EXPORT_DIR no se exporta nada):
@@ -41,7 +43,9 @@
 # compartida con la webapp y el CLI.
 # ═══════════════════════════════════════════════════════════════════
 set -euo pipefail
-cd /app
+# RAPTOR_APP_DIR pensado para tests aislados de `quality-estimate`; los caminos
+# de ejecución completa (`run`, `webapp`, `serve`) asumen el layout `/app` del contenedor.
+cd "${RAPTOR_APP_DIR:-/app}"
 
 # Tiempos por etapa: registrados desde acá, impresos + escritos a JSON al
 # final (ver el resumen antes de "Pipeline completo" más abajo) — sin esto,
@@ -64,6 +68,10 @@ DBAND="${DBAND:-0}"
 # incremental es secuencial y proporcional al número de fotos).
 SUB_SAMPLE="${SUB_SAMPLE:-0}"
 SKIP_ODM="${SKIP_ODM:-0}"
+RAPTOR_OPTIMIZE_DISK="${RAPTOR_OPTIMIZE_DISK:-1}"
+RAPTOR_FORCE_ODM="${RAPTOR_FORCE_ODM:-0}"
+RAPTOR_CAMERA_SEED="${RAPTOR_CAMERA_SEED:-1}"
+RAPTOR_CAMERA_SEED="${RAPTOR_CAMERA_SEED//[[:space:]]/}"
 PORT="${PORT:-8080}"
 SERVE="${SERVE:-1}"
 VERBOSE="${VERBOSE:-0}"
@@ -81,7 +89,7 @@ PRESET="${PRESET:-${QUALITY:-estandar}}"
 # en silencio — confirmado en vivo, ver el comentario de TERRENOS.
 TERRENO="${TERRENO:-plano}"
 EXTERNAL_DEM="${EXTERNAL_DEM:-}"
-export MODE VERBOSE EXTERNAL_DEM
+export MODE VERBOSE EXTERNAL_DEM RAPTOR_CAMERA_SEED
 
 # ── Perfil de calidad ───────────────────────────────────────────────
 # La tabla completa (qué significa cada campo y por qué su valor) vive en
@@ -215,14 +223,29 @@ case "${1:-run}" in
     # solo contar, y así no interfiere si después se corre `run` de verdad
     # sobre el mismo montaje). Lo usa ./raptor run para mostrar el mensaje
     # antes de lanzar la corrida real.
+    N_RGB=0; N_TH=0; N_MS=0
+    SF_SCRIPT="scripts/source_filter.py"
+    [[ -f "$SF_SCRIPT" ]] || SF_SCRIPT="$(dirname "$0")/../scripts/source_filter.py"
     if [[ -d "$SOURCE_DIR" ]]; then
-      N_RGB=$(find -L "$SOURCE_DIR" -type f \( -iname "*_V.JPG" -o -iname "*_W.JPG" \) 2>/dev/null | wc -l)
-      if [[ "$N_RGB" -eq 0 ]]; then
-        N_RGB=$(find -L "$SOURCE_DIR" -type f \( -iname "*.JPG" -o -iname "*.JPEG" -o -iname "*.PNG" \) ! -iname "*_T.*" ! -iname "*_D.*" ! -iname "*_MS_*" 2>/dev/null | wc -l)
+      if [[ -f "$SF_SCRIPT" ]] && SF_RGB=$(python3 "$SF_SCRIPT" "$SOURCE_DIR" rgb 2>/dev/null); then
+        N_RGB=$(printf '%s\n' "$SF_RGB" | grep -c . || true)
+      else
+        N_RGB=$(find -L "$SOURCE_DIR" -type f \( -iname "*_V.JPG" -o -iname "*_W.JPG" \) 2>/dev/null | grep -c . || true)
+        [[ "$N_RGB" -eq 0 ]] && N_RGB=$(find -L "$SOURCE_DIR" -type f \( -iname "*.JPG" -o -iname "*.JPEG" \) ! -iname "*_T.*" ! -iname "*_D.*" ! -iname "*_MS_*" 2>/dev/null | grep -c . || true)
+      fi
+      if [[ -f "$SF_SCRIPT" ]] && SF_TH=$(python3 "$SF_SCRIPT" "$SOURCE_DIR" thermal 2>/dev/null); then
+        N_TH=$(printf '%s\n' "$SF_TH" | grep -c . || true)
+      else
+        N_TH=$(find -L "$SOURCE_DIR" -type f -iname "*_T.JPG" 2>/dev/null | grep -c . || true)
       fi
     fi
-    [[ -d "$SOURCE_DIR" ]] && N_TH=$(find -L "$SOURCE_DIR" -type f -iname "*_T.JPG" 2>/dev/null | wc -l)
-    [[ -d "$MS_SOURCE_DIR" ]] && N_MS=$(find -L "$MS_SOURCE_DIR" -type f -iname "*_MS_NIR.TIF" 2>/dev/null | wc -l)
+    if [[ -d "$MS_SOURCE_DIR" ]]; then
+      if [[ -f "$SF_SCRIPT" ]] && SF_MS=$(python3 "$SF_SCRIPT" "$MS_SOURCE_DIR" ms_nir 2>/dev/null); then
+        N_MS=$(printf '%s\n' "$SF_MS" | grep -c . || true)
+      else
+        N_MS=$(find -L "$MS_SOURCE_DIR" -type f -iname "*_MS_NIR.TIF" 2>/dev/null | grep -c . || true)
+      fi
+    fi
     # Modo urgencia (SUB_SAMPLE=N): ODM va a procesar 1 de cada N, así que la
     # estimación usa el conteo REAL de lo que correrá, no el de la tarjeta.
     # Multiespectral NO se submuestrea (ver el comentario grande junto a
@@ -636,6 +659,80 @@ _odm_invocar() {
   return "${PIPESTATUS[0]}"
 }
 
+# Firma SHA-1 del proyecto ODM; invalida el reuso ante cambios en flags,
+# nombres/tamaños en images/, geo.txt o manifiesto fuente (.exif_limpio_v1.json).
+_firma_proyecto_odm() {
+  local proj_dir="$1"; shift
+  {
+    printf 'flags=%s\n' "$*"
+    if [[ -d "$proj_dir/images" ]]; then
+      find -L "$proj_dir/images" -maxdepth 1 -type f -printf '%f %s\n' 2>/dev/null | LC_ALL=C sort
+    fi
+    if [[ -f "$proj_dir/geo.txt" ]]; then
+      sha1sum "$proj_dir/geo.txt" 2>/dev/null | awk '{print "geo=" $1}'
+    else
+      printf 'geo=none\n'
+    fi
+    if [[ -f "$proj_dir/.exif_limpio_v1.json" ]]; then
+      sha1sum "$proj_dir/.exif_limpio_v1.json" 2>/dev/null | awk '{print "clean=" $1}'
+    fi
+    local _seed_env="${RAPTOR_CAMERA_SEED:-1}"
+    _seed_env="${_seed_env//[[:space:]]/}"
+    _seed_env="${_seed_env,,}"
+    local _has_cam=0 _arg
+    for _arg in "$@"; do
+      [[ "$_arg" == "--cameras" || "$_arg" == --cameras=* ]] && _has_cam=1
+    done
+    if [[ "$_seed_env" != "0" && "$_seed_env" != "false" && "$_seed_env" != "no" && "$_seed_env" != "off" \
+       && "$_has_cam" -eq 0 && -s "$proj_dir/.raptor_camera_seed.json" ]]; then
+      sha1sum "$proj_dir/.raptor_camera_seed.json" 2>/dev/null | awk '{print "camseed=" $1}'
+    fi
+  } | sha1sum | awk '{print $1}'
+}
+
+_verificar_semilla_camara() {
+  local proj_dir="$1" seed_file="$2" logfile="$3"
+  local models_file="${proj_dir}/opensfm/camera_models.json"
+  local recon_file="${proj_dir}/opensfm/reconstruction.json"
+  [[ -s "$seed_file" ]] || return 0
+  if [[ ! -s "$models_file" ]]; then
+    echo "⚠  ADVERTENCIA: no existe ${models_file} tras Fase 1; no se pudo verificar la semilla intrínseca." | tee -a "$logfile"
+    return 0
+  fi
+  python3 - "$seed_file" "$models_file" "$recon_file" <<'PY' | tee -a "$logfile" || true
+import json, os, sys
+
+seed = json.load(open(sys.argv[1], encoding="utf-8"))
+models = json.load(open(sys.argv[2], encoding="utf-8"))
+recon_cams = {}
+if len(sys.argv) > 3 and os.path.isfile(sys.argv[3]):
+    try:
+        recons = json.load(open(sys.argv[3], encoding="utf-8"))
+        if isinstance(recons, list) and recons and isinstance(recons[0], dict):
+            recon_cams = recons[0].get("cameras") or {}
+    except Exception:
+        recon_cams = {}
+for k, cfg in seed.items():
+    osfm_key = k if k.startswith("v2 ") else f"v2 {k}"
+    m = models.get(osfm_key)
+    if not isinstance(m, dict):
+        print(f"⚠  ADVERTENCIA: OpenSfM no aplicó la semilla para {osfm_key} (claves: {list(models.keys())})")
+        continue
+    fx_seed = float(cfg.get("focal_x", 0.0))
+    fx_osfm = float(m.get("focal_x", m.get("focal", 0.0)))
+    suf = ""
+    rc = recon_cams.get(osfm_key)
+    if isinstance(rc, dict) and ("focal_x" in rc or "focal" in rc):
+        fx_rec = float(rc.get("focal_x", rc.get("focal", 0.0)))
+        delta_pct = ((fx_rec - fx_seed) / fx_seed * 100.0) if fx_seed else 0.0
+        suf = f" · focal_x final SfM={fx_rec:.4f} (Δ={delta_pct:+.2f}%)"
+    if abs(fx_osfm - fx_seed) <= 1e-4:
+        print(f"✅ Semilla intrínseca aplicada en OpenSfM: {osfm_key} (focal_x={fx_osfm:.4f}){suf}")
+    else:
+        print(f"⚠  ADVERTENCIA: OpenSfM divergió de semilla en {osfm_key} (focal_x={fx_osfm:.4f} vs {fx_seed:.4f}){suf}")
+PY
+}
+
 run_odm() {
   # $3/$4: concurrencia liviana (SfM) / "segura" (MVS). ODM solo acepta UN
   # --max-concurrency por invocación, así que para darle a cada fase la suya
@@ -653,6 +750,16 @@ run_odm() {
   # pisa el ajuste de la fase 1. OpenMVS lee args.max_concurrency directo.
   local label="$1" name="$2" light_conc="$3" heavy_conc="$4"; shift 4
   local logfile="outputs/logs/odm_${label}.log"
+  local proj_dir="processing/${name}"
+  local opt_disk="${RAPTOR_OPTIMIZE_DISK:-1}"
+  [[ "$opt_disk" == "1" ]] && opt_disk=1 || opt_disk=0
+  local force_odm="${RAPTOR_FORCE_ODM:-0}"
+  [[ "$force_odm" == "1" ]] && force_odm=1 || force_odm=0
+  local ok_marker="${proj_dir}/.raptor_odm_ok"
+  local purgado_marker="${proj_dir}/.raptor_purgado"
+  local reused_flag="outputs/logs/.reusado_${label}"
+  mkdir -p "$(dirname "$logfile")"
+  rm -f "$reused_flag"
   # Log FRESCO por corrida, truncado acá y no en el filtro: las dos fases
   # escriben al mismo archivo en modo append, así que truncar del lado del
   # filtro borraría la fase 1 al arrancar la fase 2. Sin esto los logs se
@@ -665,18 +772,129 @@ run_odm() {
   # que no hay ninguna etapa pesada que proteger con una concurrencia más
   # baja — partir la corrida ahí sería puro costo de arranque. Una sola
   # invocación, toda con la concurrencia liviana.
-  local fast_ortho=0 a
-  for a in "$@"; do [[ "$a" == "--fast-orthophoto" ]] && fast_ortho=1; done
+  local fast_ortho=0 needs_dsm=0 has_user_cameras=0 a
+  for a in "$@"; do
+    [[ "$a" == "--fast-orthophoto" ]] && fast_ortho=1
+    [[ "$a" == "--dsm" ]] && needs_dsm=1
+    [[ "$a" == "--cameras" || "$a" == --cameras=* ]] && has_user_cameras=1
+  done
+
+  local seed_file="${proj_dir}/.raptor_camera_seed.json"
+  local seed_used_marker="${proj_dir}/.raptor_camseed_used"
+  local seed_cfg="${RAPTOR_CAMERA_SEED:-1}"
+  seed_cfg="${seed_cfg//[[:space:]]/}"
+  seed_cfg="${seed_cfg,,}"
+  local current_camseed="none"
+  if [[ "$seed_cfg" != "0" && "$seed_cfg" != "false" && "$seed_cfg" != "no" && "$seed_cfg" != "off" \
+     && "$has_user_cameras" -eq 0 && -s "$seed_file" ]]; then
+    current_camseed="$(sha1sum "$seed_file" 2>/dev/null | awk '{print $1}')"
+    [[ -n "$current_camseed" ]] || current_camseed="none"
+  fi
+
+  if [[ "$opt_disk" -eq 1 && "$force_odm" -eq 0 && -f "$ok_marker" ]]; then
+    local firma firma_ok
+    firma="$(_firma_proyecto_odm "$proj_dir" "$@")"
+    firma_ok="$(cat "$ok_marker" 2>/dev/null || true)"
+    if [[ "$firma" == "$firma_ok" \
+       && -f "${proj_dir}/opensfm/reconstruction.json" \
+       && -f "${proj_dir}/odm_orthophoto/odm_orthophoto.tif" \
+       && -f "${proj_dir}/odm_georeferencing/odm_georeferenced_model.laz" \
+       && ( "$needs_dsm" -eq 0 || -f "${proj_dir}/odm_dem/dsm.tif" ) ]]; then
+      if [[ ! -f "${proj_dir}/images.json" && -f "${proj_dir}/.raptor_images.json.bak" ]]; then
+        cp -f "${proj_dir}/.raptor_images.json.bak" "${proj_dir}/images.json"
+      fi
+      echo "♻  ODM (${label}): firma y artefactos íntegros — reusando ${proj_dir} (RAPTOR_FORCE_ODM=1 para forzar)" \
+        | tee -a "$logfile"
+      rm -f "outputs/logs/odm_${label}_substages.json"
+      touch "$reused_flag"
+      return 0
+    fi
+  fi
+
+  local prev_camseed="none"
+  if [[ -f "$seed_used_marker" ]]; then
+    prev_camseed="$(cat "$seed_used_marker" 2>/dev/null || echo none)"
+  elif [[ -d "${proj_dir}/opensfm" && "$current_camseed" != "none" ]]; then
+    prev_camseed="legacy_unseeded"
+  fi
+
+  if [[ -f "$ok_marker" || -f "$purgado_marker" || "$current_camseed" != "$prev_camseed" ]]; then
+    if [[ "$current_camseed" != "$prev_camseed" && -d "${proj_dir}/opensfm" ]]; then
+      echo "📷 Semilla intrínseca cambió (${prev_camseed:0:8} → ${current_camseed:0:8}) — limpiando proyecto previo en ${proj_dir}" | tee -a "$logfile"
+    fi
+    rm -rf "$ok_marker" "$purgado_marker" "$seed_used_marker" \
+           "${proj_dir}/.raptor_images.json.bak" \
+           "${proj_dir}/images.json" "${proj_dir}/img_list.txt" "${proj_dir}/cameras.json" \
+           "${proj_dir}/opensfm" "${proj_dir}/openmvs" \
+           "${proj_dir}/odm_filterpoints" "${proj_dir}/odm_meshing" \
+           "${proj_dir}/odm_texturing" "${proj_dir}/odm_texturing_25d" \
+           "${proj_dir}/odm_georeferencing" "${proj_dir}/odm_orthophoto" \
+           "${proj_dir}/odm_dem" "${proj_dir}/odm_report" \
+           "${proj_dir}/entwine_pointcloud"
+  fi
+  mkdir -p "$proj_dir"
+  printf '%s\n' "$current_camseed" > "$seed_used_marker"
+
+  local tracks="${proj_dir}/opensfm/tracks.csv"
+  local tracks_bak="${proj_dir}/opensfm/.tracks.csv.bak"
+  if [[ "$opt_disk" -eq 1 && -f "${proj_dir}/opensfm/reconstruction.json" ]]; then
+    # ODM 3.6.2 --optimize-disk-space (run_opensfm.py:38,46,251-265;
+    # opendm/osfm.py:483) borra tracks.csv tras opensfm/undistort (y matches/
+    # en --fast-orthophoto 1-pass). En reintentos densos restauramos desde
+    # .tracks.csv.bak; en fast-ortho o sin respaldo válido > 10 B limpiamos opensfm/.
+    local tracks_sz=0 bak_sz=0
+    [[ -f "$tracks" ]] && tracks_sz="$(wc -c < "$tracks" 2>/dev/null || echo 0)"
+    if [[ "$tracks_sz" -le 10 ]]; then
+      [[ -f "$tracks_bak" ]] && bak_sz="$(wc -c < "$tracks_bak" 2>/dev/null || echo 0)"
+      if [[ "$fast_ortho" -eq 0 && "$bak_sz" -gt 10 ]]; then
+        cp -f "$tracks_bak" "$tracks"
+      else
+        rm -rf "${proj_dir}/opensfm"
+      fi
+    fi
+    # Independiente de tracks.csv (Fase 2 usa --rerun-from openmvs y no
+    # re-ejecuta opensfm, así que tracks.csv puede seguir intacto mientras
+    # mvstex ya borró undistorted/images): invalidamos *_done.txt siempre que
+    # undistorted/ esté incompleto en modo denso (incluye primary_done.txt
+    # en multi_camera).
+    if [[ "$fast_ortho" -eq 0 && -d "${proj_dir}/opensfm" ]]; then
+      if [[ ! -s "${proj_dir}/opensfm/undistorted/tracks.csv" \
+         || ! -d "${proj_dir}/opensfm/undistorted/images" \
+         || -z "$(ls -A "${proj_dir}/opensfm/undistorted/images" 2>/dev/null || true)" ]]; then
+        rm -f "${proj_dir}/opensfm/undistorted/"*_done.txt
+      fi
+    fi
+  fi
+
+  local opt_flag=() cam_flag=()
+  [[ "$opt_disk" -eq 1 ]] && opt_flag=(--optimize-disk-space)
+  [[ "$current_camseed" != "none" ]] && cam_flag=(--cameras "$(pwd)/${seed_file}")
+
   set +e
   local status
   if [[ "$fast_ortho" -eq 1 ]]; then
-    _odm_invocar "$name" "$light_conc" "$logfile" "$label" "" "$@"
+    _odm_invocar "$name" "$light_conc" "$logfile" "$label" "" "$@" ${cam_flag[@]+"${cam_flag[@]}"} ${opt_flag[@]+"${opt_flag[@]}"}
     status=$?
+    if [[ $status -eq 0 && "$current_camseed" != "none" ]]; then
+      _verificar_semilla_camara "$proj_dir" "$seed_file" "$logfile"
+    fi
   else
-    _odm_invocar "$name" "$light_conc" "$logfile" "$label" "" "$@" --end-with opensfm
+    # Fase 1 (--end-with opensfm) SIN --optimize-disk-space: ODM 3.6.2
+    # (run_opensfm.py:44-52,251-265; opendm/osfm.py:483) conservaría o borraría
+    # features/, matches/, tracks.csv y undistorted/ necesarias para openmvs.
+    _odm_invocar "$name" "$light_conc" "$logfile" "$label" "" "$@" ${cam_flag[@]+"${cam_flag[@]}"} --end-with opensfm
     status=$?
     if [[ $status -eq 0 ]]; then
-      _odm_invocar "$name" "$heavy_conc" "$logfile" "$label" openmvs "$@" --rerun-from openmvs
+      if [[ "$current_camseed" != "none" ]]; then
+        _verificar_semilla_camara "$proj_dir" "$seed_file" "$logfile"
+      fi
+      if [[ "$opt_disk" -eq 1 && -s "$tracks" ]]; then
+        cp -f "$tracks" "$tracks_bak"
+      fi
+      # Fase 2 CON --optimize-disk-space: ODM 3.6.2 purga depthmaps/scene_dense
+      # (openmvs.py:240-251), undistorted/images (mvstex.py:178-186) y
+      # filtered_point_cloud tras odm_georeferenced_model.laz (odm_georeferencing.py:279).
+      _odm_invocar "$name" "$heavy_conc" "$logfile" "$label" openmvs "$@" ${cam_flag[@]+"${cam_flag[@]}"} --rerun-from openmvs ${opt_flag[@]+"${opt_flag[@]}"}
       status=$?
     fi
   fi
@@ -702,6 +920,14 @@ run_odm() {
     tail -150 "$logfile"
     exit $status
   fi
+  if [[ "$opt_disk" -eq 1 ]]; then
+    mkdir -p "$proj_dir"
+    printf '%s\n' "$(_firma_proyecto_odm "$proj_dir" "$@")" > "$ok_marker"
+    if [[ -f "${proj_dir}/images.json" ]]; then
+      cp -f "${proj_dir}/images.json" "${proj_dir}/.raptor_images.json.bak"
+    fi
+  fi
+  return 0
 }
 
 # ── Etapas: banderas + contador ────────────────────────────────────
@@ -990,6 +1216,43 @@ _odm_export() {
   return "$ok"
 }
 
+# Purga intermedios pesados que ODM no borra por sí solo una vez que COG y COPC
+# ya salieron a disco; conserva reconstruction.json, images.json, ortomosaico,
+# DSM y nube georreferenciada (.laz).
+_purgar_intermedios_odm() {
+  [[ "${RAPTOR_OPTIMIZE_DISK:-1}" == "1" ]] || return 0
+  local p="${1:-}"
+  [[ -n "$p" && -d "$p/opensfm" ]] || return 0
+  local freed_kb=0 purged_any=0 target kb
+  for target in \
+    "$p/opensfm/.tracks.csv.bak" \
+    "$p/opensfm/undistorted" \
+    "$p/opensfm/features" \
+    "$p/opensfm/matches" \
+    "$p/opensfm/reports" \
+    "$p/opensfm/tracks.csv" \
+    "$p/openmvs" \
+    "$p/odm_filterpoints" \
+    "$p/odm_meshing" \
+    "$p/odm_texturing" \
+    "$p/odm_texturing_25d"
+  do
+    if [[ -e "$target" ]]; then
+      purged_any=1
+      if [[ "${VERBOSE:-0}" == "1" ]]; then
+        kb="$(du -sk "$target" 2>/dev/null | awk 'NR==1{print $1}' || true)"
+        freed_kb=$((freed_kb + ${kb:-0}))
+      fi
+      rm -rf "$target"
+    fi
+  done
+  [[ "$purged_any" -eq 1 ]] && : > "$p/.raptor_purgado"
+  if [[ "$purged_any" -eq 1 && "${VERBOSE:-0}" == "1" ]]; then
+    local freed_mb=$(( (freed_kb + 512) / 1024 ))
+    echo "🧹 Purga disco ${p}: liberados ~${freed_mb} MB de intermedios ODM"
+  fi
+}
+
 ODM_ORDEN=()
 [[ "$RUN_RGB" -eq 1 ]] && ODM_ORDEN+=(rgb)
 [[ "$RUN_THERMAL" -eq 1 ]] && ODM_ORDEN+=(thermal)
@@ -1189,10 +1452,14 @@ if [[ "$SKIP_ODM" -eq 0 && "${#ODM_ORDEN[@]}" -gt 0 ]]; then
         exit 1
       fi
       _t1=$(date +%s)
-      echo "⏱  ODM ${_label} completo en $((_t1 - _t0))s"
-      _LABEL_MAY=$(printf '%s' "$_label" | tr a-z A-Z)
-      printf 'T_ODM_%s_START=%s\nT_ODM_%s_END=%s\n' "$_LABEL_MAY" "$_t0" "$_LABEL_MAY" "$_t1" \
-        > "outputs/logs/.timing_${_label}"
+      if [[ -f "outputs/logs/.reusado_${_label}" ]]; then
+        echo "♻  ODM ${_label} reusado en $((_t1 - _t0))s"
+      else
+        echo "⏱  ODM ${_label} completo en $((_t1 - _t0))s"
+        _LABEL_MAY=$(printf '%s' "$_label" | tr a-z A-Z)
+        printf 'T_ODM_%s_START=%s\nT_ODM_%s_END=%s\n' "$_LABEL_MAY" "$_t0" "$_LABEL_MAY" "$_t1" \
+          > "outputs/logs/.timing_${_label}"
+      fi
 
       # Se libera EXPLÍCITAMENTE acá (no solo en el trap de salida): el
       # siguiente sensor en cola tiene que poder entrar a reconstruir
@@ -1213,6 +1480,7 @@ if [[ "$SKIP_ODM" -eq 0 && "${#ODM_ORDEN[@]}" -gt 0 ]]; then
       # termina — no se espera a los otros sensores ni al análisis cruzado.
       publish_partial
       _odm_export "$_label"
+      _purgar_intermedios_odm "processing/$(_odm_proyecto "$_label")"
     ) &
   done
 
@@ -1385,7 +1653,7 @@ for _label in "${ODM_ORDEN[@]}"; do
   _f="outputs/logs/.timing_${_label}"
   [[ -f "$_f" ]] && source "$_f"
 done
-rm -f outputs/logs/.timing_* outputs/logs/.sensor_estado_* "${FALLOFLAG:-outputs/logs/.odm_fallo}"
+rm -f outputs/logs/.timing_* outputs/logs/.reusado_* outputs/logs/.sensor_estado_* "${FALLOFLAG:-outputs/logs/.odm_fallo}"
 
 if [[ "$PIPELINE_HAD_FAILURE" -eq 1 ]]; then
   echo ""

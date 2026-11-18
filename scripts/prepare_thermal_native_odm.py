@@ -29,7 +29,11 @@ Uso:
   python3 scripts/prepare_thermal_native_odm.py
 """
 
-import os, sys, glob, json, subprocess
+import glob
+import os
+import subprocess
+import sys
+
 import numpy as np
 from osgeo import gdal
 
@@ -42,6 +46,13 @@ IMAGES_DIR = os.path.join(OUTPUT_DIR, "images")
 GEO_TXT = os.path.join(OUTPUT_DIR, "geo.txt")
 _BASE = os.path.dirname(os.path.abspath(__file__))
 EXIFTOOL_CONFIG = os.path.join(_BASE, "camera_ns.exiftool.config")
+
+sys.path.insert(0, _BASE)
+from hardware import safe_concurrency  # noqa: E402
+from odm_staging import escribir_geo_txt  # noqa: E402
+
+_override = os.environ.get("MAX_CONCURRENCY")
+NPROCS = safe_concurrency(2, override=int(_override) if _override else None)
 
 
 def _source_dir():
@@ -153,70 +164,11 @@ def main():
         print(f"❌ ERROR etiquetando EXIF/XMP: {result.stderr[:500]}")
         sys.exit(1)
 
-    # ── 3. geo.txt desde el GPS ya embebido ────────────────────────────────
-    # Columnas 8-9 (horizontal_accuracy, vertical_accuracy, opcionales en el
-    # formato de ODM - ver opendm/geo.py): sin esto, ODM (opendm/photo.py
-    # update_with_geo_entry) pisa con None la precision RTK que el mismo ODM
-    # sabe auto-detectar del EXIF cuando NO hay geo.txt, forzando un DOP
-    # generico (~metros) en el bundle adjustment en vez de confiar en la
-    # precision RTK real (~1-3cm) del propio termico.
+    # ── 3. geo.txt desde el GPS/XMP ya embebido (odm_staging compartido) ──
     print("  Generando geo.txt …")
-    r = subprocess.run(
-        [
-            "exiftool",
-            "-j",
-            "-n",
-            "-GPSLatitude",
-            "-GPSLongitude",
-            "-GPSAltitude",
-            "-GimbalYawDegree",
-            "-GimbalPitchDegree",
-            "-GimbalRollDegree",
-            "-RtkStdLon",
-            "-RtkStdLat",
-            "-RtkStdHgt",
-            "-@",
-            "-",
-        ],
-        input="\n".join(dst_files),
-        capture_output=True,
-        text=True,
-        timeout=180,
-    )
-    data = json.loads(r.stdout)
-    lines = ["EPSG:4326"]
-    missing = 0
-    n_rtk = 0
-    for d in data:
-        # Nombre desde SourceFile, no por posición: emparejar la fila i de la
-        # salida con el archivo i de la entrada asume orden y conteo exactos, y
-        # si fallan, geo.txt queda con coordenadas del archivo equivocado — una
-        # reconstrucción mal georreferenciada, sin ningún error visible.
-        fname = os.path.basename(d.get("SourceFile", ""))
-        if not fname:
-            missing += 1
-            continue
-        lat, lon = d.get("GPSLatitude"), d.get("GPSLongitude")
-        if lat is None or lon is None:
-            missing += 1
-            continue
-        alt = d.get("GPSAltitude", 0)
-        yaw, pitch, roll = d.get("GimbalYawDegree", 0), d.get("GimbalPitchDegree", 0), d.get("GimbalRollDegree", 0)
-        std_lon, std_lat, std_hgt = d.get("RtkStdLon"), d.get("RtkStdLat"), d.get("RtkStdHgt")
-        if std_lon is not None and std_lat is not None:
-            h_acc = max(std_lon, std_lat) * 2.0  # mismo margen de seguridad x2 que ODM aplica internamente
-            v_acc = (std_hgt if std_hgt is not None else std_lon) * 2.0
-            n_rtk += 1
-        else:
-            h_acc, v_acc = 3.0, 5.0  # fallback conservador si esta captura puntual no tiene fix RTK
-        lines.append(f"{fname}\t{lon}\t{lat}\t{alt}\t{yaw}\t{pitch}\t{roll}\t{h_acc:.5f}\t{v_acc:.5f}")
-    if missing:
-        print(f"  ⚠ {missing} imágenes sin GPS (omitidas de geo.txt)")
-    print(f"  precision RTK disponible: {n_rtk}/{len(dst_files) - missing} imágenes")
-    with open(GEO_TXT, "w") as f:
-        f.write("\n".join(lines) + "\n")
+    con_gps, _missing = escribir_geo_txt(dst_files, GEO_TXT, NPROCS, etiqueta="imágenes térmicas")
 
-    print(f"\n✅ {len(lines) - 1}/{len(dst_files)} imágenes con GPS")
+    print(f"\n✅ {con_gps}/{len(dst_files)} imágenes con GPS")
     print(f"   Directorio ODM: {OUTPUT_DIR}/")
     print(f"   geo.txt: {GEO_TXT}")
     print("\nSiguiente paso: ODM térmico nativo (invocado por docker/entrypoint.sh)")

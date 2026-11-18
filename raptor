@@ -319,9 +319,22 @@ EOF
 
 cmd_build() {
   asegurar_docker
-  local zenith_host="${ZENITH_BIN:-$(dirname "$AQUI")/zenith/target/release/zenith}"
+  local zenith_musl="$(dirname "$AQUI")/zenith/target/x86_64-unknown-linux-musl/release/zenith"
+  local zenith_gnu="$(dirname "$AQUI")/zenith/target/release/zenith"
+  local zenith_host="${ZENITH_BIN:-}"
+  if [[ -z "$zenith_host" ]]; then
+    if [[ -f "$zenith_musl" ]]; then
+      zenith_host="$zenith_musl"
+      if [[ -f "$zenith_gnu" && "$zenith_gnu" -nt "$zenith_musl" ]]; then
+        echo "⚠  Aviso: $zenith_gnu es más reciente que el binario estático musl ($zenith_musl); recompilá con --target x86_64-unknown-linux-musl si cambiaste zenith." >&2
+      fi
+    else
+      zenith_host="$zenith_gnu"
+    fi
+  fi
   trap 'rm -f "$AQUI/.zenith-bin"' EXIT
   if [[ -f "$zenith_host" ]]; then
+    echo "📦 Empaquetando zenith: $zenith_host"
     cp -f "$zenith_host" "$AQUI/.zenith-bin"
   fi
   echo "🔨 Construyendo ${IMAGE}…"
@@ -386,6 +399,9 @@ cmd_run() {
 
   local args=(--rm --init -e "MODE=$mode" -e "SKIP_ODM=$reuse" -e "VERBOSE=$verbose" -e "PRESET=$preset" -e "TERRENO=$terreno" -e "SUB_SAMPLE=$subsample")
   [[ -n "$concurrency" ]] && args+=(-e "MAX_CONCURRENCY=$concurrency")
+  [[ -n "${RAPTOR_OPTIMIZE_DISK:-}" ]] && args+=(-e "RAPTOR_OPTIMIZE_DISK=${RAPTOR_OPTIMIZE_DISK}")
+  [[ -n "${RAPTOR_FORCE_ODM:-}" ]] && args+=(-e "RAPTOR_FORCE_ODM=${RAPTOR_FORCE_ODM}")
+  [[ -n "${RAPTOR_CAMERA_SEED:-}" ]] && args+=(-e "RAPTOR_CAMERA_SEED=${RAPTOR_CAMERA_SEED}")
 
   if [[ -n "$input" ]]; then
     input="$(abs "$input")"
@@ -496,6 +512,9 @@ EOF
   asegurar_docker
   runs="$(abs "$runs")"; mkdir -p "$runs"
   local args=(-p "${port}:${port}" -v "$runs:$C_RUNS" -e "PORT=$port")
+  [[ -n "${RAPTOR_OPTIMIZE_DISK:-}" ]] && args+=(-e "RAPTOR_OPTIMIZE_DISK=${RAPTOR_OPTIMIZE_DISK}")
+  [[ -n "${RAPTOR_FORCE_ODM:-}" ]] && args+=(-e "RAPTOR_FORCE_ODM=${RAPTOR_FORCE_ODM}")
+  [[ -n "${RAPTOR_CAMERA_SEED:-}" ]] && args+=(-e "RAPTOR_CAMERA_SEED=${RAPTOR_CAMERA_SEED}")
   if [[ -n "$export_dir" ]]; then
     export_dir="$(abs "$export_dir")"
     mkdir -p "$export_dir" 2>/dev/null || morir "no se pudo crear la carpeta de entrega: $export_dir"

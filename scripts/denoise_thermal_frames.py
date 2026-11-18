@@ -55,6 +55,7 @@ def main():
     # (no solo os.path.exists) para no confiar en un archivo truncado por una
     # corrida cortada a mitad de escritura.
     files = []
+    existing_files = []
     ya = 0
     for f in all_files:
         out_f = os.path.join(THERMAL_DENOISE_DIR, os.path.basename(f))
@@ -63,6 +64,7 @@ def main():
             if ds is not None:
                 ds = None
                 ya += 1
+                existing_files.append(out_f)
                 continue
             os.remove(out_f)  # corrupto: se regenera
         files.append(f)
@@ -103,32 +105,47 @@ def main():
             print(f"  {i + 1}/{len(files)} ({time.time() - t0:.0f}s)")
     print(f"✅ {len(files)} frames procesados en {time.time() - t0:.0f}s")
 
-    # GDAL no copia EXIF/GPS al crear el raster desde cero — se copia acá
-    # desde la fuente (mismo patrón que convert_thermal_tiff.py), para que
-    # prepare_thermal_native_odm.py pueda usar esta carpeta directamente
-    # sin perder el geotag.
-    if out_files:
+    # GDAL no copia EXIF/GPS/XMP al crear el raster desde cero — se copia acá
+    # desde la fuente (mismo patrón que convert_thermal_tiff.py), preservando
+    # `-xmp-drone-dji:all` en formato atributo para conservar RtkFlag y RtkStd*.
+    stamp_path = os.path.join(THERMAL_DENOISE_DIR, ".rtk_xmp_v2")
+    targets = list(out_files)
+    if existing_files and not os.path.isfile(stamp_path):
+        targets.extend(existing_files)
+
+    if targets:
         src_pattern = os.path.join(THERMAL_DIR, "%f.tif")
         result = subprocess.run(
             [
                 "exiftool",
+                "-api",
+                "Compact=Shorthand",
                 "-overwrite_original",
                 "-tagsfromfile",
                 src_pattern,
                 "-gps:all",
+                "-xmp-drone-dji:all",
                 "-GimbalYawDegree",
                 "-GimbalPitchDegree",
                 "-GimbalRollDegree",
                 "-FlightYawDegree",
                 "-FlightPitchDegree",
                 "-FlightRollDegree",
-            ]
-            + out_files,
+                "-@",
+                "-",
+            ],
+            input="\n".join(targets),
             capture_output=True,
             text=True,
         )
         if result.returncode != 0:
             print(f"  ⚠ No se pudo copiar GPS/gimbal a los frames denoised: {result.stderr[:300]}")
+        else:
+            with open(stamp_path, "w", encoding="utf-8") as fh:
+                fh.write("v2\n")
+    elif existing_files and not os.path.isfile(stamp_path):
+        with open(stamp_path, "w", encoding="utf-8") as fh:
+            fh.write("v2\n")
 
 
 if __name__ == "__main__":

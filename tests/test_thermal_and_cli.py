@@ -130,3 +130,66 @@ class TestCLI:
     def test_comando_desconocido_falla(self):
         r = self._run("inventado")
         assert r.returncode == 2 and "desconocido" in r.stderr
+
+    def test_build_prefiere_zenith_musl_y_respeta_override(self, tmp_path):
+        """cmd_build debe preferir target musl estático y respetar ZENITH_BIN."""
+        raptor_dir = tmp_path / "raptor"
+        raptor_dir.mkdir()
+        tmp_raptor = raptor_dir / "raptor"
+        tmp_raptor.write_text(open(RAPTOR, encoding="utf-8").read(), encoding="utf-8")
+        os.chmod(tmp_raptor, 0o755)
+
+        fake_bin = tmp_path / "bin"
+        fake_bin.mkdir()
+        fake_docker = fake_bin / "docker"
+        fake_docker.write_text(
+            "#!/usr/bin/env bash\n"
+            'if [[ "${1:-}" == "info" ]]; then exit 0; fi\n'
+            'if [[ "${1:-}" == "build" ]]; then\n'
+            '  ctx="${4:-}"\n'
+            '  [[ -f "$ctx/.zenith-bin" ]] && cp "$ctx/.zenith-bin" "$CAPTURED_ZENITH"\n'
+            "  exit 0\n"
+            "fi\n"
+            "exit 1\n",
+            encoding="utf-8",
+        )
+        os.chmod(fake_docker, 0o755)
+
+        captured = tmp_path / "captured_zenith"
+        base_env = {k: v for k, v in os.environ.items() if k != "ZENITH_BIN"}
+        base_env["PATH"] = f"{fake_bin}:{os.environ['PATH']}"
+        base_env["RAPTOR_SG_REEXEC"] = "1"
+        base_env["CAPTURED_ZENITH"] = str(captured)
+
+        gnu_bin = tmp_path / "zenith" / "target" / "release" / "zenith"
+        gnu_bin.parent.mkdir(parents=True)
+        gnu_bin.write_bytes(b"GNU_ONLY")
+
+        # (a) Solo existe binario glibc -> empaqueta glibc.
+        r_gnu = subprocess.run(
+            ["bash", str(tmp_raptor), "build"], env=base_env, capture_output=True, text=True, timeout=30
+        )
+        assert r_gnu.returncode == 0, r_gnu.stderr
+        assert captured.read_bytes() == b"GNU_ONLY"
+
+        # (b) Coexisten musl y glibc -> prefiere musl estático.
+        musl_bin = tmp_path / "zenith" / "target" / "x86_64-unknown-linux-musl" / "release" / "zenith"
+        musl_bin.parent.mkdir(parents=True)
+        musl_bin.write_bytes(b"STATIC_MUSL")
+        captured.unlink()
+        r_musl = subprocess.run(
+            ["bash", str(tmp_raptor), "build"], env=base_env, capture_output=True, text=True, timeout=30
+        )
+        assert r_musl.returncode == 0, r_musl.stderr
+        assert captured.read_bytes() == b"STATIC_MUSL"
+
+        # (c) ZENITH_BIN explícito tiene prioridad incluso si existe musl.
+        custom = tmp_path / "custom_zenith"
+        custom.write_bytes(b"EXPLICIT_OVERRIDE")
+        captured.unlink()
+        override_env = dict(base_env, ZENITH_BIN=str(custom))
+        r_ovr = subprocess.run(
+            ["bash", str(tmp_raptor), "build"], env=override_env, capture_output=True, text=True, timeout=30
+        )
+        assert r_ovr.returncode == 0, r_ovr.stderr
+        assert captured.read_bytes() == b"EXPLICIT_OVERRIDE"

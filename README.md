@@ -552,6 +552,10 @@ Useful environment variables (`-e VAR=value`):
 | `EXPORT_RASTER_FORMAT` | `cog` | `cog` \| `gtiff` |
 | `EXPORT_VECTOR_FORMAT` | `geojson` | `geojson` \| `gpkg` \| `shp` \| `kml` |
 | `EXPORT_EPSG` | `source` | Output EPSG, or `source` to skip reprojecting |
+| `EXPORT_VERTICAL_DATUM` | `ellipsoidal` | `ellipsoidal` \| `egm96` (EGM96 shifts Z/DSM to orthometric when geo-referenced) |
+| `RAPTOR_OPTIMIZE_DISK` | `1` | `1` = pass `--optimize-disk-space` (Phase 2 / `--fast-orthophoto`) + purge intermediates after export (`prepare_dband_odm.py` stages MakerNote-stripped copies via `cp --reflink=auto`, zero-cost CoW on btrfs/XFS or full copy on ext4); `0` = keep all ODM intermediates (rebuilds cleanly if prior run was purged) |
+| `RAPTOR_FORCE_ODM` | `0` | `1` = ignore `.raptor_odm_ok` reuse signature and force ODM rebuild |
+| `RAPTOR_CAMERA_SEED` | `1` | `1` = seed OpenSfM Brown-Conrady intrinsics via `--cameras` from DJI M3T factory parameters (from Terra AT calibration across two M3T units) or XMP `DewarpData` (`DewarpFlag=0`), preventing nadir focal-depth drift under OpenSfM's default focal prior while keeping fine auto-calibration enabled (existing `.raptor_odm_ok` caches without `camseed` rebuild once when enabled); `0` = disable |
 
 ### Delivering the products
 
@@ -906,6 +910,14 @@ docker run --rm -p 8080:8080 -v $PWD/geovisor/tiles:/app/geovisor/tiles \
   correction isn't supported yet (it requires a base station file, not
   included); the RTK GPS already embedded in the EXIF is used instead,
   same as RGB/thermal.
+
+---
+
+## Future Development
+
+- **Ground Control Points (GCPs):** Ingest surveyed ground targets (`gcp_list.txt`) alongside direct camera RTK/MRK poses during 3D bundle adjustment.
+- **Raw RINEX PPK Post-Processing:** Run kinematic base/rover post-processing directly from `.obs`/`.nav` RINEX logs when flights lack real-time `RtkFlag=50` EXIF/XMP or pre-solved `Q=50` `*Timestamp.MRK` camera solutions.
+- **Covariance-Weighted 2.5D Adjustment (`Zenith`):** Propagate per-frame RTK/PPK accuracy weights into Level 1 `Zenith` 2.5D pose refinement (currently applied in the Level 2 3D OpenDroneMap bundle adjustment).
 
 ---
 

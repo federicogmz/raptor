@@ -21,6 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(dirname "$SCRIPT_DIR")"
 DATA_DIR="$REPO_DIR/data/multiespectral_mosaico"
 DATA_DIR_D="$REPO_DIR/data/dband_mosaico"
+SOURCE_FILTER="$REPO_DIR/scripts/source_filter.py"
 # Confirmado en vivo como cuello de botella real: un vuelo M3M mediano son
 # miles de TIF (2340 en la corrida donde se encontró esto), copiados uno por
 # uno con `cp` secuencial — ~1 seg/archivo, con el resto de la máquina
@@ -55,9 +56,16 @@ mkdir -p "$DATA_DIR" "$DATA_DIR_D"
 # hace falta (SRC puede ser un symlink de import_local(), y find sin -L
 # no lo sigue cuando es el argumento de partida sin "/" al final).
 echo "Buscando bandas MS (*_MS_G.TIF, *_MS_R.TIF, *_MS_RE.TIF, *_MS_NIR.TIF) ..."
-MS_FILES=$(find -L "$SRC" -type f \( -iname "*_MS_G.TIF" -o -iname "*_MS_R.TIF" \
-  -o -iname "*_MS_RE.TIF" -o -iname "*_MS_NIR.TIF" \) 2>/dev/null || true)
-MS_COUNT=$(echo "$MS_FILES" | grep -c "TIF" || true)
+if [[ -f "$SOURCE_FILTER" ]] && SF_MS=$(python3 "$SOURCE_FILTER" "$SRC" ms 2>/dev/null); then
+  MS_FILES="$SF_MS"
+  MS_COUNT=$(printf '%s\n' "$MS_FILES" | grep -c . || true)
+else
+  [[ -f "$SOURCE_FILTER" ]] && echo "  ⚠ Falló source_filter.py — usando find de respaldo sin poda" \
+    || echo "  ⚠ source_filter.py no disponible — usando find sin poda de subcarpetas"
+  MS_FILES=$(find -L "$SRC" -type f \( -iname "*_MS_G.TIF" -o -iname "*_MS_R.TIF" \
+    -o -iname "*_MS_RE.TIF" -o -iname "*_MS_NIR.TIF" \) 2>/dev/null || true)
+  MS_COUNT=$(echo "$MS_FILES" | grep -c "TIF" || true)
+fi
 
 if [[ "$MS_COUNT" -eq 0 ]]; then
   echo "  ⚠ No se encontraron bandas multiespectrales."
@@ -93,8 +101,13 @@ fi
 echo ""
 echo "Buscando banda D (*_D.JPG, cámara RGB del M3M) ..."
 mkdir -p "$DATA_DIR_D"
-D_FILES=$(find -L "$SRC" -type f -iname "*_D.JPG" 2>/dev/null || true)
-D_COUNT=$(echo "$D_FILES" | grep -c "JPG" || true)
+if [[ -f "$SOURCE_FILTER" ]] && SF_D=$(python3 "$SOURCE_FILTER" "$SRC" dband 2>/dev/null); then
+  D_FILES="$SF_D"
+  D_COUNT=$(printf '%s\n' "$D_FILES" | grep -c . || true)
+else
+  D_FILES=$(find -L "$SRC" -type f -iname "*_D.JPG" 2>/dev/null || true)
+  D_COUNT=$(echo "$D_FILES" | grep -c "JPG" || true)
+fi
 if [[ "$D_COUNT" -eq 0 ]]; then
   echo "  (sin banda D en esta carpeta — opcional, no es un error)"
 else
@@ -111,6 +124,28 @@ else
     printf '%s\n' "$D_TO_COPY" | xargs -r -d '\n' -P "$NPROCS" -I{} cp --reflink=auto -- "{}" "$DATA_DIR_D/"
   fi
   echo "  ✅ $D_COPIED copiadas a data/dband_mosaico/"
+fi
+
+# ── Logs DJI RTK/PPK (*Timestamp.MRK) en carpeta aislada (banda D) ──
+rm -rf "$REPO_DIR/data/mrk/dband"
+if [[ -f "$SOURCE_FILTER" ]]; then
+  MRK_D_FILES=$(python3 "$SOURCE_FILTER" "$SRC" mrk 2>/dev/null || true)
+  MRK_D_COUNT=$(printf '%s\n' "$MRK_D_FILES" | grep -c . || true)
+  if [[ "$MRK_D_COUNT" -gt 0 ]]; then
+    mkdir -p "$REPO_DIR/data/mrk/dband"
+    mrk_idx=0
+    while IFS= read -r f; do
+      [[ -z "$f" ]] && continue
+      base="$(basename "$f")"
+      dst="$REPO_DIR/data/mrk/dband/$base"
+      while [[ -e "$dst" ]]; do
+        mrk_idx=$((mrk_idx + 1))
+        dst="$REPO_DIR/data/mrk/dband/${mrk_idx}_$base"
+      done
+      cp --reflink=auto -- "$f" "$dst"
+    done <<< "$MRK_D_FILES"
+    echo "  🛰️  $MRK_D_COUNT archivo(s) Timestamp.MRK copiado(s) a data/mrk/dband/"
+  fi
 fi
 
 echo ""
